@@ -83,7 +83,9 @@ export function ReportsPage() {
       })
       result.sort((a, b) => a.name.localeCompare(b.name))
       setReports(result)
-    } catch {} finally { setLoading(false) }
+    } catch (e) {
+      console.error('loadReports failed', e)
+    } finally { setLoading(false) }
   }
 
   const filtered = selectedCourseId === '__all__' ? reports : reports.filter((r) => r.courseIds.includes(selectedCourseId))

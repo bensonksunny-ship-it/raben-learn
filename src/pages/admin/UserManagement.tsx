@@ -6,6 +6,7 @@ import {
 import { db } from '../../firebase/config'
 import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/callables'
 import { normalizeRoles } from '../../lib/roles'
+import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import type { Course, Role, UserProfile } from '../../types'
 
 const PAGE_SIZE = 20
@@ -38,6 +39,8 @@ export function UserManagement() {
   const [email, setEmail] = useState('')
   const [createRoles, setCreateRoles] = useState<Role[]>(['student'])
   const [createCourseIds, setCreateCourseIds] = useState<string[]>([])
+  const [createTempPassword, setCreateTempPassword] = useState('')
+  const [creatingUser, setCreatingUser] = useState(false)
   const [createdPw, setCreatedPw] = useState('')
 
   const [editId, setEditId] = useState<string | null>(null)
@@ -91,16 +94,28 @@ export function UserManagement() {
   async function onCreate(e: FormEvent) {
     e.preventDefault(); setError(''); setCreatedPw('')
     if (createRoles.length === 0) { setError('Select at least one role.'); return }
+    const pw = createTempPassword.trim()
+    if (pw.length > 0 && pw.length < 8) {
+      setError('If you set a password, it must be at least 8 characters (or leave the field empty).')
+      return
+    }
+    setCreatingUser(true)
     try {
       const res = await callCreateUser({
         name, email, roles: createRoles,
         centreIds: [], centreId: null,
         courseId: createCourseIds[0] ?? null,
+        temporaryPassword: pw ? pw : null,
       })
       setCreatedPw(res.temporaryPassword)
-      setName(''); setEmail(''); setCreateCourseIds([])
+      setName(''); setEmail(''); setCreateCourseIds([]); setCreateTempPassword('')
       await fetchPage(null, 0)
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Create failed') }
+    } catch (err: unknown) {
+      console.error('Create user failed', err)
+      setError(formatFirebaseError(err, 'Create failed'))
+    } finally {
+      setCreatingUser(false)
+    }
   }
 
   function startEdit(u: UserProfile) {
@@ -119,21 +134,21 @@ export function UserManagement() {
         courseId: editCourseIds[0] ?? null,
       })
       setEditId(null); await fetchPage(null, 0)
-    } catch (err: unknown) { setError(err instanceof Error ? err.message : 'Update failed') }
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Update failed')) }
   }
 
   async function toggleDisable(u: UserProfile) {
     const next = u.status === 'active'
     if (!window.confirm(next ? 'Disable this user?' : 'Re-enable this user?')) return
     try { await callDisableUser(u.id, next); await fetchPage(null, 0) }
-    catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed') }
+    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
   async function resetPassword(u: UserProfile) {
     if (!window.confirm(`Reset password for ${u.email}?`)) return
     setCreatedPw('')
     try { const res = await callResetPassword(u.id); setCreatedPw(res.temporaryPassword) }
-    catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed') }
+    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
   function CourseSelector({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
@@ -162,6 +177,19 @@ export function UserManagement() {
         <form className="form grid" onSubmit={onCreate}>
           <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
           <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+          <div className="full syllabus-mini-form" style={{ margin: 0 }}>
+            <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>Initial password (optional)</div>
+            <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
+              Leave empty to auto-generate a temporary password. If you set one, use at least 8 characters.
+            </p>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={createTempPassword}
+              onChange={(e) => setCreateTempPassword(e.target.value)}
+              placeholder="Leave blank to auto-generate"
+            />
+          </div>
           <div className="full">
             <span className="muted small">Roles</span>
             <div className="row">{ROLE_OPTIONS.map((r) => (
@@ -174,7 +202,9 @@ export function UserManagement() {
               <CourseSelector selected={createCourseIds} onChange={setCreateCourseIds} />
             </div>
           )}
-          <button type="submit" className="btn primary" disabled={loadingPage}>Create User</button>
+          <button type="submit" className="btn primary" disabled={creatingUser}>
+            {creatingUser ? 'Creating…' : 'Create User'}
+          </button>
         </form>
       </section>
 

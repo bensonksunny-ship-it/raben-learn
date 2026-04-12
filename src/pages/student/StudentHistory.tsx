@@ -24,7 +24,9 @@ export function StudentHistory() {
       })
       list.sort((a, b) => b.completedAt.localeCompare(a.completedAt))
       setRecords(list)
-    } catch {} finally { setLoading(false) }
+    } catch (e) {
+      console.error('StudentHistory load failed', e)
+    } finally { setLoading(false) }
   }
 
   return (

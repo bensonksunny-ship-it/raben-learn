@@ -9,11 +9,13 @@ function newActivityOfType(type: LessonItemType): Activity { return { id: crypto
 function activityTypeLabel(t: LessonItemType | string) {
   if (t === 'concept') return 'Concept'
   if (t === 'exercise') return 'Exercise'
+  if (t === 'custom') return 'Custom'
   return 'Implementation'
 }
 function activityTypeColor(t: LessonItemType | string) {
   if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af' }
   if (t === 'exercise') return { bg: '#dcfce7', text: '#166534' }
+  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151' }
   return { bg: '#fce7f3', text: '#9d174d' }
 }
 
@@ -182,12 +184,6 @@ export function SyllabusPage() {
     const cleaned = nextTitle.trim()
     if (!cleaned) return
     await updateActivityInline(session, a.id, { title: cleaned })
-  }
-
-  async function quickEditActivityRemark(session: Session, a: Activity) {
-    const nextRemark = window.prompt('Edit remark (optional)', a.remark ?? '')
-    if (nextRemark == null) return
-    await updateActivityInline(session, a.id, { remark: nextRemark.trim() })
   }
 
   function parseActivityType(raw: string): LessonItemType {

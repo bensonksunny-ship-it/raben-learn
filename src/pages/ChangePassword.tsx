@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext'
 
 export function ChangePassword() {
   const { firebaseUser, profile, loading, changePasswordAndClearFirstLogin } = useAuth()
+  const [currentPw, setCurrentPw] = useState('')
   const [pw1, setPw1] = useState('')
   const [pw2, setPw2] = useState('')
   const [error, setError] = useState('')
@@ -19,6 +20,10 @@ export function ChangePassword() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError('')
+    if (currentPw.length < 1) {
+      setError('Enter your current (temporary) password.')
+      return
+    }
     if (pw1.length < 8) {
       setError('Password must be at least 8 characters.')
       return
@@ -28,7 +33,7 @@ export function ChangePassword() {
       return
     }
     try {
-      await changePasswordAndClearFirstLogin(pw1)
+      await changePasswordAndClearFirstLogin(currentPw, pw1)
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Could not update password')
     }
@@ -39,6 +44,16 @@ export function ChangePassword() {
       <h1>Set a new password</h1>
       <p className="muted">For security, replace your temporary password before continuing.</p>
       <form className="form" onSubmit={onSubmit}>
+        <label>
+          Current (temporary) password
+          <input
+            type="password"
+            autoComplete="current-password"
+            value={currentPw}
+            onChange={(e) => setCurrentPw(e.target.value)}
+            required
+          />
+        </label>
         <label>
           New password
           <input

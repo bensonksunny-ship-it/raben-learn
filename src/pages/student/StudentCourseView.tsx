@@ -10,11 +10,13 @@ const MAX_ATTEMPTS = 5
 function itemTypeLabel(t: string) {
   if (t === 'concept') return 'Concept'
   if (t === 'exercise') return 'Exercise'
+  if (t === 'custom') return 'Custom'
   return 'Implementation'
 }
 function itemTypeColors(t: string) {
   if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af', border: '#bfdbfe' }
   if (t === 'exercise') return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
+  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb' }
   return { bg: '#fce7f3', text: '#9d174d', border: '#fbcfe8' }
 }
 function statusLabel(s: ItemStatus) {

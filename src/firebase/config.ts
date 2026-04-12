@@ -15,4 +15,7 @@ const firebaseConfig = {
 export const app = initializeApp(firebaseConfig)
 export const auth = getAuth(app)
 export const db = getFirestore(app)
-export const functions = getFunctions(app)
+
+// Callable functions must use the same region as your deployed Cloud Functions (v2 defaults to us-central1).
+const FUNCTIONS_REGION = (import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION as string | undefined)?.trim() || 'us-central1'
+export const functions = getFunctions(app, FUNCTIONS_REGION)

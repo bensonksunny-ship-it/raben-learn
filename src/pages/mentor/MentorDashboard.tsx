@@ -66,7 +66,9 @@ export function MentorDashboard() {
       })
       list.sort((a, b) => b.reviewCount - a.reviewCount || a.name.localeCompare(b.name))
       setStudents(list)
-    } catch {} finally { setLoading(false) }
+    } catch (e) {
+      console.error('MentorDashboard load failed', e)
+    } finally { setLoading(false) }
   }
 
   const filtered = filterCourseId === '__all__' ? students : students.filter((s) => s.courseIds.includes(filterCourseId))

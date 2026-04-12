@@ -14,7 +14,22 @@ function itemTypeLabel(t: LessonItemType | string) { return t === 'concept' ? 'C
 function itemTypeColors(t: LessonItemType | string) {
   if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af' }
   if (t === 'exercise') return { bg: '#dcfce7', text: '#166534' }
+  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151' }
   return { bg: '#fce7f3', text: '#9d174d' }
+}
+
+function timeStrToMinutes(s: string): number | null {
+  const m = /^(\d{2}):(\d{2})$/.exec(s.trim())
+  if (!m) return null
+  const hh = Number(m[1]); const mm = Number(m[2])
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
+  return hh * 60 + mm
+}
+function minutesToTimeStr(min: number): string {
+  const m = ((min % (24 * 60)) + (24 * 60)) % (24 * 60)
+  const hh = Math.floor(m / 60)
+  const mm = m % 60
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
 interface SuggestedItem {
@@ -26,7 +41,7 @@ interface SuggestedItem {
 }
 
 export function StudentDailyPlanner() {
-  const { firebaseUser } = useAuth()
+  const { firebaseUser, profile } = useAuth()
   const uid = firebaseUser?.uid
   const [date, setDate] = useState(todayStr())
   const [plan, setPlan] = useState<DailyPlan | null>(null)
@@ -34,7 +49,7 @@ export function StudentDailyPlanner() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showAddModal, setShowAddModal] = useState(false)
-  const [addTab, setAddTab] = useState<'suggest' | 'browse'>('suggest')
+  const [addTab, setAddTab] = useState<'suggest' | 'browse' | 'custom'>('suggest')
   const [suggestions, setSuggestions] = useState<SuggestedItem[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [sessions, setSessions] = useState<Session[]>([])
@@ -42,8 +57,13 @@ export function StudentDailyPlanner() {
   const [selSessionId, setSelSessionId] = useState('')
   const [selActivityId, setSelActivityId] = useState('')
   const [plannedMin, setPlannedMin] = useState(30)
+  const [customTitle, setCustomTitle] = useState('')
+  const [customCourseId, setCustomCourseId] = useState('')
+  const [customMinutes, setCustomMinutes] = useState(30)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showStartTimeModal, setShowStartTimeModal] = useState(false)
+  const [startTimeInput, setStartTimeInput] = useState('09:00')
 
   useEffect(() => { if (uid) void loadPlan() }, [uid, date])
 
@@ -65,19 +85,43 @@ export function StudentDailyPlanner() {
     if (!uid) return; setLoading(true)
     try {
       const snap = await getDoc(doc(db, 'student_daily_plans', `${uid}_${date}`))
-      if (snap.exists()) { const d = snap.data(); setPlan({ id: snap.id, studentId: d.studentId as string, date: d.date as string, items: (d.items as DailyPlanItem[]) ?? [] }) }
-      else setPlan({ id: `${uid}_${date}`, studentId: uid, date, items: [] })
+      if (snap.exists()) {
+        const d = snap.data()
+        const loaded: DailyPlan = {
+          id: snap.id,
+          studentId: d.studentId as string,
+          date: d.date as string,
+          startTime: (d.startTime as string) ?? null,
+          items: (d.items as DailyPlanItem[]) ?? [],
+        }
+        setPlan(loaded)
+        if (!loaded.startTime) {
+          setStartTimeInput('09:00')
+          setShowStartTimeModal(true)
+        }
+      } else {
+        const fresh: DailyPlan = { id: `${uid}_${date}`, studentId: uid, date, startTime: null, items: [] }
+        setPlan(fresh)
+        setStartTimeInput('09:00')
+        setShowStartTimeModal(true)
+      }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setLoading(false) }
   }
 
-  async function savePlan(items: DailyPlanItem[]) {
+  async function savePlan(items: DailyPlanItem[], nextStartTime?: string | null) {
     if (!uid) return
-    await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, items })
-    setPlan((p) => p ? { ...p, items } : p)
+    const startTime = typeof nextStartTime === 'undefined' ? (plan?.startTime ?? null) : nextStartTime
+    await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, startTime, items })
+    setPlan((p) => p ? { ...p, startTime, items } : p)
   }
   async function savePlanQuiet(items: DailyPlanItem[]) {
     if (!uid) return
-    try { await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, items }) } catch {}
+    try {
+      await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, startTime: plan?.startTime ?? null, items })
+    } catch (e) {
+      // Silent background save; avoid disrupting the UI.
+      console.error('savePlanQuiet failed', e)
+    }
   }
 
   async function loadSuggestions() {
@@ -115,7 +159,10 @@ export function StudentDailyPlanner() {
   }
 
   async function openAddModal() {
-    setShowAddModal(true); setAddTab('suggest'); setSelCourseId(''); setSelSessionId(''); setSelActivityId(''); setPlannedMin(30)
+    setShowAddModal(true)
+    setAddTab('suggest')
+    setSelCourseId(''); setSelSessionId(''); setSelActivityId(''); setPlannedMin(30)
+    setCustomTitle(''); setCustomCourseId(''); setCustomMinutes(30)
     await Promise.all([loadSuggestions(), loadCourses()])
   }
 
@@ -199,11 +246,50 @@ export function StudentDailyPlanner() {
     await savePlan([...plan.items, newItem]); setShowAddModal(false)
   }
 
+  async function saveStartTime() {
+    if (!plan) return
+    const mins = timeStrToMinutes(startTimeInput)
+    if (mins == null) { setError('Please enter a valid start time.'); return }
+    setError('')
+    await savePlan(plan.items, minutesToTimeStr(mins))
+    setShowStartTimeModal(false)
+  }
+
+  async function addCustomActivity() {
+    if (!plan) return
+    const title = customTitle.trim()
+    if (!title) { setError('Type an activity name.'); return }
+    if (!Number.isFinite(customMinutes) || customMinutes < 5) { setError('Enter minutes (min 5).'); return }
+    setError('')
+    const course = courses.find((c) => c.id === customCourseId)
+    const newItem: DailyPlanItem = {
+      id: crypto.randomUUID(),
+      sessionId: 'custom',
+      sessionTitle: course ? `Custom · ${course.title}` : 'Custom',
+      courseId: customCourseId || 'custom',
+      activityId: `custom_${crypto.randomUUID()}`,
+      activityTitle: title,
+      activityType: 'custom',
+      plannedMinutes: Math.round(customMinutes),
+      timeSpentMs: 0,
+      done: false,
+      startedAt: null,
+      completedAt: null,
+    }
+    await savePlan([...plan.items, newItem])
+    setShowAddModal(false)
+  }
+
   const totalItems = plan?.items.length ?? 0
   const doneItems = plan?.items.filter((i) => i.done).length ?? 0
   const pct = totalItems === 0 ? 0 : Math.round((doneItems / totalItems) * 100)
   const totalPlannedMin = plan?.items.reduce((s, i) => s + i.plannedMinutes, 0) ?? 0
   const totalSpentMs = plan?.items.reduce((s, i) => s + i.timeSpentMs, 0) ?? 0
+
+  const defaultCourseIds = profile?.courseIds ?? []
+  const defaultCourses = defaultCourseIds.length ? courses.filter((c) => defaultCourseIds.includes(c.id)) : courses
+  const planStartMin = plan?.startTime ? timeStrToMinutes(plan.startTime) : null
+  const planEndTime = planStartMin == null ? null : minutesToTimeStr(planStartMin + totalPlannedMin)
 
   return (
     <div>
@@ -212,12 +298,28 @@ export function StudentDailyPlanner() {
         <input type="date" className="date-picker" value={date} onChange={(e) => setDate(e.target.value)} />
       </div>
 
+      {showStartTimeModal && (
+        <div className="modal-backdrop" onClick={() => { /* force explicit action */ }}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 0.75rem' }}>Start time for your day</h3>
+            <p className="muted small" style={{ marginTop: 0 }}>We’ll calculate real clock times for each activity based on the minutes you plan.</p>
+            <div className="form">
+              <label>Start time<input type="time" value={startTimeInput} onChange={(e) => setStartTimeInput(e.target.value)} /></label>
+              <div className="row">
+                <button type="button" className="btn primary" onClick={() => void saveStartTime()}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {totalItems > 0 && (
         <div className="planner-stats">
           <div className="planner-stat"><span className="planner-stat-value">{doneItems}/{totalItems}</span><span className="muted small">Tasks</span></div>
           <div className="planner-stat"><span className="planner-stat-value">{pct}%</span><span className="muted small">Done</span></div>
           <div className="planner-stat"><span className="planner-stat-value">{totalPlannedMin}m</span><span className="muted small">Planned</span></div>
           <div className="planner-stat"><span className="planner-stat-value">{formatTime(totalSpentMs)}</span><span className="muted small">Spent</span></div>
+          {plan?.startTime ? <div className="planner-stat"><span className="planner-stat-value">{plan.startTime}–{planEndTime ?? '—'}</span><span className="muted small">Schedule</span></div> : null}
           <div style={{ flex: 1, minWidth: 120 }}><div className="planner-progress-bar"><div className="planner-progress-fill" style={{ width: `${pct}%` }} /></div></div>
         </div>
       )}
@@ -226,8 +328,11 @@ export function StudentDailyPlanner() {
       {loading ? <p className="muted">Loading…</p> : null}
 
       <div className="plan-items-list">
-        {plan?.items.map((item) => {
+        {plan?.items.map((item, idx) => {
           const isRunning = !!timers[item.id]; const colors = itemTypeColors(item.activityType); const overTime = item.timeSpentMs > item.plannedMinutes * 60000
+          const itemStartMin = planStartMin == null ? null : planStartMin + plan.items.slice(0, idx).reduce((s, it) => s + (it.plannedMinutes ?? 0), 0)
+          const itemEndMin = itemStartMin == null ? null : itemStartMin + (item.plannedMinutes ?? 0)
+          const timeWindow = itemStartMin == null || itemEndMin == null ? null : `${minutesToTimeStr(itemStartMin)}–${minutesToTimeStr(itemEndMin)}`
           return (
             <div key={item.id} className={`plan-item${item.done ? ' done' : ''}`}>
               <button type="button" className={`plan-item-check${item.done ? ' checked' : ''}`} onClick={() => void markDone(item.id)}>{item.done ? '✓' : ''}</button>
@@ -236,7 +341,7 @@ export function StudentDailyPlanner() {
                   <span className="tag" style={{ background: colors.bg, color: colors.text, border: 'none', fontSize: '0.75rem' }}>{itemTypeLabel(item.activityType)}</span>
                   <strong style={{ textDecoration: item.done ? 'line-through' : 'none', opacity: item.done ? 0.6 : 1 }}>{item.activityTitle}</strong>
                 </div>
-                <span className="muted small">{item.sessionTitle}</span>
+                <span className="muted small">{timeWindow ? `${timeWindow} · ` : ''}{item.sessionTitle}</span>
                 <div style={{ marginTop: '0.35rem', display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
                   <span className={`timer-display${isRunning ? ' running' : ''}${overTime ? ' over' : ''}`}>{formatTime(item.timeSpentMs)}</span>
                   <span className="muted small">/ {item.plannedMinutes}m</span>
@@ -258,6 +363,11 @@ export function StudentDailyPlanner() {
       </div>
 
       <button type="button" className="btn primary" style={{ marginTop: '1rem' }} onClick={() => void openAddModal()}>+ Add Activity</button>
+      {plan?.startTime ? (
+        <button type="button" className="btn ghost" style={{ marginLeft: '0.5rem', marginTop: '1rem' }} onClick={() => { setStartTimeInput(plan.startTime ?? '09:00'); setShowStartTimeModal(true) }}>
+          Edit start time
+        </button>
+      ) : null}
 
       {showAddModal && (
         <div className="modal-backdrop" onClick={() => setShowAddModal(false)}>
@@ -266,6 +376,7 @@ export function StudentDailyPlanner() {
             <div className="course-tabs" style={{ marginBottom: '1rem' }}>
               <button type="button" className={`course-tab${addTab === 'suggest' ? ' active' : ''}`} onClick={() => setAddTab('suggest')}>💡 Suggested</button>
               <button type="button" className={`course-tab${addTab === 'browse' ? ' active' : ''}`} onClick={() => setAddTab('browse')}>📂 Browse</button>
+              <button type="button" className={`course-tab${addTab === 'custom' ? ' active' : ''}`} onClick={() => setAddTab('custom')}>✍️ Custom</button>
             </div>
 
             {addTab === 'suggest' && (
@@ -294,7 +405,7 @@ export function StudentDailyPlanner() {
             {addTab === 'browse' && (
               <div className="form">
                 <label>Course<select value={selCourseId} onChange={(e) => { setSelCourseId(e.target.value); setSelSessionId(''); setSelActivityId(''); if (e.target.value) void loadSessions(e.target.value) }}>
-                  <option value="">Select…</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                  <option value="">Select…</option>{defaultCourses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
                 </select></label>
                 {selCourseId && <label>Session<select value={selSessionId} onChange={(e) => { setSelSessionId(e.target.value); setSelActivityId('') }}>
                   <option value="">Select…</option>
@@ -307,6 +418,21 @@ export function StudentDailyPlanner() {
                 {selActivityId && <label>Time (minutes)<input type="number" min={5} max={480} value={plannedMin} onChange={(e) => setPlannedMin(Number(e.target.value))} /></label>}
                 <div className="row">
                   <button type="button" className="btn primary" disabled={!selActivityId} onClick={() => void addFromBrowser()}>Add</button>
+                  <button type="button" className="btn ghost" onClick={() => setShowAddModal(false)}>Cancel</button>
+                </div>
+              </div>
+            )}
+
+            {addTab === 'custom' && (
+              <div className="form">
+                <label>Activity name<input value={customTitle} onChange={(e) => setCustomTitle(e.target.value)} placeholder="e.g. Revise notes, Practice questions, Break…" /></label>
+                <label>Course (optional)<select value={customCourseId} onChange={(e) => setCustomCourseId(e.target.value)}>
+                  <option value="">General</option>
+                  {defaultCourses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+                </select></label>
+                <label>Time (minutes)<input type="number" min={5} max={480} value={customMinutes} onChange={(e) => setCustomMinutes(Number(e.target.value))} /></label>
+                <div className="row">
+                  <button type="button" className="btn primary" onClick={() => void addCustomActivity()}>Add</button>
                   <button type="button" className="btn ghost" onClick={() => setShowAddModal(false)}>Cancel</button>
                 </div>
               </div>

@@ -5,6 +5,7 @@ import { db } from '../../firebase/config'
 import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/callables'
 import { normalizeRoles } from '../../lib/roles'
 import { useAuth } from '../../context/AuthContext'
+import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import type { Course, UserProfile } from '../../types'
 
 function mapUserDoc(d: { id: string; data: () => Record<string, unknown> }): UserProfile {
@@ -36,17 +37,21 @@ export function StudentsPage() {
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [courseIds, setCourseIds] = useState<string[]>([])
+  const [tempPassword, setTempPassword] = useState('')
   const [saving, setSaving] = useState(false)
 
   async function load() {
     setLoading(true)
     try {
       const [usersSnap, coursesSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('roles', 'array-contains', 'student'), orderBy('email'))),
+        // Avoid Firestore composite-index requirement for (roles array-contains + orderBy email).
+        // We fetch then sort client-side instead.
+        getDocs(query(collection(db, 'users'), where('roles', 'array-contains', 'student'))),
         getDocs(query(collection(db, 'courses'), orderBy('title'))),
       ])
       const list: UserProfile[] = []
       usersSnap.forEach((docSnap) => list.push(mapUserDoc(docSnap)))
+      list.sort((a, b) => a.email.localeCompare(b.email))
       setStudents(list)
 
       const cl: Course[] = []
@@ -76,7 +81,13 @@ export function StudentsPage() {
   async function onCreate(e: FormEvent) {
     e.preventDefault()
     if (!isAdmin) return
-    setError(''); setCreatedPw(''); setSaving(true)
+    setError(''); setCreatedPw('')
+    const pw = tempPassword.trim()
+    if (pw.length > 0 && pw.length < 8) {
+      setError('If you set a password, it must be at least 8 characters (or leave the field empty).')
+      return
+    }
+    setSaving(true)
     try {
       const res = await callCreateUser({
         name,
@@ -85,12 +96,14 @@ export function StudentsPage() {
         centreIds: [],
         centreId: null,
         courseId: courseIds[0] ?? null,
+        temporaryPassword: pw ? pw : null,
       })
       setCreatedPw(res.temporaryPassword)
-      setName(''); setEmail(''); setCourseIds([])
+      setName(''); setEmail(''); setCourseIds([]); setTempPassword('')
       await load()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Create failed')
+      console.error('Create student failed', err)
+      setError(formatFirebaseError(err, 'Create failed'))
     } finally {
       setSaving(false)
     }
@@ -102,7 +115,7 @@ export function StudentsPage() {
     if (!window.confirm(next ? 'Disable this student?' : 'Re-enable this student?')) return
     setError('')
     try { await callDisableUser(u.id, next); await load() }
-    catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed') }
+    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
   async function resetPassword(u: UserProfile) {
@@ -110,7 +123,7 @@ export function StudentsPage() {
     if (!window.confirm(`Reset password for ${u.email}?`)) return
     setError(''); setCreatedPw('')
     try { const res = await callResetPassword(u.id); setCreatedPw(res.temporaryPassword) }
-    catch (err: unknown) { setError(err instanceof Error ? err.message : 'Failed') }
+    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
   async function saveCourses(u: UserProfile, nextCourseIds: string[]) {
@@ -125,7 +138,7 @@ export function StudentsPage() {
       })
       await load()
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Update failed')
+      setError(formatFirebaseError(err, 'Update failed'))
     } finally {
       setSaving(false)
     }
@@ -138,12 +151,32 @@ export function StudentsPage() {
       {error ? <p className="error">{error}</p> : null}
       {createdPw ? <div className="notice"><strong>Temporary password (copy now):</strong> {createdPw}</div> : null}
 
+      {!isAdmin && profile ? (
+        <p className="notice" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}>
+          You’re signed in as <strong>{profile.roles.join(', ')}</strong>. Only <strong>admin</strong> accounts see the
+          “Add student” form (including optional password). Open <strong>User Management</strong> as an admin, or ask an admin to create accounts.
+        </p>
+      ) : null}
+
       {isAdmin && (
         <section className="panel" style={{ marginBottom: '1rem' }}>
           <h2>Add student</h2>
           <form className="form grid" onSubmit={onCreate}>
             <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
             <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
+            <div className="full syllabus-mini-form" style={{ margin: 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>Initial password (optional)</div>
+              <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
+                Leave empty to auto-generate a temporary password. If you set one, use at least 8 characters.
+              </p>
+              <input
+                type="password"
+                autoComplete="new-password"
+                value={tempPassword}
+                onChange={(e) => setTempPassword(e.target.value)}
+                placeholder="Leave blank to auto-generate"
+              />
+            </div>
             <div className="full">
               <span className="muted small">Assign courses</span>
               <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>

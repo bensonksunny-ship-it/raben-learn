@@ -63,7 +63,9 @@ export function StudentDashboard() {
         const d = planSnap.data()
         setPlan({ id: planSnap.id, studentId: d.studentId as string, date: d.date as string, items: (d.items as DailyPlan['items']) ?? [] })
       }
-    } catch {} finally { setLoading(false) }
+    } catch (e) {
+      console.error('StudentDashboard load failed', e)
+    } finally { setLoading(false) }
   }
 
   const todayDone = plan?.items.filter((i) => i.done).length ?? 0

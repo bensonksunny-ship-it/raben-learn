@@ -6,10 +6,11 @@ import type { Course, DailyPlan, DailyPlanItem, ItemStatus, ProgressEntry, Sessi
 
 const MAX_ATTEMPTS = 5
 
-function itemTypeLabel(t: string) { return t === 'concept' ? 'Concept' : t === 'exercise' ? 'Exercise' : 'Implementation' }
+function itemTypeLabel(t: string) { return t === 'concept' ? 'Concept' : t === 'exercise' ? 'Exercise' : t === 'custom' ? 'Custom' : 'Implementation' }
 function itemTypeColors(t: string) {
   if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af', border: '#bfdbfe' }
   if (t === 'exercise') return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
+  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb' }
   return { bg: '#fce7f3', text: '#9d174d', border: '#fbcfe8' }
 }
 
@@ -109,7 +110,7 @@ export function MentorStudentProgress() {
       const existing: ProgressEntry[] = snap.exists() ? ((snap.data().entries as ProgressEntry[]) ?? []) : []
       const idx = existing.findIndex((e) => (e.activityId as string) === activityId)
       const prev = idx >= 0 ? existing[idx]! : null
-      const nextDue = !Boolean(prev?.due)
+      const nextDue = !(prev?.due ?? false)
       const entry: ProgressEntry = {
         activityId,
         status: prev?.status ?? 'in_progress',
@@ -201,7 +202,11 @@ export function MentorStudentProgress() {
     const done = flat.reduce((acc, x) => acc + (getStatus(x.sessionId, x.activityId) === 'completed' ? 1 : 0), 0)
     if (total > 0 && done >= total) {
       const courseName = courses.find((c) => c.id === selectedCourseId)?.title ?? ''
-      try { await addDoc(collection(db, 'course_history'), { studentId, courseId: selectedCourseId, courseName, completedAt: serverTimestamp(), totalItems: total }) } catch {}
+      try {
+        await addDoc(collection(db, 'course_history'), { studentId, courseId: selectedCourseId, courseName, completedAt: serverTimestamp(), totalItems: total })
+      } catch (e) {
+        console.error('Failed writing course history', e)
+      }
     }
   }
 

@@ -9,6 +9,7 @@ export interface CreateUserPayload {
   centreIds: string[]
   centreId: string | null
   courseId: string | null
+  temporaryPassword?: string | null
 }
 
 export interface CreateUserResult {
@@ -27,6 +28,9 @@ export type UpdateUserPayload = {
   status?: 'active' | 'disabled'
 }
 
+// Use the SDK’s normal callable wiring (`getFunctions(app, region)` in `firebase/config.ts`).
+// Custom `httpsCallableFromURL` + `*.cloudfunctions.net/...` URLs can fail against Functions v2 (Gen2)
+// and surface as `functions/internal` even when the function is deployed.
 const adminCreateUser = httpsCallable(functions, 'adminCreateUser')
 const adminUpdateUser = httpsCallable(functions, 'adminUpdateUser')
 const adminDisableUser = httpsCallable(functions, 'adminDisableUser')

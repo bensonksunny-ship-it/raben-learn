@@ -9,6 +9,8 @@ import {
 } from 'react'
 import {
   onAuthStateChanged,
+  EmailAuthProvider,
+  reauthenticateWithCredential,
   signInWithEmailAndPassword,
   signOut,
   updatePassword,
@@ -25,7 +27,7 @@ interface AuthContextValue {
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
-  changePasswordAndClearFirstLogin: (newPassword: string) => Promise<void>
+  changePasswordAndClearFirstLogin: (currentPassword: string, newPassword: string) => Promise<void>
   refreshProfile: () => Promise<void>
 }
 
@@ -85,9 +87,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const changePasswordAndClearFirstLogin = useCallback(
-    async (newPassword: string) => {
+    async (currentPassword: string, newPassword: string) => {
       const user = auth.currentUser
       if (!user) throw new Error('Not signed in')
+      if (!user.email) throw new Error('Missing email on auth user')
+
+      // Prevents "requires-recent-login" and similar edge cases.
+      const cred = EmailAuthProvider.credential(user.email, currentPassword)
+      await reauthenticateWithCredential(user, cred)
       await updatePassword(user, newPassword)
       await updateDoc(doc(db, 'users', user.uid), { firstLogin: false })
     },
@@ -126,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext)
   if (!ctx) throw new Error('useAuth must be used within AuthProvider')

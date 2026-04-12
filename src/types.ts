@@ -19,7 +19,7 @@ export interface Course {
   createdAt?: unknown
 }
 
-export type LessonItemType = 'concept' | 'exercise' | 'implementation' | 'songsheet'
+export type LessonItemType = 'concept' | 'exercise' | 'implementation' | 'songsheet' | 'custom'
 
 export type ItemStatus = 'locked' | 'in_progress' | 'review' | 'completed'
 
@@ -59,6 +59,7 @@ export interface DailyPlan {
   id: string
   studentId: string
   date: string
+  startTime?: string | null
   items: DailyPlanItem[]
 }
 

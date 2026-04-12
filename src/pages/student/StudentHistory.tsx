@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
@@ -11,9 +11,7 @@ export function StudentHistory() {
   const [records, setRecords] = useState<HistoryRecord[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { if (uid) void load() }, [uid])
-
-  async function load() {
+  const load = useCallback(async () => {
     if (!uid) return
     try {
       const snap = await getDocs(query(collection(db, 'course_history'), where('studentId', '==', uid)))
@@ -27,7 +25,9 @@ export function StudentHistory() {
     } catch (e) {
       console.error('StudentHistory load failed', e)
     } finally { setLoading(false) }
-  }
+  }, [uid])
+
+  useEffect(() => { if (uid) void load() }, [uid, load])
 
   return (
     <div>

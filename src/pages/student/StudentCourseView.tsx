@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -43,9 +43,7 @@ export function StudentCourseView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  useEffect(() => { if (courseId && uid) void load() }, [courseId, uid])
-
-  async function load() {
+  const load = useCallback(async () => {
     if (!courseId || !uid) return
     setLoading(true); setError('')
     try {
@@ -88,11 +86,14 @@ export function StudentCourseView() {
       })
       setProgressMap(pm)
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setLoading(false) }
-  }
+  }, [courseId, uid])
 
-  function getActivityStatus(sessionId: string, activityId: string): ItemStatus {
+  useEffect(() => { if (courseId && uid) void load() }, [courseId, uid, load])
+
+  const getActivityStatus = useCallback((sessionId: string, activityId: string): ItemStatus => {
     return progressMap[sessionId]?.[activityId]?.status ?? 'locked'
-  }
+  }, [progressMap])
+
   function getIsDue(sessionId: string, activityId: string): boolean {
     return Boolean(progressMap[sessionId]?.[activityId]?.due)
   }
@@ -119,7 +120,7 @@ export function StudentCourseView() {
       }
     }
     return unlocked
-  }, [flat, progressMap])
+  }, [flat, getActivityStatus])
 
   async function markForReview(sessionId: string, activityId: string) {
     if (!uid || saving) return

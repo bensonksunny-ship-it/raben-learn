@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -15,9 +15,7 @@ export function StudentDashboard() {
   const [plan, setPlan] = useState<DailyPlan | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { if (uid && profile) void load() }, [uid, profile])
-
-  async function load() {
+  const load = useCallback(async () => {
     if (!uid || !profile) return
     try {
       const courseIds = profile.courseIds ?? []
@@ -66,7 +64,9 @@ export function StudentDashboard() {
     } catch (e) {
       console.error('StudentDashboard load failed', e)
     } finally { setLoading(false) }
-  }
+  }, [uid, profile])
+
+  useEffect(() => { if (uid && profile) void load() }, [uid, profile, load])
 
   const todayDone = plan?.items.filter((i) => i.done).length ?? 0
   const todayTotal = plan?.items.length ?? 0

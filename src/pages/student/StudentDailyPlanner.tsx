@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
@@ -65,23 +65,16 @@ export function StudentDailyPlanner() {
   const [showStartTimeModal, setShowStartTimeModal] = useState(false)
   const [startTimeInput, setStartTimeInput] = useState('09:00')
 
-  useEffect(() => { if (uid) void loadPlan() }, [uid, date])
+  const savePlanQuiet = useCallback(async (items: DailyPlanItem[]) => {
+    if (!uid) return
+    try {
+      await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, items, startTime: plan?.startTime ?? '09:00' }, { merge: true })
+    } catch (e) {
+      console.error('savePlanQuiet failed', e)
+    }
+  }, [uid, date, plan?.startTime])
 
-  useEffect(() => {
-    if (Object.keys(timers).length === 0) { if (intervalRef.current) clearInterval(intervalRef.current); return }
-    intervalRef.current = setInterval(() => {
-      setPlan((prev) => {
-        if (!prev) return prev
-        const updated = { ...prev, items: prev.items.map((it) => timers[it.id] ? { ...it, timeSpentMs: it.timeSpentMs + 1000 } : it) }
-        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
-        saveTimeoutRef.current = setTimeout(() => { void savePlanQuiet(updated.items) }, 5000)
-        return updated
-      })
-    }, 1000)
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
-  }, [timers])
-
-  async function loadPlan() {
+  const loadPlan = useCallback(async () => {
     if (!uid) return; setLoading(true)
     try {
       const snap = await getDoc(doc(db, 'student_daily_plans', `${uid}_${date}`))
@@ -106,22 +99,29 @@ export function StudentDailyPlanner() {
         setShowStartTimeModal(true)
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setLoading(false) }
-  }
+  }, [uid, date])
+
+  useEffect(() => { if (uid) void loadPlan() }, [uid, date, loadPlan])
+
+  useEffect(() => {
+    if (Object.keys(timers).length === 0) { if (intervalRef.current) clearInterval(intervalRef.current); return }
+    intervalRef.current = setInterval(() => {
+      setPlan((prev) => {
+        if (!prev) return prev
+        const updated = { ...prev, items: prev.items.map((it) => timers[it.id] ? { ...it, timeSpentMs: it.timeSpentMs + 1000 } : it) }
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+        saveTimeoutRef.current = setTimeout(() => { void savePlanQuiet(updated.items) }, 5000)
+        return updated
+      })
+    }, 1000)
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current) }
+  }, [timers, savePlanQuiet])
 
   async function savePlan(items: DailyPlanItem[], nextStartTime?: string | null) {
     if (!uid) return
     const startTime = typeof nextStartTime === 'undefined' ? (plan?.startTime ?? null) : nextStartTime
     await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, startTime, items })
     setPlan((p) => p ? { ...p, startTime, items } : p)
-  }
-  async function savePlanQuiet(items: DailyPlanItem[]) {
-    if (!uid) return
-    try {
-      await setDoc(doc(db, 'student_daily_plans', `${uid}_${date}`), { studentId: uid, date, startTime: plan?.startTime ?? null, items })
-    } catch (e) {
-      // Silent background save; avoid disrupting the UI.
-      console.error('savePlanQuiet failed', e)
-    }
   }
 
   async function loadSuggestions() {

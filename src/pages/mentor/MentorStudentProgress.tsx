@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -35,10 +35,7 @@ export function MentorStudentProgress() {
   const [planDate, setPlanDate] = useState(new Date().toISOString().slice(0, 10))
   const [loadingPlan, setLoadingPlan] = useState(false)
 
-  useEffect(() => { if (studentId) void loadStudent() }, [studentId])
-  useEffect(() => { if (studentId && tab === 'planner') void loadPlan() }, [studentId, tab, planDate])
-
-  async function loadStudent() {
+  const loadStudent = useCallback(async () => {
     if (!studentId) return
     setLoading(true); setError('')
     try {
@@ -68,7 +65,29 @@ export function MentorStudentProgress() {
       setProgressMap(pm)
       if (courseList.length > 0) { setSelectedCourseId(courseList[0].id); await loadCourseData(courseList[0].id) }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setLoading(false) }
-  }
+  }, [studentId])
+
+  const loadPlan = useCallback(async () => {
+    if (!studentId) return
+    setLoadingPlan(true)
+    try {
+      const snap = await getDoc(doc(db, 'student_daily_plans', `${studentId}_${planDate}`))
+      if (snap.exists()) {
+        const d = snap.data()
+        const loaded: DailyPlan = {
+          id: snap.id,
+          studentId: (d.studentId as string) ?? '',
+          date: (d.date as string) ?? planDate,
+          items: (d.items as DailyPlanItem[]) ?? [],
+          startTime: (d.startTime as string) ?? '09:00',
+        }
+        setPlan(loaded)
+      } else { setPlan(null) }
+    } catch (e) { console.error('loadPlan failed', e) } finally { setLoadingPlan(false) }
+  }, [studentId, planDate])
+
+  useEffect(() => { if (studentId) void loadStudent() }, [studentId, loadStudent])
+  useEffect(() => { if (studentId && tab === 'planner') void loadPlan() }, [studentId, tab, planDate, loadPlan])
 
   async function loadCourseData(courseId: string) {
     const snap = await getDocs(query(collection(db, 'sessions'), where('courseId', '==', courseId)))
@@ -210,17 +229,6 @@ export function MentorStudentProgress() {
     }
   }
 
-  async function loadPlan() {
-    if (!studentId) return
-    setLoadingPlan(true)
-    try {
-      const snap = await getDoc(doc(db, 'student_daily_plans', `${studentId}_${planDate}`))
-      if (snap.exists()) {
-        const d = snap.data()
-        setPlan({ id: snap.id, studentId: d.studentId as string, date: d.date as string, items: (d.items as DailyPlanItem[]) ?? [] })
-      } else { setPlan(null) }
-    } catch { setPlan(null) } finally { setLoadingPlan(false) }
-  }
 
   if (loading) return <div className="shell"><p className="muted">Loading…</p></div>
 

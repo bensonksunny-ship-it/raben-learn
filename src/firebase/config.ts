@@ -1,21 +1,45 @@
-import { initializeApp } from 'firebase/app'
+import { getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { getFunctions } from 'firebase/functions'
+import { getValidatedFirebaseEnv, maskKey } from './env'
 
-const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+const { firebaseConfig, functionsRegion } = getValidatedFirebaseEnv()
+
+// Debug: Log masked config (API key is masked for security)
+console.log('Firebase Config:', {
+  ...firebaseConfig,
+  apiKey: maskKey(firebaseConfig.apiKey),
+  functionsRegion,
+})
+
+/** Safe for console: never prints the raw API key. */
+const firebaseConfigForLog = {
+  ...firebaseConfig,
+  apiKey: maskKey(firebaseConfig.apiKey),
 }
 
-export const app = initializeApp(firebaseConfig)
+if (import.meta.env.DEV) {
+  console.log('Firebase Config:', firebaseConfigForLog)
+  console.assert(firebaseConfig.apiKey !== undefined && firebaseConfig.apiKey.length > 0, 'apiKey must be set')
+  console.assert(
+    firebaseConfig.apiKey.startsWith('AIza'),
+    'apiKey should start with "AIza" (Firebase Web API key)',
+  )
+  console.info('[Firebase] mode:', import.meta.env.MODE, 'functionsRegion:', functionsRegion)
+}
+
+function getOrInitApp() {
+  const existing = getApps()
+  if (existing.length > 0) return existing[0]!
+  return initializeApp(firebaseConfig)
+}
+
+export const app = getOrInitApp()
 export const auth = getAuth(app)
 export const db = getFirestore(app)
+export const functions = getFunctions(app, functionsRegion)
 
-// Callable functions must use the same region as your deployed Cloud Functions (v2 defaults to us-central1).
-const FUNCTIONS_REGION = (import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION as string | undefined)?.trim() || 'us-central1'
-export const functions = getFunctions(app, FUNCTIONS_REGION)
+/** Used to build the official HTTPS callable URL (must match deployed region). */
+export const FIREBASE_PROJECT_ID = firebaseConfig.projectId
+export const FIREBASE_FUNCTIONS_REGION = functionsRegion

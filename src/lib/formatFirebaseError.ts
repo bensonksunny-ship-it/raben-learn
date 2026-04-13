@@ -1,3 +1,5 @@
+import { formatCallableErrorForUi } from './callableErrorDetails'
+
 export function formatFirebaseError(err: unknown, fallback = 'Request failed') {
   if (!err || typeof err !== 'object') return fallback
 
@@ -9,26 +11,30 @@ export function formatFirebaseError(err: unknown, fallback = 'Request failed') {
   const details = anyErr.details
   const customData = anyErr.customData
 
-  const hint =
+  /** See also `getCallableErrorDiagnostics` / Network tab / Functions logs — "internal" is never exact on its own. */
+  const internalHint =
     code === 'functions/internal'
-      ? ' (Typical causes: wrong Functions region in `VITE_FIREBASE_FUNCTIONS_REGION`, hosting build missing env vars, App Check enforced on Functions, or a server crash — check Functions logs in Firebase Console.)'
+      ? ' — Check Network (callable POST status/response) and Firebase Functions logs (see adminCreateUser invoked).'
       : ''
 
   if (code && typeof details !== 'undefined') {
     try {
-      return `${code}: ${message} · ${JSON.stringify(details)}${hint}`
+      return `${code}: ${message} · ${JSON.stringify(details)}${internalHint}`
     } catch {
-      return `${code}: ${message}${hint}`
+      return `${code}: ${message}${internalHint}`
     }
   }
   if (customData != null) {
     try {
-      return `${code || 'error'}: ${message} · ${JSON.stringify(customData)}${hint}`
+      return `${code || 'error'}: ${message} · ${JSON.stringify(customData)}${internalHint}`
     } catch {
-      return `${code || 'error'}: ${message}${hint}`
+      return `${code || 'error'}: ${message}${internalHint}`
     }
   }
-  if (code) return `${code}: ${message}${hint}`
-  return `${message}${hint}`
+  if (code === 'functions/internal') {
+    return `${formatCallableErrorForUi(err)}${internalHint}`
+  }
+  if (code) return `${code}: ${message}${internalHint}`
+  return `${message}${internalHint}`
 }
 

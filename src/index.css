@@ -186,6 +186,65 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
 .course-card { display: block; background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 1.25rem; transition: all 0.2s; color: var(--text); }
 .course-card:hover { border-color: var(--primary); box-shadow: var(--shadow); transform: translateY(-2px); }
 
+/* Student syllabus (ROL-style: modules + detail) */
+.student-syllabus { max-width: 1200px; margin: 0 auto; }
+.student-syllabus-top { margin-bottom: 1.25rem; }
+.student-syllabus-hero {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+.student-syllabus-title { font-size: 1.65rem; font-weight: 700; margin: 0; letter-spacing: -0.02em; }
+.student-syllabus-progress-pill {
+  text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem;
+}
+.student-syllabus-progress-count { font-size: 1.35rem; font-weight: 700; color: var(--primary); }
+.student-syllabus-grid {
+  display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 1.25rem; align-items: start;
+}
+.student-syllabus-modules-heading { font-size: 0.78rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-2); margin: 0 0 0.5rem; }
+.student-syllabus-module-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+.student-syllabus-module-btn {
+  width: 100%; text-align: left; padding: 0.65rem 0.75rem; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface); cursor: pointer; transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+  display: flex; flex-direction: column; gap: 0.2rem;
+}
+.student-syllabus-module-btn:hover { background: var(--surface-soft); border-color: color-mix(in srgb, var(--primary) 35%, var(--border)); }
+.student-syllabus-module-btn.active {
+  border-color: #c4b5fd; background: #f5f3ff; box-shadow: 0 0 0 1px rgba(139, 92, 246, 0.15);
+}
+.student-syllabus-module-name { font-weight: 600; font-size: 0.92rem; color: var(--text); }
+.student-syllabus-module-meta { font-size: 0.78rem; color: var(--muted); }
+.student-syllabus-detail { min-width: 0; }
+.student-syllabus-module-header {
+  display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+}
+.student-syllabus-module-title { margin: 0 0 0.25rem; font-size: 1.25rem; font-weight: 700; }
+.student-syllabus-items { display: flex; flex-direction: column; gap: 1.25rem; }
+.student-syllabus-item {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;
+}
+.student-syllabus-item-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.35rem; }
+.student-syllabus-item-title { margin: 0; font-size: 1.02rem; font-weight: 650; flex: 1; min-width: 0; }
+.student-syllabus-stars { display: inline-flex; gap: 0.1rem; }
+.student-syllabus-star {
+  background: none; border: none; padding: 0; font-size: 1.15rem; line-height: 1; cursor: pointer; color: #e5e7eb; transition: color 0.12s;
+}
+.student-syllabus-star.on { color: #fbbf24; }
+.student-syllabus-star:disabled { cursor: not-allowed; opacity: 0.5; }
+.student-syllabus-attempts { margin: 0.65rem 0; padding: 0.65rem 0.75rem; background: var(--surface-soft); border-radius: 8px; border: 1px solid var(--border); }
+.student-syllabus-attempts-label { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-2); margin-bottom: 0.4rem; }
+.student-syllabus-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+.student-syllabus-table th, .student-syllabus-table td { padding: 0.4rem 0.5rem; text-align: left; border-bottom: 1px solid var(--border); }
+.student-syllabus-table th { font-weight: 600; color: var(--muted); font-size: 0.75rem; }
+.student-syllabus-notes-label { display: flex; flex-direction: column; gap: 0.35rem; font-size: 0.88rem; font-weight: 500; margin: 0.75rem 0 0; }
+.student-syllabus-notes {
+  width: 100%; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--border); font-family: inherit; font-size: 0.9rem; resize: vertical;
+}
+.student-syllabus-item-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+@media (max-width: 768px) {
+  .student-syllabus-grid { grid-template-columns: 1fr; }
+}
+
 /* Course & Module views */
 .course-hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem; }
 .module-accordion { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }

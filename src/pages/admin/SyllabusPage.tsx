@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
@@ -288,6 +289,15 @@ export function SyllabusPage() {
     <div>
       <h1>Syllabus Builder</h1>
       <p className="muted">Design your curriculum: Courses → Sessions → Activities.</p>
+      <p className="notice" style={{ marginBottom: '0.75rem' }}>
+        The <strong>ROL-style syllabus</strong> (modules list + item detail with attempts &amp; notes) is on the{' '}
+        <strong>student course screen</strong>, not this builder.{' '}
+        {selectedCourseId ? (
+          <Link to={`/student/courses/${selectedCourseId}`}>Open student syllabus for this course →</Link>
+        ) : (
+          <span className="muted">Select a course on the left to preview.</span>
+        )}
+      </p>
       {error ? <p className="error">{error}</p> : null}
 
       <div className="syllabus-columns">

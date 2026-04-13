@@ -95,6 +95,9 @@ export function StudentDashboard() {
           </div>
 
           <h2>My Courses</h2>
+          <p className="muted small" style={{ margin: '-0.25rem 0 0.75rem' }}>
+            Open a course to see the syllabus: modules on the left, each item with attempts, notes, and actions on the right.
+          </p>
           <div className="course-grid">
             {courses.map((c) => {
               const p = progress[c.id] ?? { total: 0, done: 0, review: 0 }

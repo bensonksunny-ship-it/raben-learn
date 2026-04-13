@@ -63,6 +63,12 @@ export interface DailyPlan {
   items: DailyPlanItem[]
 }
 
+/** Single row in Attempt History (student syllabus). */
+export interface AttemptRecord {
+  at: string
+  status?: string
+}
+
 export interface ProgressEntry {
   activityId: string
   status: ItemStatus
@@ -70,4 +76,8 @@ export interface ProgressEntry {
   attemptsUsed?: number
   studentMarkedAt?: string | null
   mentorApprovedAt?: string | null
+  /** Optional self-rating 1–5 (student syllabus UI). */
+  rating?: number
+  notes?: string
+  attemptHistory?: AttemptRecord[]
 }

@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom'
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
-import type { Course, ItemStatus, ProgressEntry, Session } from '../../types'
+import type { AttemptRecord, Course, ItemStatus, ProgressEntry, Session } from '../../types'
 
 const MAX_ATTEMPTS = 5
 
@@ -14,27 +14,29 @@ function itemTypeLabel(t: string) {
   return 'Implementation'
 }
 function itemTypeColors(t: string) {
-  if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af', border: '#bfdbfe' }
+  if (t === 'concept') return { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' }
   if (t === 'exercise') return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
   if (t === 'custom') return { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb' }
   return { bg: '#fce7f3', text: '#9d174d', border: '#fbcfe8' }
 }
 function statusLabel(s: ItemStatus) {
-  if (s === 'completed') return '✓ Approved'
-  if (s === 'review') return '⏳ Under Review'
-  if (s === 'in_progress') return '● In Progress'
-  return '○ Locked'
+  if (s === 'completed') return 'Done'
+  if (s === 'review') return 'Under review'
+  if (s === 'in_progress') return 'In progress'
+  return 'Not started'
 }
-function statusColor(s: ItemStatus) {
-  if (s === 'completed') return '#10b981'
-  if (s === 'review') return '#f59e0b'
-  if (s === 'in_progress') return 'var(--primary)'
-  return 'var(--muted)'
+
+function getEntry(
+  progressMap: Record<string, Record<string, ProgressEntry>>,
+  sessionId: string,
+  activityId: string,
+): ProgressEntry | undefined {
+  return progressMap[sessionId]?.[activityId]
 }
 
 export function StudentCourseView() {
   const { courseId } = useParams<{ courseId: string }>()
-  const { firebaseUser } = useAuth()
+  const { firebaseUser, profile } = useAuth()
   const uid = firebaseUser?.uid
   const [course, setCourse] = useState<Course | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
@@ -42,10 +44,14 @@ export function StudentCourseView() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  /** Local note text before blur-save (key: `${sessionId}__${activityId}`). */
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     if (!courseId || !uid) return
-    setLoading(true); setError('')
+    setLoading(true)
+    setError('')
     try {
       const [courseSnap, sessionsSnap, progSnap] = await Promise.all([
         getDoc(doc(db, 'courses', courseId)),
@@ -71,10 +77,14 @@ export function StudentCourseView() {
       })
       sess.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title))
       setSessions(sess)
+      if (sess.length > 0) {
+        setSelectedSessionId((prev) => (prev && sess.some((s) => s.id === prev) ? prev : sess[0]!.id))
+      }
 
       const pm: Record<string, Record<string, ProgressEntry>> = {}
       progSnap.forEach((d) => {
-        const x = d.data(); const sid = (x.sessionId as string) ?? (x.lessonId as string)
+        const x = d.data()
+        const sid = (x.sessionId as string) ?? (x.lessonId as string)
         const entries = (x.entries as ProgressEntry[]) ?? []
         if (sid) {
           pm[sid] = {}
@@ -85,14 +95,24 @@ export function StudentCourseView() {
         }
       })
       setProgressMap(pm)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setLoading(false) }
+      setNoteDrafts({})
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setLoading(false)
+    }
   }, [courseId, uid])
 
-  useEffect(() => { if (courseId && uid) void load() }, [courseId, uid, load])
+  useEffect(() => {
+    if (courseId && uid) void load()
+  }, [courseId, uid, load])
 
-  const getActivityStatus = useCallback((sessionId: string, activityId: string): ItemStatus => {
-    return progressMap[sessionId]?.[activityId]?.status ?? 'locked'
-  }, [progressMap])
+  const getActivityStatus = useCallback(
+    (sessionId: string, activityId: string): ItemStatus => {
+      return progressMap[sessionId]?.[activityId]?.status ?? 'locked'
+    },
+    [progressMap],
+  )
 
   function getIsDue(sessionId: string, activityId: string): boolean {
     return Boolean(progressMap[sessionId]?.[activityId]?.due)
@@ -101,9 +121,7 @@ export function StudentCourseView() {
     return Number(progressMap[sessionId]?.[activityId]?.attemptsUsed ?? 0)
   }
 
-  const flat = useMemo(() => {
-    return sessions.flatMap((s) => s.activities.map((a) => ({ session: s, activity: a })))
-  }, [sessions])
+  const flat = useMemo(() => sessions.flatMap((s) => s.activities.map((a) => ({ session: s, activity: a }))), [sessions])
 
   const unlockedSet = useMemo(() => {
     const unlocked = new Set<string>()
@@ -122,105 +140,382 @@ export function StudentCourseView() {
     return unlocked
   }, [flat, getActivityStatus])
 
+  async function persistEntries(sessionId: string, mut: (entries: ProgressEntry[]) => ProgressEntry[]) {
+    if (!uid) return
+    const ref = doc(db, 'student_lesson_progress', `${uid}_${sessionId}`)
+    const snap = await getDoc(ref)
+    const existing: ProgressEntry[] = snap.exists() ? ((snap.data().entries as ProgressEntry[]) ?? []) : []
+    const next = mut(existing)
+    await setDoc(ref, { studentId: uid, sessionId, entries: next }, { merge: true })
+    setProgressMap((m) => {
+      const sessionMap: Record<string, ProgressEntry> = { ...(m[sessionId] ?? {}) }
+      next.forEach((e) => {
+        sessionMap[e.activityId] = e
+      })
+      return { ...m, [sessionId]: sessionMap }
+    })
+  }
+
+  async function addAttempt(sessionId: string, activityId: string) {
+    if (!uid || saving) return
+    const used = getAttemptsUsed(sessionId, activityId)
+    if (used >= MAX_ATTEMPTS) return
+    setSaving(true)
+    try {
+      await persistEntries(sessionId, (existing) => {
+        const idx = existing.findIndex((e) => e.activityId === activityId)
+        const prev = idx >= 0 ? existing[idx]! : undefined
+        const history: AttemptRecord[] = [...(prev?.attemptHistory ?? [])]
+        history.push({ at: new Date().toISOString(), status: 'attempted' })
+        const nextAttempts = used + 1
+        const entry: ProgressEntry = {
+          activityId,
+          status: (prev?.status === 'completed' ? 'completed' : 'in_progress') as ItemStatus,
+          due: prev?.due ?? false,
+          attemptsUsed: nextAttempts,
+          studentMarkedAt: prev?.studentMarkedAt ?? null,
+          mentorApprovedAt: prev?.mentorApprovedAt ?? null,
+          rating: prev?.rating,
+          notes: prev?.notes,
+          attemptHistory: history,
+        }
+        if (idx >= 0) {
+          const copy = [...existing]
+          copy[idx] = entry
+          return copy
+        }
+        return [...existing, entry]
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function markForReview(sessionId: string, activityId: string) {
     if (!uid || saving) return
     setSaving(true)
     try {
-      const ref = doc(db, 'student_lesson_progress', `${uid}_${sessionId}`)
-      const snap = await getDoc(ref)
-      const existing: ProgressEntry[] = snap.exists() ? ((snap.data().entries as ProgressEntry[]) ?? []) : []
-      const idx = existing.findIndex((e) => (e.activityId as string) === activityId)
-      const prevAttempts = idx >= 0 ? Number(existing[idx]?.attemptsUsed ?? 0) : 0
-      const nextAttempts = prevAttempts + 1
-      if (nextAttempts > MAX_ATTEMPTS) return
-      const entry: ProgressEntry = {
-        activityId,
-        status: 'review',
-        due: existing[idx]?.due ?? false,
-        attemptsUsed: nextAttempts,
-        studentMarkedAt: new Date().toISOString(),
-        mentorApprovedAt: null,
-      }
-      if (idx >= 0) existing[idx] = entry; else existing.push(entry)
-      await setDoc(ref, { studentId: uid, sessionId, entries: existing }, { merge: true })
-      setProgressMap((m) => {
-        const sessionMap = { ...(m[sessionId] ?? {}) }; sessionMap[activityId] = entry
-        return { ...m, [sessionId]: sessionMap }
+      await persistEntries(sessionId, (existing) => {
+        const idx = existing.findIndex((e) => e.activityId === activityId)
+        const prev = idx >= 0 ? existing[idx]! : undefined
+        const prevAttempts = Number(prev?.attemptsUsed ?? 0)
+        const nextAttempts = prevAttempts === 0 ? 1 : prevAttempts
+        const history = [...(prev?.attemptHistory ?? [])]
+        if (prevAttempts === 0) history.push({ at: new Date().toISOString(), status: 'attempted' })
+        const entry: ProgressEntry = {
+          activityId,
+          status: 'review',
+          due: prev?.due ?? false,
+          attemptsUsed: Math.min(nextAttempts, MAX_ATTEMPTS),
+          studentMarkedAt: new Date().toISOString(),
+          mentorApprovedAt: null,
+          rating: prev?.rating,
+          notes: prev?.notes,
+          attemptHistory: history,
+        }
+        if (idx >= 0) {
+          const copy = [...existing]
+          copy[idx] = entry
+          return copy
+        }
+        return [...existing, entry]
       })
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setSaving(false) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  if (loading) return <div className="shell"><p className="muted">Loading…</p></div>
-  if (!course) return <div className="shell"><p className="error">Course not found.</p></div>
+  async function flushNotes(sessionId: string, activityId: string, notes: string) {
+    if (!uid || saving) return
+    setSaving(true)
+    try {
+      await persistEntries(sessionId, (existing) => {
+        const idx = existing.findIndex((e) => e.activityId === activityId)
+        if (idx < 0) {
+          return [
+            ...existing,
+            {
+              activityId,
+              status: 'in_progress' as ItemStatus,
+              notes,
+              attemptsUsed: 0,
+              attemptHistory: [],
+            },
+          ]
+        }
+        const copy = [...existing]
+        copy[idx] = { ...copy[idx]!, notes }
+        return copy
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function noteKey(sessionId: string, activityId: string) {
+    return `${sessionId}__${activityId}`
+  }
+
+  async function updateRating(sessionId: string, activityId: string, rating: number) {
+    if (!uid || saving) return
+    const r = Math.max(1, Math.min(5, Math.round(rating)))
+    setSaving(true)
+    try {
+      await persistEntries(sessionId, (existing) => {
+        const idx = existing.findIndex((e) => e.activityId === activityId)
+        if (idx < 0) {
+          return [
+            ...existing,
+            {
+              activityId,
+              status: 'in_progress' as ItemStatus,
+              rating: r,
+              attemptsUsed: 0,
+              attemptHistory: [],
+            },
+          ]
+        }
+        const copy = [...existing]
+        copy[idx] = { ...copy[idx]!, rating: r }
+        return copy
+      })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   const totalItems = flat.length
-  const completedItems = flat.reduce((s, x) => s + (getActivityStatus(x.session.id, x.activity.id) === 'completed' ? 1 : 0), 0)
-  const reviewItems = flat.reduce((s, x) => s + (getActivityStatus(x.session.id, x.activity.id) === 'review' ? 1 : 0), 0)
-  const pct = totalItems === 0 ? 0 : Math.round((completedItems / totalItems) * 100)
+  const completedItems = flat.reduce(
+    (s, x) => s + (getActivityStatus(x.session.id, x.activity.id) === 'completed' ? 1 : 0),
+    0,
+  )
+
+  const sessionDoneCount = useCallback(
+    (s: Session) =>
+      s.activities.reduce((n, a) => n + (getActivityStatus(s.id, a.id) === 'completed' ? 1 : 0), 0),
+    [getActivityStatus],
+  )
+
+  const selectedSession = sessions.find((s) => s.id === selectedSessionId) ?? null
+
+  if (loading) {
+    return (
+      <div className="shell">
+        <p className="muted">Loading…</p>
+      </div>
+    )
+  }
+  if (!course) {
+    return (
+      <div className="shell">
+        <p className="error">Course not found.</p>
+      </div>
+    )
+  }
+
+  const studentName = profile?.name ?? 'Student'
 
   return (
-    <div>
-      <div className="course-hero">
-        <Link to="/student" className="btn ghost small" style={{ marginBottom: '0.75rem' }}>← My Courses</Link>
-        <h1 style={{ margin: '0 0 0.25rem' }}>{course.title}</h1>
-        {course.description ? <p className="muted" style={{ margin: '0 0 0.75rem' }}>{course.description}</p> : null}
-        {error ? <p className="error">{error}</p> : null}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 180 }}>
-            <div className="planner-progress-bar"><div className="planner-progress-fill" style={{ width: `${pct}%` }} /></div>
+    <div className="student-syllabus">
+      <div className="student-syllabus-top">
+        <Link to="/student" className="btn ghost small">
+          ← My Courses
+        </Link>
+        <div className="student-syllabus-hero">
+          <div>
+            <h1 className="student-syllabus-title">{studentName}</h1>
+            {course.description ? <p className="muted small" style={{ margin: '0.25rem 0 0' }}>{course.description}</p> : null}
+            <p className="muted small" style={{ margin: '0.35rem 0 0' }}>
+              Course: <strong style={{ color: 'var(--text)' }}>{course.title}</strong>
+            </p>
           </div>
-          <span style={{ fontWeight: 700 }}>{pct}%</span>
-          <span className="tag">{completedItems} approved</span>
-          {reviewItems > 0 && <span className="tag" style={{ background: '#fef9c3', color: '#92400e', border: 'none' }}>{reviewItems} under review</span>}
-          {pct === 100 && <span className="tag" style={{ background: '#dcfce7', color: '#166534', border: 'none' }}>🎉 Complete!</span>}
+          <div className="student-syllabus-progress-pill">
+            <span className="student-syllabus-progress-count">
+              {completedItems}/{totalItems || '—'}
+            </span>
+            <span className="muted small">items completed</span>
+          </div>
         </div>
+        {error ? <p className="error">{error}</p> : null}
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-        {sessions.map((s) => (
-          <div key={s.id} className="module-accordion">
-            <div className="module-accordion-header" style={{ cursor: 'default' }}>
-              <span style={{ fontWeight: 700 }}>{s.order ? `${s.order}. ` : ''}{s.title}</span>
-              <span className="muted small">{s.activities.length} activities</span>
-            </div>
-            <div className="lesson-card">
-              <div className="lesson-items-list">
-                {s.activities.map((a) => {
-                  const status = getActivityStatus(s.id, a.id)
-                  const isUnlocked = unlockedSet.has(`${s.id}__${a.id}`)
+      <div className="student-syllabus-grid">
+        <aside className="student-syllabus-modules">
+          <h2 className="student-syllabus-modules-heading">Modules</h2>
+          <ul className="student-syllabus-module-list">
+            {sessions.map((s) => {
+              const done = sessionDoneCount(s)
+              const total = s.activities.length
+              const active = selectedSessionId === s.id
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    className={`student-syllabus-module-btn${active ? ' active' : ''}`}
+                    onClick={() => setSelectedSessionId(s.id)}
+                  >
+                    <span className="student-syllabus-module-name">{s.order ? `${s.order}. ` : ''}{s.title}</span>
+                    <span className="student-syllabus-module-meta">
+                      {done}/{total} done
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+          {sessions.length === 0 ? <p className="muted small">No modules yet.</p> : null}
+        </aside>
+
+        <section className="student-syllabus-detail">
+          {!selectedSession ? (
+            <p className="muted">Select a module.</p>
+          ) : (
+            <>
+              <div className="student-syllabus-module-header">
+                <div>
+                  <h2 className="student-syllabus-module-title">
+                    {selectedSession.order ? `${selectedSession.order}. ` : ''}
+                    {selectedSession.title}
+                  </h2>
+                  <span className="muted small">{selectedSession.activities.length} items</span>
+                </div>
+              </div>
+
+              <div className="student-syllabus-items">
+                {selectedSession.activities.map((a) => {
+                  const status = getActivityStatus(selectedSession.id, a.id)
+                  const isUnlocked = unlockedSet.has(`${selectedSession.id}__${a.id}`)
                   const colors = itemTypeColors(a.type)
-                  const attemptsUsed = getAttemptsUsed(s.id, a.id)
-                  const attemptsLeft = Math.max(0, MAX_ATTEMPTS - attemptsUsed)
-                  const canMark = isUnlocked && status !== 'review' && status !== 'completed' && attemptsUsed < MAX_ATTEMPTS
-                  const due = getIsDue(s.id, a.id)
+                  const attemptsUsed = getAttemptsUsed(selectedSession.id, a.id)
+                  const entry = getEntry(progressMap, selectedSession.id, a.id)
+                  const rating = entry?.rating ?? 0
+                  const nk = noteKey(selectedSession.id, a.id)
+                  const notes = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
+                  const history = entry?.attemptHistory ?? []
+                  const canAddAttempt = isUnlocked && status !== 'completed' && attemptsUsed < MAX_ATTEMPTS
+                  const canMark =
+                    isUnlocked && status !== 'review' && status !== 'completed' && attemptsUsed < MAX_ATTEMPTS
+                  const due = getIsDue(selectedSession.id, a.id)
+
                   return (
-                    <div key={a.id} className={`lesson-activity-row ${status}`}
-                      style={{ borderLeft: `3px solid ${isUnlocked ? colors.border : '#e2e8f0'}`, background: status === 'completed' ? '#f8fdf9' : status === 'review' ? '#fffbeb' : '#fff', opacity: isUnlocked ? 1 : 0.45 }}>
-                      <span className="activity-type-badge" style={{ background: colors.bg, color: colors.text }}>{itemTypeLabel(a.type)}</span>
-                      <span className="activity-title" style={{ textDecoration: status === 'completed' ? 'line-through' : 'none' }}>{a.title}</span>
-                      {due ? <span className="tag" style={{ background: '#fff0f0', borderColor: '#ffc7c7', color: '#b91c1c' }}>DUE</span> : null}
-                      {attemptsUsed > 0 && status !== 'completed' ? (
-                        <span className="tag" style={{ background: '#eef2ff', borderColor: '#c7d2fe', color: '#3730a3' }}>
-                          Attempts left: {attemptsLeft}
+                    <article key={a.id} className="student-syllabus-item" style={{ opacity: isUnlocked ? 1 : 0.5 }}>
+                      <div className="student-syllabus-item-head">
+                        <span className="activity-type-badge" style={{ background: colors.bg, color: colors.text }}>
+                          {itemTypeLabel(a.type)}
                         </span>
-                      ) : null}
-                      {canMark ? (
-                        <button type="button" className="mark-done-btn" onClick={() => void markForReview(s.id, a.id)} disabled={saving}>
-                          Mark as Done
+                        <h3 className="student-syllabus-item-title">{a.title}</h3>
+                        {due ? (
+                          <span className="tag" style={{ background: '#fff0f0', borderColor: '#ffc7c7', color: '#b91c1c' }}>
+                            DUE
+                          </span>
+                        ) : null}
+                      </div>
+                      {a.remark ? <p className="muted small" style={{ margin: '0 0 0.5rem' }}>{a.remark}</p> : null}
+
+                      <div className="student-syllabus-item-meta row" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <div className="student-syllabus-stars" aria-label="Rating">
+                          {[1, 2, 3, 4, 5].map((star) => (
+                            <button
+                              key={star}
+                              type="button"
+                              className={`student-syllabus-star${star <= rating ? ' on' : ''}`}
+                              disabled={!isUnlocked || saving}
+                              onClick={() => void updateRating(selectedSession.id, a.id, star)}
+                              title={`${star} star${star > 1 ? 's' : ''}`}
+                            >
+                              ★
+                            </button>
+                          ))}
+                        </div>
+                        <span className="muted small">
+                          {attemptsUsed}/{MAX_ATTEMPTS} attempts
+                        </span>
+                        <span className="muted small" style={{ marginLeft: 'auto' }}>
+                          {statusLabel(status)}
+                        </span>
+                      </div>
+
+                      <div className="student-syllabus-attempts">
+                        <div className="student-syllabus-attempts-label">Attempt History</div>
+                        {history.length === 0 ? (
+                          <p className="muted small" style={{ margin: 0 }}>
+                            No attempts yet.
+                          </p>
+                        ) : (
+                          <table className="student-syllabus-table">
+                            <thead>
+                              <tr>
+                                <th>#</th>
+                                <th>Date</th>
+                                <th>Status</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {history.map((h, i) => (
+                                <tr key={`${h.at}-${i}`}>
+                                  <td>{i + 1}</td>
+                                  <td>{new Date(h.at).toLocaleString()}</td>
+                                  <td>{h.status ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+
+                      <label className="student-syllabus-notes-label">
+                        Notes (optional)
+                        <textarea
+                          className="student-syllabus-notes"
+                          rows={2}
+                          value={notes}
+                          disabled={!isUnlocked || saving}
+                          placeholder="Private notes…"
+                          onChange={(e) => {
+                            const v = e.target.value
+                            setNoteDrafts((d) => ({ ...d, [nk]: v }))
+                          }}
+                          onBlur={() => {
+                            const v = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
+                            if (v === (entry?.notes ?? '')) return
+                            void flushNotes(selectedSession.id, a.id, v)
+                          }}
+                        />
+                      </label>
+
+                      <div className="student-syllabus-item-actions">
+                        <button
+                          type="button"
+                          className="btn small ghost"
+                          disabled={!canAddAttempt || saving}
+                          onClick={() => void addAttempt(selectedSession.id, a.id)}
+                        >
+                          + Add Attempt
                         </button>
-                      ) : attemptsUsed >= MAX_ATTEMPTS && status !== 'completed' ? (
-                        <span className="status-badge" style={{ color: '#b91c1c' }}>No attempts left</span>
-                      ) : (
-                        <span className="status-badge" style={{ color: statusColor(status) }}>{statusLabel(status)}</span>
-                      )}
-                    </div>
+                        <button
+                          type="button"
+                          className="btn small primary"
+                          disabled={!canMark || saving}
+                          onClick={() => void markForReview(selectedSession.id, a.id)}
+                        >
+                          Mark Done
+                        </button>
+                      </div>
+                    </article>
                   )
                 })}
               </div>
-            </div>
-          </div>
-        ))}
-        {sessions.length === 0 && <div className="panel" style={{ textAlign: 'center', padding: '2rem' }}><p className="muted">No sessions yet.</p></div>}
+            </>
+          )}
+        </section>
       </div>
     </div>
   )

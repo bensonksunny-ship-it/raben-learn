@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, getDocs, orderBy, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/callables'
+import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
 import { normalizeRoles } from '../../lib/roles'
 import { useAuth } from '../../context/AuthContext'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
@@ -102,7 +102,7 @@ export function StudentsPage() {
       setName(''); setEmail(''); setCourseIds([]); setTempPassword('')
       await load()
     } catch (err: unknown) {
-      console.error('Create student failed', err)
+      console.error('[DEBUG] Create student failed with error:', err)
       setError(formatFirebaseError(err, 'Create failed'))
     } finally {
       setSaving(false)

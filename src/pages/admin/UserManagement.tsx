@@ -4,7 +4,7 @@ import {
   type QueryConstraint, type QueryDocumentSnapshot, type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/callables'
+import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
 import { normalizeRoles } from '../../lib/roles'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import type { Course, Role, UserProfile } from '../../types'

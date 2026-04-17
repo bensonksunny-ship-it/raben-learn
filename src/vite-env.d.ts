@@ -9,6 +9,8 @@ interface ImportMetaEnv {
   readonly VITE_FIREBASE_APP_ID: string
   readonly VITE_FIREBASE_MEASUREMENT_ID: string
   readonly VITE_FIREBASE_FUNCTIONS_REGION: string
+  /** Optional: force on/off same-origin `/__gcf__` proxy for Cloud Functions (default: auto from localhost + dev). */
+  readonly VITE_USE_GCF_PROXY?: string
 }
 
 interface ImportMeta {

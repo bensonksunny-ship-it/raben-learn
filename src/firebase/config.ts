@@ -1,17 +1,9 @@
 import { getApps, initializeApp } from 'firebase/app'
 import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
-import { getFunctions } from 'firebase/functions'
 import { getValidatedFirebaseEnv, maskKey } from './env'
 
 const { firebaseConfig, functionsRegion } = getValidatedFirebaseEnv()
-
-// Debug: Log masked config (API key is masked for security)
-console.log('Firebase Config:', {
-  ...firebaseConfig,
-  apiKey: maskKey(firebaseConfig.apiKey),
-  functionsRegion,
-})
 
 /** Safe for console: never prints the raw API key. */
 const firebaseConfigForLog = {
@@ -38,8 +30,3 @@ function getOrInitApp() {
 export const app = getOrInitApp()
 export const auth = getAuth(app)
 export const db = getFirestore(app)
-export const functions = getFunctions(app, functionsRegion)
-
-/** Used to build the official HTTPS callable URL (must match deployed region). */
-export const FIREBASE_PROJECT_ID = firebaseConfig.projectId
-export const FIREBASE_FUNCTIONS_REGION = functionsRegion

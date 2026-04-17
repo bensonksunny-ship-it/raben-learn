@@ -39,7 +39,7 @@ export type UpdateUserPayload = {
  * http://localhost — the browser blocks that with CORS. Deployed sites use the regional HTTPS URL;
  * Firebase callable endpoints allow CORS for web clients when called with `fetch` + Bearer token.
  */
-function useSameOriginGcfProxy(): boolean {
+function sameOriginGcfProxyEnabled(): boolean {
   if (typeof window === 'undefined') return false
 
   const h = (window.location.hostname || '').trim().toLowerCase()
@@ -91,7 +91,7 @@ function callableHttpUrl(name: string): string {
     return `${window.location.origin}/__gcf__/${name}`
   }
 
-  if (useSameOriginGcfProxy() || isLocalDevPageOrigin()) {
+  if (sameOriginGcfProxyEnabled() || isLocalDevPageOrigin()) {
     return `${window.location.origin}/__gcf__/${name}`
   }
 

@@ -314,6 +314,21 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 0.15rem;
 }
 .student-syllabus-progress-count { font-size: 1.35rem; font-weight: 700; color: var(--primary); }
+.student-syllabus-progress-bar {
+  margin-top: 0.75rem;
+  height: 6px;
+  width: 100%;
+  background: var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.student-syllabus-progress-bar-fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), color-mix(in srgb, var(--primary) 70%, #a855f7));
+  border-radius: 999px;
+  transition: width 0.4s ease;
+}
 .student-syllabus-grid {
   display: grid; grid-template-columns: minmax(220px, 280px) 1fr; gap: 1.25rem; align-items: start;
 }
@@ -335,7 +350,7 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
 }
 .student-syllabus-module-title { margin: 0 0 0.25rem; font-size: 1.25rem; font-weight: 700; }
-.student-syllabus-items { display: flex; flex-direction: column; gap: 1.25rem; }
+.student-syllabus-items { display: flex; flex-direction: column; gap: 1.25rem; } /* legacy, retained */
 .student-syllabus-item {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem 1.1rem;
 }
@@ -357,6 +372,174 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   width: 100%; padding: 0.5rem 0.65rem; border-radius: 8px; border: 1px solid var(--border); font-family: inherit; font-size: 0.9rem; resize: vertical;
 }
 .student-syllabus-item-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem; }
+
+/* Student syllabus — Vertical task-list (compact row card with expand-on-click) */
+.student-task-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.student-task {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+}
+.student-task:hover { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+.student-task.expanded {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.02), 0 4px 12px -6px rgba(79, 70, 229, 0.18);
+}
+.student-task.locked { background: var(--surface-soft); opacity: 0.75; }
+.student-task.done { background: #f8fdf9; border-color: #bbf7d0; }
+.student-task.done .student-task-title { text-decoration: line-through; color: var(--muted); }
+
+.student-task-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.65rem 0.85rem;
+}
+.student-task-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: none;
+  border: none;
+  padding: 0.15rem 0;
+  margin: 0;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  border-radius: 6px;
+}
+.student-task-trigger:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.student-task-badge {
+  padding: 0.18rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.student-task-titles {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+.student-task-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.student-task-remark {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.student-task-due {
+  padding: 0.12rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: #fee2e2;
+  color: #b91c1c;
+  white-space: nowrap;
+}
+.student-task-status,
+.student-task-attempts {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.student-task-actions {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  flex-shrink: 0;
+}
+.student-task-actions .btn.small { padding: 0.3rem 0.75rem; font-size: 0.8rem; border-radius: 7px; }
+.student-task-chevron {
+  color: var(--muted-2);
+  font-size: 0.85rem;
+  width: 0.9rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.student-task-details {
+  border-top: 1px solid var(--border);
+  padding: 0.9rem 1rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  background: var(--surface-soft);
+  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
+}
+.student-task-details-row { display: flex; align-items: center; gap: 0.75rem; }
+.student-task-stars { display: inline-flex; gap: 0.1rem; }
+.student-task-history-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted-2);
+  margin-bottom: 0.35rem;
+}
+.student-task-history-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.82rem;
+}
+.student-task-history-list li {
+  display: grid;
+  grid-template-columns: 2rem 1fr auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.3rem 0.5rem;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.student-task-notes-label { display: flex; flex-direction: column; gap: 0.3rem; }
+.student-task-notes {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: 0.9rem;
+  resize: vertical;
+  background: #ffffff;
+}
+
+@media (max-width: 900px) {
+  .student-task-row { flex-wrap: wrap; row-gap: 0.5rem; }
+  .student-task-trigger { flex-basis: 100%; }
+  .student-task-status, .student-task-attempts { font-size: 0.78rem; }
+  .student-task-actions { margin-left: auto; }
+}
 @media (max-width: 768px) {
   .student-syllabus-grid { grid-template-columns: 1fr; }
 }

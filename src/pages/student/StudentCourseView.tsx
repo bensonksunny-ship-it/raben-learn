@@ -43,6 +43,8 @@ export function StudentCourseView() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  /** Currently-expanded task card (only one at a time, scoped per session view). */
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   /** Local note text before blur-save (key: `${sessionId}__${activityId}`). */
   const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
 
@@ -343,6 +345,21 @@ export function StudentCourseView() {
             <span className="muted small">items completed</span>
           </div>
         </div>
+        {totalItems > 0 ? (
+          <div
+            className="student-syllabus-progress-bar"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={totalItems}
+            aria-valuenow={completedItems}
+            aria-label={`${completedItems} of ${totalItems} items completed`}
+          >
+            <span
+              className="student-syllabus-progress-bar-fill"
+              style={{ width: `${Math.round((completedItems / totalItems) * 100)}%` }}
+            />
+          </div>
+        ) : null}
         {error ? <p className="error">{error}</p> : null}
       </div>
 
@@ -388,7 +405,7 @@ export function StudentCourseView() {
                 </div>
               </div>
 
-              <div className="student-syllabus-items">
+              <ul className="student-task-list">
                 {selectedSession.activities.map((a) => {
                   const status = getActivityStatus(selectedSession.id, a.id)
                   const isUnlocked = unlockedSet.has(`${selectedSession.id}__${a.id}`)
@@ -403,115 +420,133 @@ export function StudentCourseView() {
                   const canMark =
                     isUnlocked && status !== 'review' && status !== 'completed' && attemptsUsed < MAX_ATTEMPTS
                   const due = getIsDue(selectedSession.id, a.id)
+                  const isExpanded = expandedId === a.id
+                  const isDone = status === 'completed'
 
                   return (
-                    <article key={a.id} className="student-syllabus-item" style={{ opacity: isUnlocked ? 1 : 0.5 }}>
-                      <div className="student-syllabus-item-head">
-                        <span className="activity-type-badge" style={{ background: colors.bg, color: colors.text }}>
-                          {itemTypeLabel(a.type)}
-                        </span>
-                        <h3 className="student-syllabus-item-title">{a.title}</h3>
-                        {due ? (
-                          <span className="tag" style={{ background: '#fff0f0', borderColor: '#ffc7c7', color: '#b91c1c' }}>
-                            DUE
+                    <li
+                      key={a.id}
+                      className={[
+                        'student-task',
+                        isExpanded ? 'expanded' : '',
+                        !isUnlocked ? 'locked' : '',
+                        isDone ? 'done' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      <div className="student-task-row">
+                        <button
+                          type="button"
+                          className="student-task-trigger"
+                          onClick={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
+                          aria-expanded={isExpanded}
+                          aria-label={`${itemTypeLabel(a.type)}: ${a.title}. ${attemptsUsed} of ${MAX_ATTEMPTS} attempts. ${statusLabel(status)}. ${isExpanded ? 'Collapse' : 'Expand'} details.`}
+                        >
+                          <span
+                            className="student-task-badge"
+                            style={{ background: colors.bg, color: colors.text }}
+                          >
+                            {itemTypeLabel(a.type)}
                           </span>
-                        ) : null}
-                      </div>
-                      {a.remark ? <p className="muted small" style={{ margin: '0 0 0.5rem' }}>{a.remark}</p> : null}
-
-                      <div className="student-syllabus-item-meta row" style={{ alignItems: 'center', marginBottom: '0.5rem' }}>
-                        <div className="student-syllabus-stars" aria-label="Rating">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <button
-                              key={star}
-                              type="button"
-                              className={`student-syllabus-star${star <= rating ? ' on' : ''}`}
-                              disabled={!isUnlocked || saving}
-                              onClick={() => void updateRating(selectedSession.id, a.id, star)}
-                              title={`${star} star${star > 1 ? 's' : ''}`}
-                            >
-                              ★
-                            </button>
-                          ))}
+                          <span className="student-task-titles">
+                            <span className="student-task-title">{a.title}</span>
+                            {a.remark ? <span className="student-task-remark muted small">{a.remark}</span> : null}
+                          </span>
+                          {due ? <span className="student-task-due">DUE</span> : null}
+                          {!isUnlocked ? (
+                            <span className="student-task-status muted small">🔒 Locked</span>
+                          ) : (
+                            <span className="student-task-status muted small">{statusLabel(status)}</span>
+                          )}
+                          <span className="student-task-attempts muted small">
+                            {attemptsUsed}/{MAX_ATTEMPTS} attempts
+                          </span>
+                          <span className="student-task-chevron" aria-hidden>
+                            {isExpanded ? '▾' : '▸'}
+                          </span>
+                        </button>
+                        <div className="student-task-actions">
+                          <button
+                            type="button"
+                            className="btn small ghost"
+                            disabled={!canAddAttempt || saving}
+                            onClick={() => void addAttempt(selectedSession.id, a.id)}
+                          >
+                            + Add Attempt
+                          </button>
+                          <button
+                            type="button"
+                            className="btn small primary"
+                            disabled={!canMark || saving}
+                            onClick={() => void markForReview(selectedSession.id, a.id)}
+                          >
+                            Mark Done
+                          </button>
                         </div>
-                        <span className="muted small">
-                          {attemptsUsed}/{MAX_ATTEMPTS} attempts
-                        </span>
-                        <span className="muted small" style={{ marginLeft: 'auto' }}>
-                          {statusLabel(status)}
-                        </span>
                       </div>
 
-                      <div className="student-syllabus-attempts">
-                        <div className="student-syllabus-attempts-label">Attempt History</div>
-                        {history.length === 0 ? (
-                          <p className="muted small" style={{ margin: 0 }}>
-                            No attempts yet.
-                          </p>
-                        ) : (
-                          <table className="student-syllabus-table">
-                            <thead>
-                              <tr>
-                                <th>#</th>
-                                <th>Date</th>
-                                <th>Status</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {history.map((h, i) => (
-                                <tr key={`${h.at}-${i}`}>
-                                  <td>{i + 1}</td>
-                                  <td>{new Date(h.at).toLocaleString()}</td>
-                                  <td>{h.status ?? '—'}</td>
-                                </tr>
+                      {isExpanded ? (
+                        <div className="student-task-details">
+                          <div className="student-task-details-row">
+                            <div className="student-task-stars" aria-label="Rating">
+                              {[1, 2, 3, 4, 5].map((star) => (
+                                <button
+                                  key={star}
+                                  type="button"
+                                  className={`student-syllabus-star${star <= rating ? ' on' : ''}`}
+                                  disabled={!isUnlocked || saving}
+                                  onClick={() => void updateRating(selectedSession.id, a.id, star)}
+                                  title={`${star} star${star > 1 ? 's' : ''}`}
+                                >
+                                  ★
+                                </button>
                               ))}
-                            </tbody>
-                          </table>
-                        )}
-                      </div>
+                            </div>
+                          </div>
 
-                      <label className="student-syllabus-notes-label">
-                        Notes (optional)
-                        <textarea
-                          className="student-syllabus-notes"
-                          rows={2}
-                          value={notes}
-                          disabled={!isUnlocked || saving}
-                          placeholder="Private notes…"
-                          onChange={(e) => {
-                            const v = e.target.value
-                            setNoteDrafts((d) => ({ ...d, [nk]: v }))
-                          }}
-                          onBlur={() => {
-                            const v = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
-                            if (v === (entry?.notes ?? '')) return
-                            void flushNotes(selectedSession.id, a.id, v)
-                          }}
-                        />
-                      </label>
+                          <div className="student-task-history">
+                            <div className="student-task-history-label">Attempt history</div>
+                            {history.length === 0 ? (
+                              <p className="muted small" style={{ margin: 0 }}>No attempts yet.</p>
+                            ) : (
+                              <ol className="student-task-history-list">
+                                {history.map((h, i) => (
+                                  <li key={`${h.at}-${i}`}>
+                                    <span className="muted small">#{i + 1}</span>
+                                    <span>{new Date(h.at).toLocaleString()}</span>
+                                    <span className="muted small">{h.status ?? '—'}</span>
+                                  </li>
+                                ))}
+                              </ol>
+                            )}
+                          </div>
 
-                      <div className="student-syllabus-item-actions">
-                        <button
-                          type="button"
-                          className="btn small ghost"
-                          disabled={!canAddAttempt || saving}
-                          onClick={() => void addAttempt(selectedSession.id, a.id)}
-                        >
-                          + Add Attempt
-                        </button>
-                        <button
-                          type="button"
-                          className="btn small primary"
-                          disabled={!canMark || saving}
-                          onClick={() => void markForReview(selectedSession.id, a.id)}
-                        >
-                          Mark Done
-                        </button>
-                      </div>
-                    </article>
+                          <label className="student-task-notes-label">
+                            <span className="muted small">Notes (optional)</span>
+                            <textarea
+                              className="student-task-notes"
+                              rows={2}
+                              value={notes}
+                              disabled={!isUnlocked || saving}
+                              placeholder="Private notes…"
+                              onChange={(e) => {
+                                const v = e.target.value
+                                setNoteDrafts((d) => ({ ...d, [nk]: v }))
+                              }}
+                              onBlur={() => {
+                                const v = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
+                                if (v === (entry?.notes ?? '')) return
+                                void flushNotes(selectedSession.id, a.id, v)
+                              }}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                    </li>
                   )
                 })}
-              </div>
+              </ul>
             </>
           )}
         </section>

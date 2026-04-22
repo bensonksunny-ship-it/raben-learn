@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
-import type { Course, DailyPlan, DailyPlanItem, LessonItemType, ProgressEntry, Session } from '../../types'
+import { readTopicsFromSessionDoc } from '../../lib/topics'
+import type { Course, DailyPlan, DailyPlanItem, LessonItemType, ProgressEntry, Session, TopicType } from '../../types'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function formatTime(ms: number) {
@@ -10,12 +11,15 @@ function formatTime(ms: number) {
   if (h > 0) return `${h}h ${m}m`
   return `${m}m ${String(sec).padStart(2, '0')}s`
 }
-function itemTypeLabel(t: LessonItemType | string) { return t === 'concept' ? 'Concept' : t === 'exercise' ? 'Exercise' : 'Implementation' }
-function itemTypeColors(t: LessonItemType | string) {
-  if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af' }
-  if (t === 'exercise') return { bg: '#dcfce7', text: '#166534' }
+function itemTypeLabel(t: LessonItemType | string): string {
+  if (t === 'concept') return 'Concept'
+  if (t === 'custom') return 'Custom'
+  return 'Exercise'
+}
+function itemTypeColors(t: LessonItemType | string): { bg: string; text: string } {
+  if (t === 'concept') return { bg: '#ede9fe', text: '#5b21b6' }
   if (t === 'custom') return { bg: '#f3f4f6', text: '#374151' }
-  return { bg: '#fce7f3', text: '#9d174d' }
+  return { bg: '#dcfce7', text: '#166534' }
 }
 
 function timeStrToMinutes(s: string): number | null {
@@ -37,7 +41,7 @@ interface SuggestedItem {
   sessionTitle: string
   courseId: string
   courseName: string
-  activity: { id: string; title: string; type: LessonItemType }
+  activity: { id: string; title: string; type: TopicType }
 }
 
 export function StudentDailyPlanner() {
@@ -146,9 +150,9 @@ export function StudentDailyPlanner() {
     const suggested: SuggestedItem[] = []
     sessionsSnap.forEach((d) => {
       const x = d.data()
-      const activities = (x.activities as Array<{ id: string; title: string; type: LessonItemType }>) ?? []
+      const topics = readTopicsFromSessionDoc(x.activities)
       const cid = (x.courseId as string) ?? ''
-      activities.forEach((activity) => {
+      topics.forEach((activity) => {
         const alreadyInPlan = plan?.items.some((p) => p.activityId === activity.id && p.sessionId === d.id)
         if (!completedItems.has(activity.id) && !alreadyInPlan) {
           suggested.push({ sessionId: d.id, sessionTitle: (x.title as string) ?? '', courseId: cid, courseName: courseMap.get(cid) ?? '', activity })
@@ -185,7 +189,7 @@ export function StudentDailyPlanner() {
         courseId: (x.courseId as string) ?? null,
         courseName: (x.courseName as string) ?? '',
         order: Number(x.order ?? 0),
-        activities: (x.activities as Session['activities']) ?? [],
+        activities: readTopicsFromSessionDoc(x.activities),
       })
     })
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))

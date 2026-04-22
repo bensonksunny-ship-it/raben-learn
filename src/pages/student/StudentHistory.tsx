@@ -41,7 +41,7 @@ export function StudentHistory() {
             <div key={r.id} className="course-card" style={{ background: '#f8fdf9', borderColor: '#bbf7d0' }}>
               <span style={{ fontSize: '2rem' }}>🎓</span>
               <h3 style={{ margin: '0.25rem 0' }}>{r.courseName}</h3>
-              <p className="muted small">{r.totalItems} activities completed</p>
+              <p className="muted small">{r.totalItems} topic{r.totalItems === 1 ? '' : 's'} completed</p>
               {r.completedAt ? <p className="muted small">Completed: {new Date(r.completedAt).toLocaleDateString()}</p> : null}
               <span className="tag" style={{ background: '#dcfce7', color: '#166534', border: 'none', marginTop: '0.5rem' }}>✓ Certificate Earned</span>
             </div>

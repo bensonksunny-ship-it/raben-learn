@@ -19,15 +19,43 @@ export interface Course {
   createdAt?: unknown
 }
 
-export type LessonItemType = 'concept' | 'exercise' | 'implementation' | 'songsheet' | 'custom'
+/**
+ * Canonical type for a session Topic. A Topic is either a Concept or an Exercise.
+ * Legacy session documents may still carry 'implementation' / 'songsheet' / 'custom' —
+ * those are mapped to one of these two buckets via `normalizeTopicType()`.
+ */
+export type TopicType = 'concept' | 'exercise'
+
+/**
+ * Wider union kept for non-topic surfaces (e.g. DailyPlanItem lets students add a
+ * free-form 'custom' item that isn't part of any course session).
+ */
+export type LessonItemType = TopicType | 'custom'
 
 export type ItemStatus = 'locked' | 'in_progress' | 'review' | 'completed'
 
-export interface Activity {
+/**
+ * A single syllabus unit inside a Session. Rendered in declared order
+ * (no implicit grouping by type) so a session can freely interleave concepts
+ * and exercises — e.g. 3 concepts followed by 2 exercises.
+ */
+export interface Topic {
   id: string
-  type: LessonItemType
+  type: TopicType
   title: string
   remark?: string
+}
+
+/** @deprecated Use `Topic`. Kept as a type alias so older call sites keep compiling. */
+export type Activity = Topic
+
+/**
+ * Map any legacy / unknown type string onto a canonical TopicType.
+ * Anything that isn't clearly a concept falls back to 'exercise' (hands-on work).
+ */
+export function normalizeTopicType(raw: unknown): TopicType {
+  const v = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
+  return v === 'concept' ? 'concept' : 'exercise'
 }
 
 export interface Session {
@@ -37,7 +65,8 @@ export interface Session {
   courseName?: string
   courseId: string | null
   order?: number
-  activities: Activity[]
+  /** Ordered list of Topics. Stored in Firestore under the same field name for back-compat. */
+  activities: Topic[]
 }
 
 export interface DailyPlanItem {

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { normalizeRoles } from '../../lib/roles'
+import { readTopicsFromSessionDoc } from '../../lib/topics'
 import type { Course, ProgressEntry, Session } from '../../types'
 
 interface StudentSummary { id: string; name: string; email: string; courseIds: string[]; pct: number; reviewCount: number }
@@ -32,7 +33,7 @@ export function MentorDashboard() {
       const sessionMap = new Map<string, Session>()
       sessionsSnap.forEach((d) => {
         const x = d.data()
-        sessionMap.set(d.id, { id: d.id, title: '', courseId: (x.courseId as string) ?? null, order: Number(x.order ?? 0), activities: (x.activities as Session['activities']) ?? [] })
+        sessionMap.set(d.id, { id: d.id, title: '', courseId: (x.courseId as string) ?? null, order: Number(x.order ?? 0), activities: readTopicsFromSessionDoc(x.activities) })
       })
 
       const progByStudent = new Map<string, { done: number; review: number; total: number }>()

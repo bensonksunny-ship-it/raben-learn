@@ -3,21 +3,19 @@ import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import type { Activity, Course, LessonItemType, Session } from '../../types'
+import { normalizeTopicType, type Course, type Session, type Topic, type TopicType } from '../../types'
+import { readTopicsFromSessionDoc } from '../../lib/topics'
 
-function newActivity(): Activity { return { id: crypto.randomUUID(), type: 'concept', title: '', remark: '' } }
-function newActivityOfType(type: LessonItemType): Activity { return { id: crypto.randomUUID(), type, title: '', remark: '' } }
-function activityTypeLabel(t: LessonItemType | string) {
-  if (t === 'concept') return 'Concept'
-  if (t === 'exercise') return 'Exercise'
-  if (t === 'custom') return 'Custom'
-  return 'Implementation'
+function newTopic(type: TopicType = 'concept'): Topic {
+  return { id: crypto.randomUUID(), type, title: '', remark: '' }
 }
-function activityTypeColor(t: LessonItemType | string) {
-  if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af' }
-  if (t === 'exercise') return { bg: '#dcfce7', text: '#166534' }
-  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151' }
-  return { bg: '#fce7f3', text: '#9d174d' }
+function topicTypeLabel(t: TopicType): string {
+  return t === 'concept' ? 'Concept' : 'Exercise'
+}
+function topicTypeColor(t: TopicType): { bg: string; text: string } {
+  return t === 'concept'
+    ? { bg: '#ede9fe', text: '#5b21b6' }
+    : { bg: '#dcfce7', text: '#166534' }
 }
 
 export function SyllabusPage() {
@@ -32,7 +30,7 @@ export function SyllabusPage() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [sessionTitle, setSessionTitle] = useState('')
   const [sessionOrder, setSessionOrder] = useState(1)
-  const [sessionActivities, setSessionActivities] = useState<Activity[]>([newActivity()])
+  const [sessionTopics, setSessionTopics] = useState<Topic[]>([newTopic()])
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -43,9 +41,9 @@ export function SyllabusPage() {
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null
 
-  const [addActivitySessionId, setAddActivitySessionId] = useState<string | null>(null)
-  const [addActivityTitle, setAddActivityTitle] = useState('')
-  const [addActivityType, setAddActivityType] = useState<LessonItemType>('concept')
+  const [addTopicSessionId, setAddTopicSessionId] = useState<string | null>(null)
+  const [addTopicTitle, setAddTopicTitle] = useState('')
+  const [addTopicType, setAddTopicType] = useState<TopicType>('concept')
 
   async function loadCourses() {
     const snap = await getDocs(collection(db, 'courses'))
@@ -63,6 +61,7 @@ export function SyllabusPage() {
     const list: Session[] = []
     snap.forEach((d) => {
       const x = d.data()
+      const topics = readTopicsFromSessionDoc(x.activities)
       list.push({
         id: d.id,
         title: (x.title as string) ?? '',
@@ -70,7 +69,7 @@ export function SyllabusPage() {
         courseName: (x.courseName as string) ?? '',
         courseId: (x.courseId as string) ?? null,
         order: Number(x.order ?? 0),
-        activities: (x.activities as Session['activities']) ?? [],
+        activities: topics,
       })
     })
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title))
@@ -97,7 +96,7 @@ export function SyllabusPage() {
     setEditingSessionId(null)
     setSessionTitle('')
     setSessionOrder(sessions.length + 1)
-    setSessionActivities([newActivity()])
+    setSessionTopics([newTopic()])
     setSessionFormOpen(true)
   }
 
@@ -105,16 +104,18 @@ export function SyllabusPage() {
     setEditingSessionId(session.id)
     setSessionTitle(session.title)
     setSessionOrder(session.order ?? 1)
-    setSessionActivities(session.activities.length > 0 ? [...session.activities] : [newActivity()])
+    setSessionTopics(session.activities.length > 0 ? [...session.activities] : [newTopic()])
     setSessionFormOpen(true)
   }
 
   async function saveSession(e: FormEvent) {
     e.preventDefault()
     if (!selectedCourseId) return
-    const cleaned = sessionActivities.map((a) => ({ ...a, title: a.title.trim(), remark: (a.remark ?? '').trim() })).filter((a) => a.title.length > 0)
+    const cleaned = sessionTopics
+      .map((t) => ({ ...t, title: t.title.trim(), remark: (t.remark ?? '').trim() }))
+      .filter((t) => t.title.length > 0)
     if (!sessionTitle.trim()) { setError('Session title is required.'); return }
-    if (cleaned.length === 0) { setError('Add at least one activity.'); return }
+    if (cleaned.length === 0) { setError('Add at least one topic.'); return }
     setSaving(true); setError('')
     try {
       const data = { courseId: selectedCourseId, courseName: selectedCourse?.title ?? '', title: sessionTitle.trim(), order: sessionOrder, activities: cleaned, updatedAt: serverTimestamp() }
@@ -132,66 +133,80 @@ export function SyllabusPage() {
     catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
   }
 
-  function openAddActivity(session: Session) {
-    setAddActivitySessionId(session.id)
-    setAddActivityTitle('')
-    setAddActivityType('concept')
+  function openAddTopic(session: Session) {
+    setAddTopicSessionId(session.id)
+    setAddTopicTitle('')
+    setAddTopicType('concept')
   }
 
-  async function saveAddActivity() {
-    if (!selectedCourseId || !addActivitySessionId) return
-    const session = sessions.find((s) => s.id === addActivitySessionId) ?? null
+  async function saveAddTopic() {
+    if (!selectedCourseId || !addTopicSessionId) return
+    const session = sessions.find((s) => s.id === addTopicSessionId) ?? null
     if (!session) return
-    const title = addActivityTitle.trim()
-    if (!title) { setError('Activity title is required.'); return }
+    const title = addTopicTitle.trim()
+    if (!title) { setError('Topic title is required.'); return }
 
     setSaving(true); setError('')
     try {
-      const next = [...(session.activities ?? []), { id: crypto.randomUUID(), title, type: addActivityType, remark: '' }]
+      const next: Topic[] = [
+        ...(session.activities ?? []),
+        { id: crypto.randomUUID(), title, type: addTopicType, remark: '' },
+      ]
       await updateDoc(doc(db, 'sessions', session.id), { activities: next, updatedAt: serverTimestamp() })
-      setAddActivitySessionId(null)
+      setAddTopicSessionId(null)
       await loadSessions(selectedCourseId)
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
   }
 
-  function updateActivity(index: number, patch: Partial<Activity>) { setSessionActivities((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it))) }
-  function removeActivity(index: number) { setSessionActivities((prev) => prev.filter((_, i) => i !== index)) }
+  function updateTopic(index: number, patch: Partial<Topic>) {
+    setSessionTopics((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)))
+  }
+  function removeTopic(index: number) {
+    setSessionTopics((prev) => prev.filter((_, i) => i !== index))
+  }
+  function moveTopic(index: number, direction: -1 | 1) {
+    setSessionTopics((prev) => {
+      const next = [...prev]
+      const target = index + direction
+      if (target < 0 || target >= next.length) return prev
+      const [item] = next.splice(index, 1)
+      next.splice(target, 0, item!)
+      return next
+    })
+  }
 
-  async function updateActivityInline(session: Session, activityId: string, patch: Partial<Activity>) {
+  async function updateTopicInline(session: Session, topicId: string, patch: Partial<Topic>) {
     if (!selectedCourseId) return
     setSaving(true); setError('')
     try {
-      const next = session.activities.map((a) => (a.id === activityId ? { ...a, ...patch } : a))
+      const next = session.activities.map((a) => (a.id === topicId ? { ...a, ...patch } : a))
       await updateDoc(doc(db, 'sessions', session.id), { activities: next, updatedAt: serverTimestamp() })
       await loadSessions(selectedCourseId)
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
   }
 
-  async function deleteActivityInline(session: Session, activityId: string) {
+  async function deleteTopicInline(session: Session, topicId: string) {
     if (!selectedCourseId) return
-    if (!window.confirm('Delete this activity?')) return
+    if (!window.confirm('Delete this topic?')) return
     setSaving(true); setError('')
     try {
-      const next = session.activities.filter((a) => a.id !== activityId)
-      if (next.length === 0) { setError('A session must have at least one activity.'); return }
+      const next = session.activities.filter((a) => a.id !== topicId)
+      if (next.length === 0) { setError('A session must have at least one topic.'); return }
       await updateDoc(doc(db, 'sessions', session.id), { activities: next, updatedAt: serverTimestamp() })
       await loadSessions(selectedCourseId)
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
   }
 
-  async function quickEditActivityTitle(session: Session, a: Activity) {
-    const nextTitle = window.prompt('Edit activity title', a.title)
+  async function quickEditTopicTitle(session: Session, t: Topic) {
+    const nextTitle = window.prompt('Edit topic title', t.title)
     if (nextTitle == null) return
     const cleaned = nextTitle.trim()
     if (!cleaned) return
-    await updateActivityInline(session, a.id, { title: cleaned })
+    await updateTopicInline(session, t.id, { title: cleaned })
   }
 
-  function parseActivityType(raw: string): LessonItemType {
-    const v = raw.trim().toLowerCase()
-    if (v.startsWith('con')) return 'concept'
-    if (v.startsWith('ex')) return 'exercise'
-    return 'implementation'
+  function parseTopicType(raw: string): TopicType {
+    return normalizeTopicType(raw)
   }
 
   function isTitleRow(row: (string | number | null)[]): string | null {
@@ -204,7 +219,7 @@ export function SyllabusPage() {
     return first
   }
 
-  interface SessionBlock { name: string; order: number; activities: Activity[] }
+  interface SessionBlock { name: string; order: number; topics: Topic[] }
 
   function parseRows(rows: (string | number | null)[][]): SessionBlock[] {
     const sessionsParsed: SessionBlock[] = []
@@ -215,15 +230,12 @@ export function SyllabusPage() {
       const titleVal = isTitleRow(rows[i] ?? [])
       if (!titleVal) { i++; continue }
 
-      // It's a session title
       sessionCount++
       const sessionName = titleVal
       i++
 
-      // skip optional subtitle row
       if (i < rows.length && isTitleRow(rows[i] ?? [])) i++
 
-      // find header row
       let topicIdx = -1, typeIdx = -1, remarkIdx = -1
       while (i < rows.length) {
         const labels = (rows[i] ?? []).map((c) => String(c ?? '').trim().toLowerCase())
@@ -234,8 +246,7 @@ export function SyllabusPage() {
       }
       if (topicIdx === -1) continue
 
-      // collect activities
-      const activities: Activity[] = []
+      const topics: Topic[] = []
       while (i < rows.length) {
         if (isTitleRow(rows[i] ?? [])) break
         const row = rows[i] ?? []
@@ -243,13 +254,13 @@ export function SyllabusPage() {
         const rawType = String(row[typeIdx] ?? '').trim()
         if (topic) {
           const remark = remarkIdx >= 0 ? String(row[remarkIdx] ?? '').trim() : ''
-          activities.push({ id: crypto.randomUUID(), title: topic, type: parseActivityType(rawType), remark })
+          topics.push({ id: crypto.randomUUID(), title: topic, type: parseTopicType(rawType), remark })
         }
         i++
       }
 
-      if (activities.length > 0) {
-        sessionsParsed.push({ name: sessionName, order: sessionCount, activities })
+      if (topics.length > 0) {
+        sessionsParsed.push({ name: sessionName, order: sessionCount, topics })
       }
     }
 
@@ -274,7 +285,7 @@ export function SyllabusPage() {
           courseName: selectedCourse?.title ?? '',
           title: s.name,
           order: s.order,
-          activities: s.activities,
+          activities: s.topics,
           createdAt: serverTimestamp(),
         })
         created++
@@ -361,28 +372,48 @@ export function SyllabusPage() {
                   </div>
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0 }}>Activities</h4>
+                      <h4 style={{ margin: 0 }}>Topics</h4>
                       <div className="row">
-                        <button type="button" className="btn small ghost" onClick={() => setSessionActivities((p) => [...p, newActivityOfType('concept')])}>+ Concept</button>
-                        <button type="button" className="btn small ghost" onClick={() => setSessionActivities((p) => [...p, newActivityOfType('exercise')])}>+ Exercise</button>
-                        <button type="button" className="btn small ghost" onClick={() => setSessionActivities((p) => [...p, newActivityOfType('implementation')])}>+ Implementation</button>
+                        <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('concept')])}>+ Concept</button>
+                        <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('exercise')])}>+ Exercise</button>
                       </div>
                     </div>
-                    {sessionActivities.map((a, i) => {
-                      const colors = activityTypeColor(a.type)
-                      return (
-                        <div key={a.id} className="lesson-item-editor" style={{ borderLeftColor: colors.bg }}>
-                          <select value={a.type} onChange={(e) => updateActivity(i, { type: e.target.value as LessonItemType })}>
-                            <option value="concept">Concept</option>
-                            <option value="exercise">Exercise</option>
-                            <option value="implementation">Implementation</option>
-                          </select>
-                          <input placeholder={`${activityTypeLabel(a.type)} title *`} value={a.title} onChange={(e) => updateActivity(i, { title: e.target.value })} />
-                          <input placeholder="Remark (optional)" value={a.remark ?? ''} onChange={(e) => updateActivity(i, { remark: e.target.value })} />
-                          <button type="button" className="btn small ghost" onClick={() => removeActivity(i)} disabled={sessionActivities.length === 1} title="Remove">✕</button>
-                        </div>
-                      )
-                    })}
+                    <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
+                      Topics appear in the student syllabus in this exact order. Mix Concepts and Exercises freely.
+                    </p>
+                    <ol className="topic-editor-list">
+                      {sessionTopics.map((t, i) => {
+                        const colors = topicTypeColor(t.type)
+                        return (
+                          <li key={t.id} className="topic-editor-row" style={{ borderLeftColor: colors.bg }}>
+                            <span className="topic-editor-index muted small">{i + 1}</span>
+                            <select
+                              value={t.type}
+                              onChange={(e) => updateTopic(i, { type: e.target.value as TopicType })}
+                              aria-label="Topic type"
+                            >
+                              <option value="concept">Concept</option>
+                              <option value="exercise">Exercise</option>
+                            </select>
+                            <input
+                              placeholder={`${topicTypeLabel(t.type)} title *`}
+                              value={t.title}
+                              onChange={(e) => updateTopic(i, { title: e.target.value })}
+                            />
+                            <input
+                              placeholder="Remark (optional)"
+                              value={t.remark ?? ''}
+                              onChange={(e) => updateTopic(i, { remark: e.target.value })}
+                            />
+                            <div className="topic-editor-actions">
+                              <button type="button" className="btn small ghost" title="Move up" disabled={i === 0} onClick={() => moveTopic(i, -1)}>↑</button>
+                              <button type="button" className="btn small ghost" title="Move down" disabled={i === sessionTopics.length - 1} onClick={() => moveTopic(i, 1)}>↓</button>
+                              <button type="button" className="btn small ghost" onClick={() => removeTopic(i)} disabled={sessionTopics.length === 1} title="Remove">✕</button>
+                            </div>
+                          </li>
+                        )
+                      })}
+                    </ol>
                   </div>
                   <div className="row">
                     <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : editingSessionId ? 'Update' : 'Create'}</button>
@@ -394,51 +425,66 @@ export function SyllabusPage() {
 
             <ul className="syllabus-lesson-list">
               {sessions.map((s) => {
-                const grouped = {
-                  concept: s.activities.filter((a) => a.type === 'concept'),
-                  exercise: s.activities.filter((a) => a.type === 'exercise'),
-                  implementation: s.activities.filter((a) => a.type === 'implementation' || a.type === 'songsheet'),
-                }
+                const conceptCount = s.activities.filter((t) => t.type === 'concept').length
+                const exerciseCount = s.activities.length - conceptCount
                 return (
                   <li key={s.id} className="syllabus-lesson syllabus-session-card">
                     <div className="row syllabus-session-head">
                       <div>
                         <strong className="syllabus-session-title">{s.order}. {s.title}</strong>
-                        <span className="muted small syllabus-session-meta">{s.activities.length} activit{s.activities.length === 1 ? 'y' : 'ies'}</span>
+                        <span className="muted small syllabus-session-meta">
+                          {s.activities.length} topic{s.activities.length === 1 ? '' : 's'}
+                          {s.activities.length > 0 ? ` · ${conceptCount} concept${conceptCount === 1 ? '' : 's'}, ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}` : ''}
+                        </span>
                       </div>
                       <div className="actions syllabus-session-actions">
-                        <button type="button" className="btn small ghost" onClick={() => openAddActivity(s)} disabled={saving}>+ Activity</button>
+                        <button type="button" className="btn small ghost" onClick={() => openAddTopic(s)} disabled={saving}>+ Topic</button>
                         <button type="button" className="btn small ghost" onClick={() => openEditSessionForm(s)}>Edit</button>
                         <button type="button" className="btn small ghost" onClick={() => void deleteSession(s.id)}>Delete</button>
                       </div>
                     </div>
-                    <div className="syllabus-session-body">
-                      {(['concept', 'exercise', 'implementation'] as const).map((type) => {
-                        const items = grouped[type]
-                        if (items.length === 0) return null
-                        const colors = activityTypeColor(type)
-                        return (
-                          <div key={type} className="syllabus-session-col">
-                            <span className="tag" style={{ background: colors.bg, color: colors.text, border: 'none', marginBottom: '0.25rem', display: 'inline-block' }}>
-                              {activityTypeLabel(type)}s ({items.length})
-                            </span>
-                            <ul className="syllabus-activity-list">
-                              {items.map((a) => (
-                                <li key={a.id} className="syllabus-activity-row">
-                                  <span className="syllabus-activity-title">
-                                    {a.title}{a.remark ? <span className="muted"> — {a.remark}</span> : null}
-                                  </span>
-                                  <div className="actions syllabus-activity-actions">
-                                    <button type="button" className="btn small ghost" onClick={() => void quickEditActivityTitle(s, a)} disabled={saving}>Edit</button>
-                                    <button type="button" className="btn small ghost" onClick={() => void deleteActivityInline(s, a.id)} disabled={saving}>Delete</button>
-                                  </div>
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        )
-                      })}
-                    </div>
+
+                    {s.activities.length === 0 ? (
+                      <p className="muted small" style={{ margin: '0.25rem 0 0' }}>No topics yet.</p>
+                    ) : (
+                      <ol className="topic-timeline">
+                        {s.activities.map((t, idx) => {
+                          const colors = topicTypeColor(t.type)
+                          return (
+                            <li key={t.id} className="topic-timeline-row">
+                              <span className="topic-timeline-index muted small">{idx + 1}</span>
+                              <span
+                                className="topic-timeline-badge"
+                                style={{ background: colors.bg, color: colors.text }}
+                              >
+                                {topicTypeLabel(t.type)}
+                              </span>
+                              <span className="topic-timeline-title">
+                                {t.title}
+                                {t.remark ? <span className="muted"> — {t.remark}</span> : null}
+                              </span>
+                              <div className="actions topic-timeline-actions">
+                                <button
+                                  type="button"
+                                  className="btn small ghost"
+                                  onClick={() =>
+                                    void updateTopicInline(s, t.id, {
+                                      type: t.type === 'concept' ? 'exercise' : 'concept',
+                                    })
+                                  }
+                                  disabled={saving}
+                                  title="Toggle type"
+                                >
+                                  {t.type === 'concept' ? '→ Exercise' : '→ Concept'}
+                                </button>
+                                <button type="button" className="btn small ghost" onClick={() => void quickEditTopicTitle(s, t)} disabled={saving}>Edit</button>
+                                <button type="button" className="btn small ghost" onClick={() => void deleteTopicInline(s, t.id)} disabled={saving}>Delete</button>
+                              </div>
+                            </li>
+                          )
+                        })}
+                      </ol>
+                    )}
                   </li>
                 )
               })}
@@ -448,20 +494,19 @@ export function SyllabusPage() {
         ) : null}
       </div>
 
-      {addActivitySessionId && (
-        <div className="modal-backdrop" onClick={() => setAddActivitySessionId(null)}>
+      {addTopicSessionId && (
+        <div className="modal-backdrop" onClick={() => setAddTopicSessionId(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 1rem' }}>Add Activity</h3>
+            <h3 style={{ margin: '0 0 1rem' }}>Add Topic</h3>
             <div className="form">
-              <label>Title<input value={addActivityTitle} onChange={(e) => setAddActivityTitle(e.target.value)} placeholder="Activity title" autoFocus /></label>
-              <label>Type<select value={addActivityType} onChange={(e) => setAddActivityType(e.target.value as LessonItemType)}>
+              <label>Title<input value={addTopicTitle} onChange={(e) => setAddTopicTitle(e.target.value)} placeholder="Topic title" autoFocus /></label>
+              <label>Type<select value={addTopicType} onChange={(e) => setAddTopicType(e.target.value as TopicType)}>
                 <option value="concept">Concept</option>
                 <option value="exercise">Exercise</option>
-                <option value="implementation">Implementation</option>
               </select></label>
               <div className="row">
-                <button type="button" className="btn primary" disabled={saving} onClick={() => void saveAddActivity()}>Add</button>
-                <button type="button" className="btn ghost" onClick={() => setAddActivitySessionId(null)}>Cancel</button>
+                <button type="button" className="btn primary" disabled={saving} onClick={() => void saveAddTopic()}>Add</button>
+                <button type="button" className="btn ghost" onClick={() => setAddTopicSessionId(null)}>Cancel</button>
               </div>
             </div>
           </div>

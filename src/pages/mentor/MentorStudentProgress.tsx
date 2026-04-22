@@ -2,16 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import type { Course, DailyPlan, DailyPlanItem, ItemStatus, ProgressEntry, Session } from '../../types'
+import { stripUndefinedDeep } from '../../lib/firestoreSanitize'
+import { readTopicsFromSessionDoc } from '../../lib/topics'
+import type { Course, DailyPlan, DailyPlanItem, ItemStatus, LessonItemType, ProgressEntry, Session } from '../../types'
 
 const MAX_ATTEMPTS = 5
 
-function itemTypeLabel(t: string) { return t === 'concept' ? 'Concept' : t === 'exercise' ? 'Exercise' : t === 'custom' ? 'Custom' : 'Implementation' }
-function itemTypeColors(t: string) {
-  if (t === 'concept') return { bg: '#dbeafe', text: '#1e40af', border: '#bfdbfe' }
-  if (t === 'exercise') return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
+function itemTypeLabel(t: LessonItemType | string): string {
+  if (t === 'concept') return 'Concept'
+  if (t === 'custom') return 'Custom'
+  return 'Exercise'
+}
+function itemTypeColors(t: LessonItemType | string): { bg: string; text: string; border: string } {
+  if (t === 'concept') return { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' }
   if (t === 'custom') return { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb' }
-  return { bg: '#fce7f3', text: '#9d174d', border: '#fbcfe8' }
+  return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
 }
 
 function formatTime(ms: number) {
@@ -101,7 +106,7 @@ export function MentorStudentProgress() {
         courseId: (x.courseId as string) ?? null,
         courseName: (x.courseName as string) ?? '',
         order: Number(x.order ?? 0),
-        activities: (x.activities as Session['activities']) ?? [],
+        activities: readTopicsFromSessionDoc(x.activities),
       })
     })
     list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title))
@@ -139,7 +144,7 @@ export function MentorStudentProgress() {
       }
       if (idx >= 0) existing[idx] = entry
       else existing.push(entry)
-      await setDoc(ref, { studentId, sessionId, entries: existing }, { merge: true })
+      await setDoc(ref, stripUndefinedDeep({ studentId, sessionId, entries: existing }), { merge: true })
       setProgressMap((m) => { const sm = { ...(m[sessionId] ?? {}) }; sm[activityId] = entry; return { ...m, [sessionId]: sm } })
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setSaving(false) }
   }
@@ -161,7 +166,7 @@ export function MentorStudentProgress() {
         mentorApprovedAt: new Date().toISOString(),
       }
       if (idx >= 0) existing[idx] = entry; else existing.push(entry)
-      await setDoc(ref, { studentId, sessionId, entries: existing }, { merge: true })
+      await setDoc(ref, stripUndefinedDeep({ studentId, sessionId, entries: existing }), { merge: true })
       setProgressMap((m) => { const sm = { ...(m[sessionId] ?? {}) }; sm[activityId] = entry; return { ...m, [sessionId]: sm } })
       await checkCourseCompletion()
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setSaving(false) }
@@ -184,7 +189,7 @@ export function MentorStudentProgress() {
         mentorApprovedAt: null,
       }
       if (idx >= 0) existing[idx] = entry; else existing.push(entry)
-      await setDoc(ref, { studentId, sessionId, entries: existing }, { merge: true })
+      await setDoc(ref, stripUndefinedDeep({ studentId, sessionId, entries: existing }), { merge: true })
       setProgressMap((m) => { const sm = { ...(m[sessionId] ?? {}) }; sm[activityId] = entry; return { ...m, [sessionId]: sm } })
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setSaving(false) }
   }
@@ -208,7 +213,7 @@ export function MentorStudentProgress() {
       }
       if (idx >= 0) existing[idx] = entry
       else existing.push(entry)
-      await setDoc(ref, { studentId, sessionId, entries: existing }, { merge: true })
+      await setDoc(ref, stripUndefinedDeep({ studentId, sessionId, entries: existing }), { merge: true })
       setProgressMap((m) => { const sm = { ...(m[sessionId] ?? {}) }; sm[activityId] = entry; return { ...m, [sessionId]: sm } })
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setSaving(false) }
   }

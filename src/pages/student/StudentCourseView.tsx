@@ -2,22 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import { stripUndefinedDeep } from '../../lib/firestoreSanitize'
+import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { useAuth } from '../../context/AuthContext'
-import type { AttemptRecord, Course, ItemStatus, ProgressEntry, Session } from '../../types'
+import type { AttemptRecord, Course, ItemStatus, ProgressEntry, Session, TopicType } from '../../types'
 
 const MAX_ATTEMPTS = 5
 
-function itemTypeLabel(t: string) {
-  if (t === 'concept') return 'Concept'
-  if (t === 'exercise') return 'Exercise'
-  if (t === 'custom') return 'Custom'
-  return 'Implementation'
+function itemTypeLabel(t: TopicType): string {
+  return t === 'concept' ? 'Concept' : 'Exercise'
 }
-function itemTypeColors(t: string) {
-  if (t === 'concept') return { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' }
-  if (t === 'exercise') return { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
-  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151', border: '#e5e7eb' }
-  return { bg: '#fce7f3', text: '#9d174d', border: '#fbcfe8' }
+function itemTypeColors(t: TopicType): { bg: string; text: string; border: string } {
+  return t === 'concept'
+    ? { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' }
+    : { bg: '#dcfce7', text: '#166534', border: '#bbf7d0' }
 }
 function statusLabel(s: ItemStatus) {
   if (s === 'completed') return 'Done'
@@ -72,7 +70,7 @@ export function StudentCourseView() {
           courseId: (x.courseId as string) ?? null,
           courseName: (x.courseName as string) ?? '',
           order: Number(x.order ?? 0),
-          activities: (x.activities as Session['activities']) ?? [],
+          activities: readTopicsFromSessionDoc(x.activities),
         })
       })
       sess.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title))
@@ -146,7 +144,8 @@ export function StudentCourseView() {
     const snap = await getDoc(ref)
     const existing: ProgressEntry[] = snap.exists() ? ((snap.data().entries as ProgressEntry[]) ?? []) : []
     const next = mut(existing)
-    await setDoc(ref, { studentId: uid, sessionId, entries: next }, { merge: true })
+    const payload = stripUndefinedDeep({ studentId: uid, sessionId, entries: next })
+    await setDoc(ref, payload, { merge: true })
     setProgressMap((m) => {
       const sessionMap: Record<string, ProgressEntry> = { ...(m[sessionId] ?? {}) }
       next.forEach((e) => {

@@ -5,9 +5,7 @@ import { db } from '../../firebase/config'
 import { stripUndefinedDeep } from '../../lib/firestoreSanitize'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { useAuth } from '../../context/AuthContext'
-import type { AttemptRecord, Course, ItemStatus, ProgressEntry, Session, TopicType } from '../../types'
-
-const MAX_ATTEMPTS = 5
+import type { Course, ItemStatus, ProgressEntry, Session, TopicType } from '../../types'
 
 function itemTypeLabel(t: TopicType): string {
   return t === 'concept' ? 'Concept' : 'Exercise'
@@ -117,9 +115,6 @@ export function StudentCourseView() {
   function getIsDue(sessionId: string, activityId: string): boolean {
     return Boolean(progressMap[sessionId]?.[activityId]?.due)
   }
-  function getAttemptsUsed(sessionId: string, activityId: string): number {
-    return Number(progressMap[sessionId]?.[activityId]?.attemptsUsed ?? 0)
-  }
 
   const flat = useMemo(() => sessions.flatMap((s) => s.activities.map((a) => ({ session: s, activity: a }))), [sessions])
 
@@ -157,43 +152,6 @@ export function StudentCourseView() {
     })
   }
 
-  async function addAttempt(sessionId: string, activityId: string) {
-    if (!uid || saving) return
-    const used = getAttemptsUsed(sessionId, activityId)
-    if (used >= MAX_ATTEMPTS) return
-    setSaving(true)
-    try {
-      await persistEntries(sessionId, (existing) => {
-        const idx = existing.findIndex((e) => e.activityId === activityId)
-        const prev = idx >= 0 ? existing[idx]! : undefined
-        const history: AttemptRecord[] = [...(prev?.attemptHistory ?? [])]
-        history.push({ at: new Date().toISOString(), status: 'attempted' })
-        const nextAttempts = used + 1
-        const entry: ProgressEntry = {
-          activityId,
-          status: (prev?.status === 'completed' ? 'completed' : 'in_progress') as ItemStatus,
-          due: prev?.due ?? false,
-          attemptsUsed: nextAttempts,
-          studentMarkedAt: prev?.studentMarkedAt ?? null,
-          mentorApprovedAt: prev?.mentorApprovedAt ?? null,
-          rating: prev?.rating,
-          notes: prev?.notes,
-          attemptHistory: history,
-        }
-        if (idx >= 0) {
-          const copy = [...existing]
-          copy[idx] = entry
-          return copy
-        }
-        return [...existing, entry]
-      })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   async function markForReview(sessionId: string, activityId: string) {
     if (!uid || saving) return
     setSaving(true)
@@ -201,20 +159,14 @@ export function StudentCourseView() {
       await persistEntries(sessionId, (existing) => {
         const idx = existing.findIndex((e) => e.activityId === activityId)
         const prev = idx >= 0 ? existing[idx]! : undefined
-        const prevAttempts = Number(prev?.attemptsUsed ?? 0)
-        const nextAttempts = prevAttempts === 0 ? 1 : prevAttempts
-        const history = [...(prev?.attemptHistory ?? [])]
-        if (prevAttempts === 0) history.push({ at: new Date().toISOString(), status: 'attempted' })
         const entry: ProgressEntry = {
           activityId,
           status: 'review',
           due: prev?.due ?? false,
-          attemptsUsed: Math.min(nextAttempts, MAX_ATTEMPTS),
           studentMarkedAt: new Date().toISOString(),
           mentorApprovedAt: null,
           rating: prev?.rating,
           notes: prev?.notes,
-          attemptHistory: history,
         }
         if (idx >= 0) {
           const copy = [...existing]
@@ -243,8 +195,6 @@ export function StudentCourseView() {
               activityId,
               status: 'in_progress' as ItemStatus,
               notes,
-              attemptsUsed: 0,
-              attemptHistory: [],
             },
           ]
         }
@@ -277,8 +227,6 @@ export function StudentCourseView() {
               activityId,
               status: 'in_progress' as ItemStatus,
               rating: r,
-              attemptsUsed: 0,
-              attemptHistory: [],
             },
           ]
         }
@@ -410,15 +358,11 @@ export function StudentCourseView() {
                   const status = getActivityStatus(selectedSession.id, a.id)
                   const isUnlocked = unlockedSet.has(`${selectedSession.id}__${a.id}`)
                   const colors = itemTypeColors(a.type)
-                  const attemptsUsed = getAttemptsUsed(selectedSession.id, a.id)
                   const entry = getEntry(progressMap, selectedSession.id, a.id)
                   const rating = entry?.rating ?? 0
                   const nk = noteKey(selectedSession.id, a.id)
                   const notes = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
-                  const history = entry?.attemptHistory ?? []
-                  const canAddAttempt = isUnlocked && status !== 'completed' && attemptsUsed < MAX_ATTEMPTS
-                  const canMark =
-                    isUnlocked && status !== 'review' && status !== 'completed' && attemptsUsed < MAX_ATTEMPTS
+                  const canMark = isUnlocked && status !== 'review' && status !== 'completed'
                   const due = getIsDue(selectedSession.id, a.id)
                   const isExpanded = expandedId === a.id
                   const isDone = status === 'completed'
@@ -441,7 +385,7 @@ export function StudentCourseView() {
                           className="student-task-trigger"
                           onClick={() => setExpandedId((cur) => (cur === a.id ? null : a.id))}
                           aria-expanded={isExpanded}
-                          aria-label={`${itemTypeLabel(a.type)}: ${a.title}. ${attemptsUsed} of ${MAX_ATTEMPTS} attempts. ${statusLabel(status)}. ${isExpanded ? 'Collapse' : 'Expand'} details.`}
+                          aria-label={`${itemTypeLabel(a.type)}: ${a.title}. ${statusLabel(status)}. ${isExpanded ? 'Collapse' : 'Expand'} details.`}
                         >
                           <span
                             className="student-task-badge"
@@ -459,22 +403,11 @@ export function StudentCourseView() {
                           ) : (
                             <span className="student-task-status muted small">{statusLabel(status)}</span>
                           )}
-                          <span className="student-task-attempts muted small">
-                            {attemptsUsed}/{MAX_ATTEMPTS} attempts
-                          </span>
                           <span className="student-task-chevron" aria-hidden>
                             {isExpanded ? '▾' : '▸'}
                           </span>
                         </button>
                         <div className="student-task-actions">
-                          <button
-                            type="button"
-                            className="btn small ghost"
-                            disabled={!canAddAttempt || saving}
-                            onClick={() => void addAttempt(selectedSession.id, a.id)}
-                          >
-                            + Add Attempt
-                          </button>
                           <button
                             type="button"
                             className="btn small primary"
@@ -503,23 +436,6 @@ export function StudentCourseView() {
                                 </button>
                               ))}
                             </div>
-                          </div>
-
-                          <div className="student-task-history">
-                            <div className="student-task-history-label">Attempt history</div>
-                            {history.length === 0 ? (
-                              <p className="muted small" style={{ margin: 0 }}>No attempts yet.</p>
-                            ) : (
-                              <ol className="student-task-history-list">
-                                {history.map((h, i) => (
-                                  <li key={`${h.at}-${i}`}>
-                                    <span className="muted small">#{i + 1}</span>
-                                    <span>{new Date(h.at).toLocaleString()}</span>
-                                    <span className="muted small">{h.status ?? '—'}</span>
-                                  </li>
-                                ))}
-                              </ol>
-                            )}
                           </div>
 
                           <label className="student-task-notes-label">

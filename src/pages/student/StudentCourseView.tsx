@@ -363,7 +363,8 @@ export function StudentCourseView() {
                   const rating = entry?.rating ?? 0
                   const nk = noteKey(selectedSession.id, a.id)
                   const notes = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
-                  const checkboxDisabled = !isUnlocked || saving || status === 'review'
+                  const cannotMarkComplete = !isUnlocked || saving || status === 'review'
+                  const cannotUncomplete = saving || status === 'review'
                   const due = getIsDue(selectedSession.id, a.id)
                   const isExpanded = expandedId === a.id
                   const isDone = status === 'completed'
@@ -381,19 +382,6 @@ export function StudentCourseView() {
                         .join(' ')}
                     >
                       <div className="student-task-row">
-                        <label className="student-task-complete">
-                          <input
-                            type="checkbox"
-                            className="student-task-complete-input"
-                            checked={status === 'completed'}
-                            disabled={checkboxDisabled}
-                            aria-label={`Mark "${a.title}" as completed`}
-                            onChange={(e) =>
-                              void setTopicCompleted(selectedSession.id, a.id, e.target.checked)
-                            }
-                          />
-                          <span className="student-task-complete-text">Done</span>
-                        </label>
                         <button
                           type="button"
                           className="student-task-trigger"
@@ -421,6 +409,29 @@ export function StudentCourseView() {
                             {isExpanded ? '▾' : '▸'}
                           </span>
                         </button>
+                        <div className="student-task-actions">
+                          {isDone ? (
+                            <button
+                              type="button"
+                              className="btn small student-task-complete-btn student-task-complete-btn--done"
+                              disabled={cannotUncomplete}
+                              title={cannotUncomplete ? undefined : 'Click to mark as not complete'}
+                              onClick={() => void setTopicCompleted(selectedSession.id, a.id, false)}
+                            >
+                              Completed
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn small primary student-task-complete-btn"
+                              disabled={cannotMarkComplete}
+                              title={!isUnlocked ? 'Complete earlier topics first' : status === 'review' ? 'Waiting for mentor' : undefined}
+                              onClick={() => void setTopicCompleted(selectedSession.id, a.id, true)}
+                            >
+                              Complete
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {isExpanded ? (

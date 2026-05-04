@@ -152,7 +152,8 @@ export function StudentCourseView() {
     })
   }
 
-  async function markForReview(sessionId: string, activityId: string) {
+  /** Student toggles topic completion; persists to `student_lesson_progress` for this session. */
+  async function setTopicCompleted(sessionId: string, activityId: string, completed: boolean) {
     if (!uid || saving) return
     setSaving(true)
     try {
@@ -161,10 +162,10 @@ export function StudentCourseView() {
         const prev = idx >= 0 ? existing[idx]! : undefined
         const entry: ProgressEntry = {
           activityId,
-          status: 'review',
+          status: completed ? 'completed' : 'in_progress',
           due: prev?.due ?? false,
-          studentMarkedAt: new Date().toISOString(),
-          mentorApprovedAt: null,
+          studentMarkedAt: completed ? new Date().toISOString() : null,
+          mentorApprovedAt: completed ? (prev?.mentorApprovedAt ?? null) : null,
           rating: prev?.rating,
           notes: prev?.notes,
         }
@@ -362,7 +363,7 @@ export function StudentCourseView() {
                   const rating = entry?.rating ?? 0
                   const nk = noteKey(selectedSession.id, a.id)
                   const notes = nk in noteDrafts ? noteDrafts[nk]! : (entry?.notes ?? '')
-                  const canMark = isUnlocked && status !== 'review' && status !== 'completed'
+                  const checkboxDisabled = !isUnlocked || saving || status === 'review'
                   const due = getIsDue(selectedSession.id, a.id)
                   const isExpanded = expandedId === a.id
                   const isDone = status === 'completed'
@@ -380,6 +381,19 @@ export function StudentCourseView() {
                         .join(' ')}
                     >
                       <div className="student-task-row">
+                        <label className="student-task-complete">
+                          <input
+                            type="checkbox"
+                            className="student-task-complete-input"
+                            checked={status === 'completed'}
+                            disabled={checkboxDisabled}
+                            aria-label={`Mark "${a.title}" as completed`}
+                            onChange={(e) =>
+                              void setTopicCompleted(selectedSession.id, a.id, e.target.checked)
+                            }
+                          />
+                          <span className="student-task-complete-text">Done</span>
+                        </label>
                         <button
                           type="button"
                           className="student-task-trigger"
@@ -407,16 +421,6 @@ export function StudentCourseView() {
                             {isExpanded ? '▾' : '▸'}
                           </span>
                         </button>
-                        <div className="student-task-actions">
-                          <button
-                            type="button"
-                            className="btn small primary"
-                            disabled={!canMark || saving}
-                            onClick={() => void markForReview(selectedSession.id, a.id)}
-                          >
-                            Mark Done
-                          </button>
-                        </div>
                       </div>
 
                       {isExpanded ? (

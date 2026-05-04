@@ -403,6 +403,34 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   gap: 0.85rem;
   padding: 0.65rem 0.85rem;
 }
+.student-task-complete {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  cursor: pointer;
+  user-select: none;
+  padding: 0.2rem 0.35rem 0.2rem 0;
+  border-radius: 6px;
+}
+.student-task-complete:has(.student-task-complete-input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.student-task-complete-input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.student-task-complete-input:disabled { cursor: not-allowed; }
+.student-task-complete-text {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
 .student-task-trigger {
   flex: 1 1 auto;
   min-width: 0;
@@ -468,13 +496,6 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;
 }
-.student-task-actions {
-  display: flex;
-  gap: 0.4rem;
-  align-items: center;
-  flex-shrink: 0;
-}
-.student-task-actions .btn.small { padding: 0.3rem 0.75rem; font-size: 0.8rem; border-radius: 7px; }
 .student-task-chevron {
   color: var(--muted-2);
   font-size: 0.85rem;
@@ -538,7 +559,6 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   .student-task-row { flex-wrap: wrap; row-gap: 0.5rem; }
   .student-task-trigger { flex-basis: 100%; }
   .student-task-status, .student-task-attempts { font-size: 0.78rem; }
-  .student-task-actions { margin-left: auto; }
 }
 @media (max-width: 768px) {
   .student-syllabus-grid { grid-template-columns: 1fr; }

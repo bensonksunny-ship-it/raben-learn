@@ -44,6 +44,7 @@ export interface Topic {
   type: TopicType
   title: string
   remark?: string
+  completed?: boolean
 }
 
 /** @deprecated Use `Topic`. Kept as a type alias so older call sites keep compiling. */

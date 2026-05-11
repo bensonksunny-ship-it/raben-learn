@@ -44,6 +44,14 @@ export function SyllabusPage() {
   const [addTopicSessionId, setAddTopicSessionId] = useState<string | null>(null)
   const [addTopicTitle, setAddTopicTitle] = useState('')
   const [addTopicType, setAddTopicType] = useState<TopicType>('concept')
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!openMenuId) return
+    function close() { setOpenMenuId(null) }
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [openMenuId])
 
   async function loadCourses() {
     const snap = await getDocs(collection(db, 'courses'))
@@ -329,10 +337,10 @@ export function SyllabusPage() {
             </form>
           )}
           <ul className="syllabus-list">
-            {courses.map((c) => (
+            {courses.map((c, idx) => (
               <li key={c.id} className={`syllabus-item${selectedCourseId === c.id ? ' active' : ''}`}>
                 <button type="button" className="syllabus-item-btn" onClick={() => setSelectedCourseId(c.id)}>
-                  <span className="syllabus-item-title">{c.title}</span>
+                  <span className="syllabus-item-title">{idx + 1}. {c.title}</span>
                   {c.description ? <span className="muted small syllabus-item-desc">{c.description}</span> : null}
                 </button>
               </li>
@@ -451,34 +459,65 @@ export function SyllabusPage() {
                         {s.activities.map((t, idx) => {
                           const colors = topicTypeColor(t.type)
                           return (
-                            <li key={t.id} className="topic-timeline-row">
+                            <li key={t.id} className={`topic-timeline-row${t.completed ? ' topic-done' : ''}`}>
                               <span className="topic-timeline-index muted small">{idx + 1}</span>
+                              <button
+                                type="button"
+                                className={`topic-complete-btn${t.completed ? ' done' : ''}`}
+                                onClick={() => void updateTopicInline(s, t.id, { completed: !t.completed })}
+                                disabled={saving}
+                                title={t.completed ? 'Mark incomplete' : 'Mark complete'}
+                              >
+                                {t.completed ? '✓' : ''}
+                              </button>
                               <span
                                 className="topic-timeline-badge"
                                 style={{ background: colors.bg, color: colors.text }}
                               >
                                 {topicTypeLabel(t.type)}
                               </span>
-                              <span className="topic-timeline-title">
+                              <span className={`topic-timeline-title${t.completed ? ' topic-title-done' : ''}`}>
                                 {t.title}
                                 {t.remark ? <span className="muted"> — {t.remark}</span> : null}
                               </span>
-                              <div className="actions topic-timeline-actions">
+                              <div className="topic-menu-wrap">
                                 <button
                                   type="button"
-                                  className="btn small ghost"
-                                  onClick={() =>
-                                    void updateTopicInline(s, t.id, {
-                                      type: t.type === 'concept' ? 'exercise' : 'concept',
-                                    })
-                                  }
+                                  className="topic-menu-btn"
+                                  onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === t.id ? null : t.id) }}
                                   disabled={saving}
-                                  title="Toggle type"
+                                  title="Options"
                                 >
-                                  {t.type === 'concept' ? '→ Exercise' : '→ Concept'}
+                                  ⋮
                                 </button>
-                                <button type="button" className="btn small ghost" onClick={() => void quickEditTopicTitle(s, t)} disabled={saving}>Edit</button>
-                                <button type="button" className="btn small ghost" onClick={() => void deleteTopicInline(s, t.id)} disabled={saving}>Delete</button>
+                                {openMenuId === t.id && (
+                                  <div className="topic-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                                    <button
+                                      type="button"
+                                      className="topic-menu-item"
+                                      onClick={() => { void updateTopicInline(s, t.id, { type: t.type === 'concept' ? 'exercise' : 'concept' }); setOpenMenuId(null) }}
+                                      disabled={saving}
+                                    >
+                                      {t.type === 'concept' ? 'Exercise' : 'Concept'}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="topic-menu-item"
+                                      onClick={() => { void quickEditTopicTitle(s, t); setOpenMenuId(null) }}
+                                      disabled={saving}
+                                    >
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      className="topic-menu-item danger"
+                                      onClick={() => { void deleteTopicInline(s, t.id); setOpenMenuId(null) }}
+                                      disabled={saving}
+                                    >
+                                      Delete
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             </li>
                           )

@@ -31,6 +31,7 @@ export type UpdateUserPayload = {
   centreIds?: string[]
   centreId?: string | null
   courseId?: string | null
+  courseIds?: string[]
   status?: 'active' | 'disabled'
 }
 

@@ -166,8 +166,8 @@ export function StudentCourseView() {
           due: prev?.due ?? false,
           studentMarkedAt: completed ? new Date().toISOString() : null,
           mentorApprovedAt: completed ? (prev?.mentorApprovedAt ?? null) : null,
-          rating: prev?.rating,
-          notes: prev?.notes,
+          ...(prev?.rating !== undefined ? { rating: prev.rating } : {}),
+          ...(prev?.notes !== undefined ? { notes: prev.notes } : {}),
         }
         if (idx >= 0) {
           const copy = [...existing]

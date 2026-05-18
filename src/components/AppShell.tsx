@@ -16,6 +16,10 @@ export default function AppShell() {
   const nl = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? ' active' : ''}`
   const bnl = ({ isActive }: { isActive: boolean }) => `bottom-nav-link${isActive ? ' active' : ''}`
 
+  function handleLogout() {
+    if (window.confirm('Are you sure you want to sign out?')) void logout()
+  }
+
   return (
     <div className="shell">
       {/* Sidebar — desktop */}
@@ -44,7 +48,7 @@ export default function AppShell() {
         <div className="user-meta">
           <span className="user-meta-name">{profile.name}</span>
           <span className="muted small">{profile.roles.join(' · ')}</span>
-          <button type="button" className="btn ghost small" onClick={() => void logout()}>Sign out</button>
+          <button type="button" className="btn ghost small" onClick={handleLogout}>Sign out</button>
         </div>
         <div className="muted small" style={{ textAlign: 'center', padding: '0.25rem', opacity: 0.4 }}>v3</div>
       </aside>

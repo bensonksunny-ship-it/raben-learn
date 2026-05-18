@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() { return request.auth != null; }
+    function hasRole(role) { return isSignedIn() && role in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles; }
+    function isAdminOrMentor() { return hasRole('admin') || hasRole('mentor'); }
+    function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstLogin', 'name']);
+      allow create, update, delete: if hasRole('admin');
+    }
+
+    match /courses/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrMentor();
+    }
+    match /sessions/{id} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdminOrMentor();
+    }
+
+    match /student_lesson_progress/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdminOrMentor();
+    }
+
+    match /student_daily_plans/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdminOrMentor() || (isSignedIn() && id.matches(request.auth.uid + '_.*'));
+    }
+
+    match /course_history/{id} {
+      allow read: if isSignedIn();
+      allow create: if isAdminOrMentor();
+      allow delete: if hasRole('admin');
+    }
+
+    // Legacy collections for Cloud Functions
+    match /centres/{id} { allow read, write: if hasRole('admin'); }
+    match /mentor_centres/{id} { allow read, write: if isAdminOrMentor(); }
+    match /students/{id} { allow read, write: if isSignedIn(); }
+  }
+}

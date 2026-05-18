@@ -51,6 +51,7 @@ export default defineConfig(({ mode }) => {
       devNoCacheHtmlPlugin(),
       VitePWA({
         registerType: 'autoUpdate',
+        manifestFilename: 'manifest.json',
         includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
         manifest: {
           name: 'Raben Learn',

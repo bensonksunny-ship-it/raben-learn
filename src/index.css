@@ -33,9 +33,21 @@
   background: var(--bg);
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); }
-#root { min-height: 100vh; }
-a { color: var(--link); text-decoration: none; }
+html {
+  scroll-behavior: smooth;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  overscroll-behavior: none;
+  /* Push content below notch / status bar in standalone PWA mode */
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#root { min-height: 100dvh; }
+a { color: var(--link); text-decoration: none; touch-action: manipulation; }
 a:hover { text-decoration: underline; text-underline-offset: 2px; }
 h1 {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", Helvetica, Arial, sans-serif;
@@ -63,9 +75,9 @@ h3 {
 }
 .muted { color: var(--muted); }
 .small { font-size: 0.9rem; }
-.center-page { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.center-page { display: flex; align-items: center; justify-content: center; height: 100dvh; }
 
-.shell { display: flex; min-height: 100vh; }
+.shell { display: flex; min-height: 100dvh; }
 .shell.narrow { max-width: 420px; margin: 7vh auto; display: block; padding: 1.5rem; border: 1px solid var(--border); border-radius: calc(var(--radius) + 4px); background: var(--surface); box-shadow: var(--shadow); min-height: unset; }
 
 /* App layout */
@@ -83,7 +95,7 @@ h3 {
   gap: 0.5rem;
   position: sticky;
   top: 0;
-  height: 100vh;
+  height: 100dvh;
   overflow-y: auto;
 }
 .brand { font-weight: 600; font-size: 1rem; padding: 0.25rem 0.5rem 0.75rem; border-bottom: 1px solid rgba(255, 255, 255, 0.14); color: #ffffff; letter-spacing: -0.374px; }
@@ -106,6 +118,7 @@ input, select { padding: 0.6rem 0.75rem; border: 1px solid var(--border); border
 input:focus, select:focus { border-color: var(--focus); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 40%, transparent); }
 
 /* Buttons */
+button { touch-action: manipulation; }
 .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem; padding: 0.5rem 1rem; border-radius: 980px; font-size: 0.95rem; font-weight: 500; border: 1px solid transparent; cursor: pointer; transition: all 0.15s; background: var(--surface); color: var(--text); letter-spacing: -0.224px; }
 .btn:hover { opacity: 0.88; }
 .btn.primary { background: var(--primary); color: #fff; }
@@ -790,6 +803,7 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   .bottom-nav { display: block; }
   .main {
     padding: 1rem 0.9rem;
+    /* body already has padding-top: env(safe-area-inset-top) so no extra needed here */
     padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 0.75rem);
   }
 

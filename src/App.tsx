@@ -5,6 +5,7 @@ import { Login } from './pages/Login'
 import { HomeRedirect } from './pages/HomeRedirect'
 import { ChangePassword } from './pages/ChangePassword'
 import AdminDashboard from './pages/admin/AdminDashboard'
+import ProfilePage from './pages/ProfilePage'
 import { SyllabusPage } from './pages/admin/SyllabusPage'
 import { ReportsPage } from './pages/admin/ReportsPage'
 import { MentorDashboard } from './pages/mentor/MentorDashboard'
@@ -72,6 +73,7 @@ export default function App() {
             <Route path="planner" element={<StudentDailyPlanner />} />
             <Route path="history" element={<StudentHistory />} />
           </Route>
+          <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

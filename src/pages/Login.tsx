@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { doc, getDoc } from 'firebase/firestore'
 import { useAuth } from '../context/AuthContext'
+import { auth, db } from '../firebase/config'
+import { normalizeRoles } from '../lib/roles'
 
 export function Login() {
   const { signIn } = useAuth()
@@ -16,6 +19,19 @@ export function Login() {
     setLoading(true)
     try {
       await signIn(email.trim(), password)
+      const user = auth.currentUser
+      if (user) {
+        const snap = await getDoc(doc(db, 'users', user.uid))
+        if (snap.exists()) {
+          const d = snap.data()
+          if (d.firstLogin) { navigate('/change-password', { replace: true }); return }
+          const roles = normalizeRoles(d)
+          if (roles.includes('admin')) navigate('/admin', { replace: true })
+          else if (roles.includes('mentor')) navigate('/mentor', { replace: true })
+          else navigate('/student', { replace: true })
+          return
+        }
+      }
       navigate('/', { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed. Check your email and password.')

@@ -37,6 +37,7 @@ html {
   scroll-behavior: smooth;
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
+  overflow-x: hidden;
 }
 body {
   margin: 0;
@@ -730,7 +731,7 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   position: fixed;
   bottom: 0;
   left: 0;
-  right: 0;
+  width: 100vw;           /* explicit viewport width — immune to scrollbar shifts */
   z-index: 200;
   background: rgba(18, 18, 20, 0.92);
   backdrop-filter: saturate(180%) blur(24px);
@@ -741,6 +742,7 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
 .bottom-nav-inner {
   display: flex;
   align-items: stretch;
+  width: 100%;
 }
 .bottom-nav-link {
   flex: 1;

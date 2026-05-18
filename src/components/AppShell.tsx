@@ -4,9 +4,9 @@ import { useAuth } from '../context/AuthContext'
 export default function AppShell() {
   const { firebaseUser, profile, loading, logout } = useAuth()
 
-  if (loading) return <div className="shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><p className="muted">Loading…</p></div>
+  if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
   if (!firebaseUser) return <Navigate to="/login" replace />
-  if (!profile) return <div className="shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><p className="muted">Loading profile…</p></div>
+  if (!profile) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
   if (profile.firstLogin) return <Navigate to="/change-password" replace />
 
   const isAdmin = profile.roles.includes('admin')

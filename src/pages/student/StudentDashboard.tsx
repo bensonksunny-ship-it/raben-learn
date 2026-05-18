@@ -183,7 +183,7 @@ export function StudentDashboard() {
           <section className="panel">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
               <h2 style={{ margin: 0, fontSize: '1.1rem' }}>My Courses</h2>
-              <Link to="/student" className="btn small secondary">All Courses →</Link>
+              <Link to="/student/courses" className="btn small secondary">All Courses →</Link>
             </div>
 
             {courses.length === 0 ? (

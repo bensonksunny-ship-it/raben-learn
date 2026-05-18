@@ -40,7 +40,8 @@ export default function AppShell() {
             <NavLink to="/mentor/reports" className={nl}>📊 Reports</NavLink>
           </>}
           {isStudent && <>
-            <NavLink to="/student" end className={nl}>📖 My Courses</NavLink>
+            <NavLink to="/student" end className={nl}>🏠 Dashboard</NavLink>
+            <NavLink to="/student/courses" className={nl}>📖 My Courses</NavLink>
             <NavLink to="/student/planner" className={nl}>📅 Today's Plan</NavLink>
             <NavLink to="/student/history" className={nl}>🏆 History</NavLink>
           </>}
@@ -70,7 +71,8 @@ export default function AppShell() {
             <NavLink to="/mentor/reports" className={bnl}><span className="bn-icon">📊</span><span className="bn-label">Reports</span></NavLink>
           </>}
           {isStudent && <>
-            <NavLink to="/student" end className={bnl}><span className="bn-icon">📖</span><span className="bn-label">Courses</span></NavLink>
+            <NavLink to="/student" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
+            <NavLink to="/student/courses" className={bnl}><span className="bn-icon">📖</span><span className="bn-label">Courses</span></NavLink>
             <NavLink to="/student/planner" className={bnl}><span className="bn-icon">📅</span><span className="bn-label">Planner</span></NavLink>
             <NavLink to="/student/history" className={bnl}><span className="bn-icon">🏆</span><span className="bn-label">History</span></NavLink>
           </>}

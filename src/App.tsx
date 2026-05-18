@@ -11,6 +11,7 @@ import { ReportsPage } from './pages/admin/ReportsPage'
 import { MentorDashboard } from './pages/mentor/MentorDashboard'
 import { MentorStudentProgress } from './pages/mentor/MentorStudentProgress'
 import { StudentDashboard } from './pages/student/StudentDashboard'
+import { StudentCoursesPage } from './pages/student/StudentCoursesPage'
 import { StudentCourseView } from './pages/student/StudentCourseView'
 import { StudentDailyPlanner } from './pages/student/StudentDailyPlanner'
 import { StudentHistory } from './pages/student/StudentHistory'
@@ -69,6 +70,7 @@ export default function App() {
           </Route>
           <Route path="student">
             <Route index element={<StudentDashboard />} />
+            <Route path="courses" element={<StudentCoursesPage />} />
             <Route path="courses/:courseId" element={<StudentCourseView />} />
             <Route path="planner" element={<StudentDailyPlanner />} />
             <Route path="history" element={<StudentHistory />} />

@@ -4,6 +4,7 @@ import AppShell from './components/AppShell'
 import { Login } from './pages/Login'
 import { HomeRedirect } from './pages/HomeRedirect'
 import { ChangePassword } from './pages/ChangePassword'
+import AdminDashboard from './pages/admin/AdminDashboard'
 import { SyllabusPage } from './pages/admin/SyllabusPage'
 import { ReportsPage } from './pages/admin/ReportsPage'
 import { MentorDashboard } from './pages/mentor/MentorDashboard'
@@ -38,14 +39,7 @@ export default function App() {
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomeRedirect />} />
           <Route path="admin">
-            <Route
-              index
-              element={
-                <Suspense fallback={<AdminRouteFallback />}>
-                  <UserManagement />
-                </Suspense>
-              }
-            />
+            <Route index element={<AdminDashboard />} />
             <Route
               path="users"
               element={

@@ -3,25 +3,11 @@ import { Link } from 'react-router-dom'
 import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
-import { normalizeRoles } from '../../lib/roles'
-import { useAuth } from '../../context/AuthContext'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
+import { mapUserDoc, avatarClass } from '../../lib/userUtils'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { useAuth } from '../../context/AuthContext'
 import type { Course, Session, UserProfile } from '../../types'
-
-function mapUserDoc(d: { id: string; data: () => Record<string, unknown> }): UserProfile {
-  const x = d.data()
-  return {
-    id: d.id,
-    name: (x.name as string) ?? '',
-    email: (x.email as string) ?? '',
-    roles: normalizeRoles(x),
-    status: x.status as UserProfile['status'],
-    firstLogin: Boolean(x.firstLogin),
-    createdAt: x.createdAt,
-    courseIds: (x.courseIds as string[]) ?? [],
-  }
-}
 
 export function StudentsPage() {
   const { profile } = useAuth()
@@ -40,6 +26,7 @@ export function StudentsPage() {
   const [syllabusLoading, setSyllabusLoading] = useState(false)
   const [addCourseId, setAddCourseId] = useState('')
 
+  const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [courseIds, setCourseIds] = useState<string[]>([])
@@ -50,14 +37,12 @@ export function StudentsPage() {
     setLoading(true)
     try {
       const [usersSnap, coursesSnap] = await Promise.all([
-        // Avoid Firestore composite-index requirement for (roles array-contains + orderBy email).
-        // We fetch then sort client-side instead.
         getDocs(query(collection(db, 'users'), where('roles', 'array-contains', 'student'))),
         getDocs(query(collection(db, 'courses'), orderBy('title'))),
       ])
       const list: UserProfile[] = []
-      usersSnap.forEach((docSnap) => list.push(mapUserDoc(docSnap)))
-      list.sort((a, b) => a.email.localeCompare(b.email))
+      usersSnap.forEach((d) => list.push(mapUserDoc(d)))
+      list.sort((a, b) => a.name.localeCompare(b.name))
       setStudents(list)
 
       const cl: Course[] = []
@@ -94,11 +79,23 @@ export function StudentsPage() {
       const list: Session[] = []
       snap.forEach((d) => {
         const x = d.data()
-        list.push({ id: d.id, title: (x.title as string) ?? '', subtitle: (x.subtitle as string) ?? '', courseId: (x.courseId as string) ?? null, courseName: (x.courseName as string) ?? '', order: Number(x.order ?? 0), activities: readTopicsFromSessionDoc(x.activities) })
+        list.push({
+          id: d.id,
+          title: (x.title as string) ?? '',
+          subtitle: (x.subtitle as string) ?? '',
+          courseId: (x.courseId as string) ?? null,
+          courseName: (x.courseName as string) ?? '',
+          order: Number(x.order ?? 0),
+          activities: readTopicsFromSessionDoc(x.activities),
+        })
       })
       list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title))
       setSessions(list)
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load syllabus') } finally { setSyllabusLoading(false) }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load syllabus')
+    } finally {
+      setSyllabusLoading(false)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -116,25 +113,21 @@ export function StudentsPage() {
     setError(''); setCreatedPw('')
     const pw = tempPassword.trim()
     if (pw.length > 0 && pw.length < 8) {
-      setError('If you set a password, it must be at least 8 characters (or leave the field empty).')
-      return
+      setError('Password must be at least 8 characters.'); return
     }
     setSaving(true)
     try {
       const res = await callCreateUser({
-        name,
-        email,
-        roles: ['student'],
-        centreIds: [],
-        centreId: null,
+        name, email, roles: ['student'],
+        centreIds: [], centreId: null,
         courseId: courseIds[0] ?? null,
-        temporaryPassword: pw ? pw : null,
+        temporaryPassword: pw || null,
       })
       setCreatedPw(res.temporaryPassword)
       setName(''); setEmail(''); setCourseIds([]); setTempPassword('')
+      setShowCreate(false)
       await load()
     } catch (err: unknown) {
-      console.error('[DEBUG] Create student failed with error:', err)
       setError(formatFirebaseError(err, 'Create failed'))
     } finally {
       setSaving(false)
@@ -143,10 +136,10 @@ export function StudentsPage() {
 
   async function toggleDisable(u: UserProfile) {
     if (!isAdmin) return
-    const next = u.status === 'active'
-    if (!window.confirm(next ? 'Disable this student?' : 'Re-enable this student?')) return
+    const disabling = u.status === 'active'
+    if (!window.confirm(disabling ? 'Disable this student?' : 'Re-enable this student?')) return
     setError('')
-    try { await callDisableUser(u.id, next); await load() }
+    try { await callDisableUser(u.id, disabling); await load() }
     catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
@@ -162,13 +155,7 @@ export function StudentsPage() {
     if (!isAdmin) return
     setError(''); setSaving(true)
     try {
-      await callUpdateUser({
-        uid: u.id,
-        courseIds: nextCourseIds,
-        courseId: nextCourseIds[0] ?? null,
-        centreIds: [],
-        centreId: null,
-      })
+      await callUpdateUser({ uid: u.id, courseIds: nextCourseIds, courseId: nextCourseIds[0] ?? null, centreIds: [], centreId: null })
       await updateDoc(doc(db, 'users', u.id), { courseIds: nextCourseIds })
       await load()
     } catch (err: unknown) {
@@ -178,140 +165,152 @@ export function StudentsPage() {
     }
   }
 
+  const courseLabel = (cids: string[]) =>
+    cids.map((cid) => courses.find((c) => c.id === cid)?.title).filter(Boolean).join(', ')
+
   return (
     <div>
-      <h1>Students</h1>
-      <p className="muted">Create and manage student accounts.</p>
-      {error ? <p className="error">{error}</p> : null}
-      {createdPw ? <div className="notice"><strong>Temporary password (copy now):</strong> {createdPw}</div> : null}
+      {/* Page header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem', flexWrap: 'wrap' }}>
+        <div>
+          <h1 style={{ marginBottom: '0.25rem' }}>Students</h1>
+          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span className="page-stat">{students.length} students</span>
+            <span className="muted small">Create and manage student accounts</span>
+          </div>
+        </div>
+        {isAdmin && (
+          <button className="btn primary" onClick={() => { setShowCreate((v) => !v); setError('') }}>
+            {showCreate ? '✕ Cancel' : '+ New Student'}
+          </button>
+        )}
+      </div>
+
+      {error ? <p className="error" style={{ marginBottom: '1rem' }}>{error}</p> : null}
+      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Temporary password (copy now):</strong> {createdPw}</div> : null}
 
       {!isAdmin && profile ? (
-        <p className="notice" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e' }}>
-          You’re signed in as <strong>{profile.roles.join(', ')}</strong>. Only <strong>admin</strong> accounts see the
-          “Add student” form (including optional password). Open <strong>User Management</strong> as an admin, or ask an admin to create accounts.
+        <p className="notice" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e', marginBottom: '1rem' }}>
+          Signed in as <strong>{profile.roles.join(', ')}</strong>. Only <strong>admin</strong> accounts can create students.
         </p>
       ) : null}
 
-      {isAdmin && (
-        <section className="panel" style={{ marginBottom: '1rem' }}>
-          <h2>Add student</h2>
+      {/* Create student form */}
+      {isAdmin && showCreate && (
+        <section className="panel" style={{ marginBottom: '1.5rem' }}>
+          <h2 style={{ marginBottom: '1rem' }}>Add Student</h2>
           <form className="form grid" onSubmit={onCreate}>
             <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
             <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-            <div className="full syllabus-mini-form" style={{ margin: 0 }}>
-              <div style={{ fontWeight: 700, marginBottom: '0.25rem' }}>Initial password (optional)</div>
-              <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
-                Leave empty to auto-generate a temporary password. If you set one, use at least 8 characters.
-              </p>
+            <div className="full">
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>
+                Initial password <span className="muted small" style={{ fontWeight: 400 }}>(optional — leave blank to auto-generate)</span>
+              </div>
               <input
                 type="password"
                 autoComplete="new-password"
                 value={tempPassword}
                 onChange={(e) => setTempPassword(e.target.value)}
-                placeholder="Leave blank to auto-generate"
+                placeholder="Min 8 characters or leave blank"
               />
             </div>
             <div className="full">
-              <span className="muted small">Assign courses</span>
-              <div className="row" style={{ gap: '0.4rem', flexWrap: 'wrap' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Assign Courses</div>
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
                 {courses.map((c) => (
-                  <label key={c.id} className="row" style={{ gap: '0.25rem' }}>
+                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.9rem' }}>
                     <input type="checkbox" checked={courseIds.includes(c.id)} onChange={() => toggleCourse(c.id)} />
-                    <span className="small">{c.title}</span>
+                    {c.title}
                   </label>
                 ))}
-                {courses.length === 0 ? <span className="muted small">No courses yet.</span> : null}
+                {courses.length === 0 && <span className="muted small">No courses yet.</span>}
               </div>
             </div>
-            <button className="btn primary" type="submit" disabled={saving}>Create student</button>
+            <div className="full">
+              <button className="btn primary" type="submit" disabled={saving}>
+                {saving ? 'Creating…' : 'Create Student'}
+              </button>
+            </div>
           </form>
         </section>
       )}
 
-      <section className="panel">
-        <div className="row" style={{ justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-          <h2 style={{ margin: 0 }}>All students</h2>
-          <input style={{ maxWidth: 320 }} placeholder="Search name/email…" value={search} onChange={(e) => setSearch(e.target.value)} />
-        </div>
+      {/* Search */}
+      <div className="filter-bar">
+        <input
+          placeholder="Search name or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+      </div>
 
-        {loading ? <p className="muted">Loading…</p> : null}
+      {loading ? <p className="muted">Loading…</p> : null}
 
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Name</th>
-                <th>Email</th>
-                <th>Courses</th>
-                <th>Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((s) => (
-                <tr key={s.id} onClick={() => openStudentDetail(s)} style={{ cursor: 'pointer', background: selectedStudent?.id === s.id ? 'var(--surface-soft)' : undefined }}>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <Link to={`/mentor/students/${s.id}`}>{s.name}</Link>
-                  </td>
-                  <td className="muted">{s.email}</td>
-                  <td>
-                    <span className="muted small">
-                      {(s.courseIds ?? []).map((cid) => courses.find((c) => c.id === cid)?.title ?? cid).join(', ') || '—'}
-                    </span>
-                    {isAdmin && courses.length > 0 && (
-                      <div className="row" style={{ marginTop: '0.35rem', gap: '0.35rem' }}>
-                        <button
-                          type="button"
-                          className="btn small ghost"
-                          onClick={() => {
-                            const next = window.prompt('Comma-separated course titles to assign (exact match).')
-                            if (next == null) return
-                            const titles = next.split(',').map((t) => t.trim()).filter(Boolean)
-                            const ids = courses.filter((c) => titles.includes(c.title)).map((c) => c.id)
-                            void saveCourses(s, ids)
-                          }}
-                          disabled={saving}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                  <td><span className={`tag ${s.status === 'active' ? '' : 'danger'}`}>{s.status}</span></td>
-                  <td className="actions" onClick={(e) => e.stopPropagation()}>
-                    <Link className="btn small ghost" to={`/mentor/students/${s.id}`}>Open</Link>
-                    {isAdmin && (
-                      <>
-                        <button type="button" className="btn small ghost" onClick={() => void resetPassword(s)}>Reset PW</button>
-                        <button type="button" className="btn small ghost" onClick={() => void toggleDisable(s)}>{s.status === 'active' ? 'Disable' : 'Enable'}</button>
-                      </>
-                    )}
-                  </td>
-                </tr>
-              ))}
-              {filtered.length === 0 && !loading ? <tr><td colSpan={5} className="muted">No students found.</td></tr> : null}
-            </tbody>
-          </table>
-        </div>
-      </section>
+      {/* Student card grid */}
+      <div className="user-grid">
+        {filtered.map((s) => (
+          <div
+            key={s.id}
+            className={`user-card${selectedStudent?.id === s.id ? ' selected' : ''}`}
+            onClick={() => openStudentDetail(s)}
+            style={{ cursor: 'pointer' }}
+          >
+            <div className="user-card-body">
+              <div className="user-card-top">
+                <div className={avatarClass(s.roles)}>{s.name.charAt(0).toUpperCase()}</div>
+                <div className="user-card-info">
+                  <div className="user-card-name">{s.name}</div>
+                  <div className="user-card-email">{s.email}</div>
+                </div>
+                <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
+                  {s.status}
+                </span>
+              </div>
+              {(s.courseIds ?? []).length > 0
+                ? <div className="user-card-courses">📘 {courseLabel(s.courseIds ?? [])}</div>
+                : <div className="muted small">No courses assigned</div>
+              }
+            </div>
+            <div className="user-card-footer" onClick={(e) => e.stopPropagation()}>
+              <Link className="btn small secondary" to={`/mentor/students/${s.id}`}>Open</Link>
+              {isAdmin && (
+                <>
+                  <button type="button" className="btn small secondary" onClick={() => void resetPassword(s)}>Reset PW</button>
+                  <button type="button" className="btn small secondary" onClick={() => void toggleDisable(s)}>
+                    {s.status === 'active' ? 'Disable' : 'Enable'}
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+        {filtered.length === 0 && !loading && (
+          <p className="muted" style={{ gridColumn: '1/-1', padding: '2rem 0' }}>No students found.</p>
+        )}
+      </div>
 
+      {/* Student detail panel */}
       {selectedStudent && (
-        <section className="panel" style={{ marginTop: '1rem' }}>
+        <section className="panel" style={{ marginTop: '1.5rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
-              <div className="student-card-avatar" style={{ width: 52, height: 52, fontSize: '1.35rem' }}>{selectedStudent.name.charAt(0).toUpperCase()}</div>
+              <div className={avatarClass(selectedStudent.roles)} style={{ width: 52, height: 52, fontSize: '1.35rem' }}>
+                {selectedStudent.name.charAt(0).toUpperCase()}
+              </div>
               <div>
                 <h2 style={{ margin: '0 0 0.15rem' }}>{selectedStudent.name}</h2>
                 <div className="muted small">{selectedStudent.email}</div>
-                <span className={`tag ${selectedStudent.status === 'active' ? '' : 'danger'}`} style={{ marginTop: '0.3rem', display: 'inline-block' }}>{selectedStudent.status}</span>
+                <span className={`tag ${selectedStudent.status === 'active' ? '' : 'danger'}`} style={{ marginTop: '0.3rem', display: 'inline-block' }}>
+                  {selectedStudent.status}
+                </span>
               </div>
             </div>
-            <button type="button" className="btn small ghost" style={{ borderColor: 'var(--border)', color: 'var(--text)' }} onClick={() => setSelectedStudent(null)}>✕ Close</button>
+            <button type="button" className="btn small secondary" onClick={() => setSelectedStudent(null)}>✕ Close</button>
           </div>
 
           <h3 style={{ marginBottom: '0.75rem' }}>Courses</h3>
           {(selectedStudent.courseIds ?? []).length === 0
-            ? <p className="muted" style={{ marginBottom: '0.75rem' }}>No courses assigned to this student.</p>
+            ? <p className="muted" style={{ marginBottom: '0.75rem' }}>No courses assigned.</p>
             : (
               <div className="course-grid" style={{ marginBottom: '1rem' }}>
                 {(selectedStudent.courseIds ?? []).map((cid) => {
@@ -319,15 +318,24 @@ export function StudentsPage() {
                   if (!course) return null
                   const isActive = selectedCourseForSyllabus === cid
                   return (
-                    <div key={cid} style={{ position: 'relative', background: isActive ? '#f0f4ff' : 'var(--surface)', border: `1.5px solid ${isActive ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 'var(--radius)', transition: 'all 0.15s' }}>
+                    <div
+                      key={cid}
+                      style={{
+                        background: isActive ? '#f0f4ff' : 'var(--surface)',
+                        border: `1.5px solid ${isActive ? 'var(--primary)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius)',
+                        transition: 'all 0.15s',
+                      }}
+                    >
                       <button
                         type="button"
                         onClick={() => { setSelectedCourseForSyllabus(cid); void loadSyllabus(cid) }}
                         style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', border: 'none', padding: '1rem 1.25rem', fontFamily: 'inherit' }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: '1rem', color: isActive ? 'var(--primary)' : 'var(--text)', marginBottom: '0.2rem' }}>📘 {course.title}</div>
-                        {course.description ? <div className="muted small">{course.description}</div> : null}
-                        <div className="muted small" style={{ marginTop: '0.35rem' }}>{isActive ? '▸ Viewing syllabus' : 'Click to view syllabus'}</div>
+                        <div style={{ fontWeight: 700, fontSize: '1rem', color: isActive ? 'var(--primary)' : 'var(--text)', marginBottom: '0.2rem' }}>
+                          📘 {course.title}
+                        </div>
+                        <div className="muted small">{isActive ? '▸ Viewing syllabus' : 'Click to view syllabus'}</div>
                       </button>
                     </div>
                   )
@@ -335,11 +343,17 @@ export function StudentsPage() {
               </div>
             )
           }
+
           {isAdmin && (() => {
             const unassigned = courses.filter((c) => !(selectedStudent.courseIds ?? []).includes(c.id))
             return (
               <div className="row" style={{ marginBottom: '1.25rem' }}>
-                <select value={addCourseId} onChange={(e) => setAddCourseId(e.target.value)} style={{ maxWidth: 280 }} disabled={unassigned.length === 0}>
+                <select
+                  value={addCourseId}
+                  onChange={(e) => setAddCourseId(e.target.value)}
+                  style={{ maxWidth: 280 }}
+                  disabled={unassigned.length === 0}
+                >
                   <option value="">{unassigned.length === 0 ? 'All courses assigned' : 'Select course to add…'}</option>
                   {unassigned.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
                 </select>
@@ -361,9 +375,11 @@ export function StudentsPage() {
 
           {selectedCourseForSyllabus && (
             <div>
-              <h3 style={{ marginBottom: '0.75rem' }}>📝 Syllabus — {courses.find((c) => c.id === selectedCourseForSyllabus)?.title}</h3>
+              <h3 style={{ marginBottom: '0.75rem' }}>
+                📝 Syllabus — {courses.find((c) => c.id === selectedCourseForSyllabus)?.title}
+              </h3>
               {syllabusLoading ? <p className="muted">Loading syllabus…</p> : null}
-              {!syllabusLoading && sessions.length === 0 ? <p className="muted">No sessions found for this course.</p> : null}
+              {!syllabusLoading && sessions.length === 0 ? <p className="muted">No sessions found.</p> : null}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
                 {sessions.map((session) => (
                   <div key={session.id} className="syllabus-lesson" style={{ padding: '1rem 1.1rem' }}>
@@ -376,14 +392,19 @@ export function StudentsPage() {
                     ) : (
                       <ol style={{ margin: '0.25rem 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
                         {session.activities.map((topic, idx) => {
-                          const colors = topic.type === 'concept' ? { bg: '#ede9fe', text: '#5b21b6' } : { bg: '#dcfce7', text: '#166534' }
+                          const colors = topic.type === 'concept'
+                            ? { bg: '#ede9fe', text: '#5b21b6' }
+                            : { bg: '#dcfce7', text: '#166534' }
                           return (
                             <li key={topic.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.97rem' }}>
                               <span className="muted small" style={{ width: '1.4rem', textAlign: 'center', flexShrink: 0 }}>{idx + 1}</span>
                               <span style={{ background: colors.bg, color: colors.text, padding: '0.12rem 0.55rem', borderRadius: 999, fontSize: '0.76rem', fontWeight: 700, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>
                                 {topic.type === 'concept' ? 'Concept' : 'Exercise'}
                               </span>
-                              <span>{topic.title}{topic.remark ? <span className="muted"> — {topic.remark}</span> : null}</span>
+                              <span>
+                                {topic.title}
+                                {topic.remark ? <span className="muted"> — {topic.remark}</span> : null}
+                              </span>
                               {topic.completed ? <span style={{ color: '#10b981', fontWeight: 700, fontSize: '0.8rem' }}>✓ Done</span> : null}
                             </li>
                           )
@@ -400,4 +421,3 @@ export function StudentsPage() {
     </div>
   )
 }
-

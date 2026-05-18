@@ -71,10 +71,6 @@ export default function AppShell() {
             <NavLink to="/student/planner" className={bnl}><span className="bn-icon">📅</span><span className="bn-label">Planner</span></NavLink>
             <NavLink to="/student/history" className={bnl}><span className="bn-icon">🏆</span><span className="bn-label">History</span></NavLink>
           </>}
-          <button type="button" className="bottom-nav-signout" onClick={() => void logout()}>
-            <span className="bn-icon">↩</span>
-            <span className="bn-label">Sign out</span>
-          </button>
         </div>
       </nav>
     </div>

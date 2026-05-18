@@ -763,26 +763,6 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
 .bottom-nav-link .bn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .bottom-nav-link:hover { color: rgba(255, 255, 255, 0.82); text-decoration: none; }
 .bottom-nav-link.active { color: #ffffff; font-weight: 700; }
-.bottom-nav-signout {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.18rem;
-  padding: 0.55rem 0.25rem 0.6rem;
-  background: none;
-  border: none;
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 0.65rem;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  flex: 1;
-  min-width: 0;
-  transition: color 0.15s;
-}
-.bottom-nav-signout .bn-icon { font-size: 1.35rem; line-height: 1; }
-.bottom-nav-signout:hover { color: rgba(255, 255, 255, 0.82); }
 
 /* ─── Responsive ────────────────────────────────────────────── */
 @media (max-width: 768px) {

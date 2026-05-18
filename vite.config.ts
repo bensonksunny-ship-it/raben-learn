@@ -1,6 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import type { Plugin, ProxyOptions } from 'vite'
 import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
 
 /** Ensures Firebase ID tokens reach Cloud Functions (some http-proxy setups drop `Authorization`). */
 function gcfProxyOptions(gcfTarget: string): ProxyOptions {
@@ -45,7 +46,52 @@ export default defineConfig(({ mode }) => {
   const gcfTarget = `https://${region}-${projectId}.cloudfunctions.net`
 
   return {
-    plugins: [react(), devNoCacheHtmlPlugin()],
+    plugins: [
+      react(),
+      devNoCacheHtmlPlugin(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
+        manifest: {
+          name: 'Raben Learn',
+          short_name: 'Raben Learn',
+          description: 'Learning platform for students and mentors',
+          theme_color: '#0071e3',
+          background_color: '#f5f5f7',
+          display: 'standalone',
+          orientation: 'portrait-primary',
+          scope: '/',
+          start_url: '/',
+          icons: [
+            { src: 'pwa-64x64.png',            sizes: '64x64',   type: 'image/png' },
+            { src: 'pwa-192x192.png',           sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png',           sizes: '512x512', type: 'image/png' },
+            { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+        },
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/__gcf__/],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'firestore',
+                networkTimeoutSeconds: 10,
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/.*\.cloudfunctions\.net\/.*/i,
+              handler: 'NetworkOnly',
+            },
+          ],
+        },
+        devOptions: { enabled: false },
+      }),
+    ],
     /**
      * Dev-only: proxy callable HTTPS to Cloud Functions so the browser talks same-origin
      * (e.g. http://localhost:5174/__gcf__/...) and avoids CORS preflight failures to *.cloudfunctions.net.

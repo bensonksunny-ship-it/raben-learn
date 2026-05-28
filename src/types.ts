@@ -111,3 +111,41 @@ export interface ProgressEntry {
   notes?: string
   attemptHistory?: AttemptRecord[]
 }
+
+export interface ExamConfig {
+  duration: number           // minutes
+  totalMarks: number
+  questionsPerExam: number
+  isActive: boolean
+  createdBy: string          // uid
+}
+
+export interface ExamQuestion {
+  id: string
+  question: string
+  options: string[]          // always 4
+  correctAnswer: string      // must match one of options exactly
+  explanation: string
+  difficulty: 'easy' | 'medium' | 'hard'
+  topic: string
+  marks: number
+  usageCount: number
+}
+
+export interface QuestionSnapshot extends ExamQuestion {
+  shuffledOptions: string[]  // options in the order shown to the student
+}
+
+export interface ExamAttempt {
+  id: string
+  studentId: string
+  courseId: string
+  startedAt: string          // ISO timestamp string
+  submittedAt: string | null
+  timeSpentSeconds: number
+  questions: QuestionSnapshot[]
+  answers: Record<string, string>  // questionId → chosen option text
+  score: number
+  totalMarks: number
+  topicBreakdown: Record<string, { correct: number; total: number }>
+}

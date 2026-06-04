@@ -94,6 +94,10 @@ export function SyllabusPage() {
     if (selectedCourseId) { setSessions([]); void loadSessions(selectedCourseId).catch((e) => setError(String(e))) }
   }, [selectedCourseId])
 
+  useEffect(() => {
+    setRightTab('sessions')
+  }, [selectedCourseId])
+
   async function createCourse(e: FormEvent) {
     e.preventDefault()
     if (!newCourseTitle.trim()) return
@@ -562,7 +566,7 @@ export function SyllabusPage() {
                 </ul>
               </>
             )}
-            {rightTab === 'exam' && <ExamManager courseId={selectedCourseId} />}
+            {rightTab === 'exam' && selectedCourseId && <ExamManager courseId={selectedCourseId} />}
           </div>
         ) : null}
       </div>

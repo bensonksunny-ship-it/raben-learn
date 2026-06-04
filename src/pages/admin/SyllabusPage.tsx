@@ -5,6 +5,8 @@ import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, up
 import { db } from '../../firebase/config'
 import { normalizeTopicType, type Course, type Session, type Topic, type TopicType } from '../../types'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import ExamManager from './ExamManager'
+import { useAuth } from '../../context/AuthContext'
 
 function newTopic(type: TopicType = 'concept'): Topic {
   return { id: crypto.randomUUID(), type, title: '', remark: '' }
@@ -45,6 +47,9 @@ export function SyllabusPage() {
   const [addTopicTitle, setAddTopicTitle] = useState('')
   const [addTopicType, setAddTopicType] = useState<TopicType>('concept')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const { profile } = useAuth()
+  const isAdminOrMentor = profile?.roles.some((r) => r === 'admin' || r === 'mentor') ?? false
+  const [rightTab, setRightTab] = useState<'sessions' | 'exam'>('sessions')
 
   useEffect(() => {
     if (!openMenuId) return
@@ -364,171 +369,200 @@ export function SyllabusPage() {
               </div>
             </div>
             <p className="muted small syllabus-breadcrumb">in {selectedCourse?.title}</p>
-            <div className="muted small" style={{ marginBottom: '0.75rem', lineHeight: 1.6 }}>
-              <strong style={{ color: 'var(--text)' }}>Session Excel format:</strong>&nbsp;
-              Session title (single cell) → optional subtitle → <code>SL no · Topic · Type · Remark</code> → data rows
-            </div>
-            {importResult ? <p className="notice" style={{ marginBottom: '0.5rem' }}>{importResult}</p> : null}
-
-            {sessionFormOpen ? (
-              <div className="panel" style={{ marginBottom: '1rem' }}>
-                <h3 style={{ marginBottom: '0.75rem' }}>{editingSessionId ? '✏️ Edit session' : '✨ New session'}</h3>
-                <form onSubmit={(e) => void saveSession(e)} className="form">
-                  <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
-                    <label style={{ flex: 1 }}>Session title<input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="e.g. Session-1" required /></label>
-                    <label style={{ width: 90, flexShrink: 0 }}>Order<input type="number" value={sessionOrder} onChange={(e) => setSessionOrder(Number(e.target.value))} min={1} /></label>
-                  </div>
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                      <h4 style={{ margin: 0 }}>Topics</h4>
-                      <div className="row">
-                        <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('concept')])}>+ Concept</button>
-                        <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('exercise')])}>+ Exercise</button>
-                      </div>
-                    </div>
-                    <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
-                      Topics appear in the student syllabus in this exact order. Mix Concepts and Exercises freely.
-                    </p>
-                    <ol className="topic-editor-list">
-                      {sessionTopics.map((t, i) => {
-                        const colors = topicTypeColor(t.type)
-                        return (
-                          <li key={t.id} className="topic-editor-row" style={{ borderLeftColor: colors.bg }}>
-                            <span className="topic-editor-index muted small">{i + 1}</span>
-                            <select
-                              value={t.type}
-                              onChange={(e) => updateTopic(i, { type: e.target.value as TopicType })}
-                              aria-label="Topic type"
-                            >
-                              <option value="concept">Concept</option>
-                              <option value="exercise">Exercise</option>
-                            </select>
-                            <input
-                              placeholder={`${topicTypeLabel(t.type)} title *`}
-                              value={t.title}
-                              onChange={(e) => updateTopic(i, { title: e.target.value })}
-                            />
-                            <input
-                              placeholder="Remark (optional)"
-                              value={t.remark ?? ''}
-                              onChange={(e) => updateTopic(i, { remark: e.target.value })}
-                            />
-                            <div className="topic-editor-actions">
-                              <button type="button" className="btn small ghost" title="Move up" disabled={i === 0} onClick={() => moveTopic(i, -1)}>↑</button>
-                              <button type="button" className="btn small ghost" title="Move down" disabled={i === sessionTopics.length - 1} onClick={() => moveTopic(i, 1)}>↓</button>
-                              <button type="button" className="btn small ghost" onClick={() => removeTopic(i)} disabled={sessionTopics.length === 1} title="Remove">✕</button>
-                            </div>
-                          </li>
-                        )
-                      })}
-                    </ol>
-                  </div>
-                  <div className="row">
-                    <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : editingSessionId ? 'Update' : 'Create'}</button>
-                    <button type="button" className="btn ghost" onClick={() => setSessionFormOpen(false)}>Cancel</button>
-                  </div>
-                </form>
+            {isAdminOrMentor && (
+              <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem', borderBottom: '2px solid var(--border)' }}>
+                {(['sessions', 'exam'] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setRightTab(t)}
+                    style={{
+                      padding: '0.4rem 0.85rem',
+                      border: 'none',
+                      borderBottom: rightTab === t ? '2px solid var(--primary)' : '2px solid transparent',
+                      background: 'none',
+                      color: rightTab === t ? 'var(--primary)' : 'var(--muted-2)',
+                      fontWeight: rightTab === t ? 700 : 400,
+                      cursor: 'pointer',
+                      fontSize: '0.86rem',
+                      marginBottom: '-2px',
+                    }}
+                  >
+                    {t === 'sessions' ? '📋 Sessions' : '📝 Exam'}
+                  </button>
+                ))}
               </div>
-            ) : null}
+            )}
+            {rightTab === 'sessions' && (
+              <>
+                <div className="muted small" style={{ marginBottom: '0.75rem', lineHeight: 1.6 }}>
+                  <strong style={{ color: 'var(--text)' }}>Session Excel format:</strong>&nbsp;
+                  Session title (single cell) → optional subtitle → <code>SL no · Topic · Type · Remark</code> → data rows
+                </div>
+                {importResult ? <p className="notice" style={{ marginBottom: '0.5rem' }}>{importResult}</p> : null}
 
-            <ul className="syllabus-lesson-list">
-              {sessions.map((s) => {
-                const conceptCount = s.activities.filter((t) => t.type === 'concept').length
-                const exerciseCount = s.activities.length - conceptCount
-                return (
-                  <li key={s.id} className="syllabus-lesson syllabus-session-card">
-                    <div className="row syllabus-session-head">
+                {sessionFormOpen ? (
+                  <div className="panel" style={{ marginBottom: '1rem' }}>
+                    <h3 style={{ marginBottom: '0.75rem' }}>{editingSessionId ? '✏️ Edit session' : '✨ New session'}</h3>
+                    <form onSubmit={(e) => void saveSession(e)} className="form">
+                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
+                        <label style={{ flex: 1 }}>Session title<input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="e.g. Session-1" required /></label>
+                        <label style={{ width: 90, flexShrink: 0 }}>Order<input type="number" value={sessionOrder} onChange={(e) => setSessionOrder(Number(e.target.value))} min={1} /></label>
+                      </div>
                       <div>
-                        <strong className="syllabus-session-title">{s.order}. {s.title}</strong>
-                        <span className="muted small syllabus-session-meta">
-                          {s.activities.length} topic{s.activities.length === 1 ? '' : 's'}
-                          {s.activities.length > 0 ? ` · ${conceptCount} concept${conceptCount === 1 ? '' : 's'}, ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}` : ''}
-                        </span>
-                      </div>
-                      <div className="actions syllabus-session-actions">
-                        <button type="button" className="btn small ghost" onClick={() => openAddTopic(s)} disabled={saving}>+ Topic</button>
-                        <button type="button" className="btn small ghost" onClick={() => openEditSessionForm(s)}>Edit</button>
-                        <button type="button" className="btn small ghost" onClick={() => void deleteSession(s.id)}>Delete</button>
-                      </div>
-                    </div>
-
-                    {s.activities.length === 0 ? (
-                      <p className="muted small" style={{ margin: '0.25rem 0 0' }}>No topics yet.</p>
-                    ) : (
-                      <ol className="topic-timeline">
-                        {s.activities.map((t, idx) => {
-                          const colors = topicTypeColor(t.type)
-                          return (
-                            <li key={t.id} className={`topic-timeline-row${t.completed ? ' topic-done' : ''}`}>
-                              <span className="topic-timeline-index muted small">{idx + 1}</span>
-                              <button
-                                type="button"
-                                className={`topic-complete-btn${t.completed ? ' done' : ''}`}
-                                onClick={() => void updateTopicInline(s, t.id, { completed: !t.completed })}
-                                disabled={saving}
-                                title={t.completed ? 'Mark incomplete' : 'Mark complete'}
-                              >
-                                {t.completed ? '✓' : ''}
-                              </button>
-                              <span
-                                className="topic-timeline-badge"
-                                style={{ background: colors.bg, color: colors.text }}
-                              >
-                                {topicTypeLabel(t.type)}
-                              </span>
-                              <span className={`topic-timeline-title${t.completed ? ' topic-title-done' : ''}`}>
-                                {t.title}
-                                {t.remark ? <span className="muted"> — {t.remark}</span> : null}
-                              </span>
-                              <div className="topic-menu-wrap">
-                                <button
-                                  type="button"
-                                  className="topic-menu-btn"
-                                  onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === t.id ? null : t.id) }}
-                                  disabled={saving}
-                                  title="Options"
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <h4 style={{ margin: 0 }}>Topics</h4>
+                          <div className="row">
+                            <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('concept')])}>+ Concept</button>
+                            <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('exercise')])}>+ Exercise</button>
+                          </div>
+                        </div>
+                        <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
+                          Topics appear in the student syllabus in this exact order. Mix Concepts and Exercises freely.
+                        </p>
+                        <ol className="topic-editor-list">
+                          {sessionTopics.map((t, i) => {
+                            const colors = topicTypeColor(t.type)
+                            return (
+                              <li key={t.id} className="topic-editor-row" style={{ borderLeftColor: colors.bg }}>
+                                <span className="topic-editor-index muted small">{i + 1}</span>
+                                <select
+                                  value={t.type}
+                                  onChange={(e) => updateTopic(i, { type: e.target.value as TopicType })}
+                                  aria-label="Topic type"
                                 >
-                                  ⋮
-                                </button>
-                                {openMenuId === t.id && (
-                                  <div className="topic-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                                  <option value="concept">Concept</option>
+                                  <option value="exercise">Exercise</option>
+                                </select>
+                                <input
+                                  placeholder={`${topicTypeLabel(t.type)} title *`}
+                                  value={t.title}
+                                  onChange={(e) => updateTopic(i, { title: e.target.value })}
+                                />
+                                <input
+                                  placeholder="Remark (optional)"
+                                  value={t.remark ?? ''}
+                                  onChange={(e) => updateTopic(i, { remark: e.target.value })}
+                                />
+                                <div className="topic-editor-actions">
+                                  <button type="button" className="btn small ghost" title="Move up" disabled={i === 0} onClick={() => moveTopic(i, -1)}>↑</button>
+                                  <button type="button" className="btn small ghost" title="Move down" disabled={i === sessionTopics.length - 1} onClick={() => moveTopic(i, 1)}>↓</button>
+                                  <button type="button" className="btn small ghost" onClick={() => removeTopic(i)} disabled={sessionTopics.length === 1} title="Remove">✕</button>
+                                </div>
+                              </li>
+                            )
+                          })}
+                        </ol>
+                      </div>
+                      <div className="row">
+                        <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : editingSessionId ? 'Update' : 'Create'}</button>
+                        <button type="button" className="btn ghost" onClick={() => setSessionFormOpen(false)}>Cancel</button>
+                      </div>
+                    </form>
+                  </div>
+                ) : null}
+
+                <ul className="syllabus-lesson-list">
+                  {sessions.map((s) => {
+                    const conceptCount = s.activities.filter((t) => t.type === 'concept').length
+                    const exerciseCount = s.activities.length - conceptCount
+                    return (
+                      <li key={s.id} className="syllabus-lesson syllabus-session-card">
+                        <div className="row syllabus-session-head">
+                          <div>
+                            <strong className="syllabus-session-title">{s.order}. {s.title}</strong>
+                            <span className="muted small syllabus-session-meta">
+                              {s.activities.length} topic{s.activities.length === 1 ? '' : 's'}
+                              {s.activities.length > 0 ? ` · ${conceptCount} concept${conceptCount === 1 ? '' : 's'}, ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}` : ''}
+                            </span>
+                          </div>
+                          <div className="actions syllabus-session-actions">
+                            <button type="button" className="btn small ghost" onClick={() => openAddTopic(s)} disabled={saving}>+ Topic</button>
+                            <button type="button" className="btn small ghost" onClick={() => openEditSessionForm(s)}>Edit</button>
+                            <button type="button" className="btn small ghost" onClick={() => void deleteSession(s.id)}>Delete</button>
+                          </div>
+                        </div>
+
+                        {s.activities.length === 0 ? (
+                          <p className="muted small" style={{ margin: '0.25rem 0 0' }}>No topics yet.</p>
+                        ) : (
+                          <ol className="topic-timeline">
+                            {s.activities.map((t, idx) => {
+                              const colors = topicTypeColor(t.type)
+                              return (
+                                <li key={t.id} className={`topic-timeline-row${t.completed ? ' topic-done' : ''}`}>
+                                  <span className="topic-timeline-index muted small">{idx + 1}</span>
+                                  <button
+                                    type="button"
+                                    className={`topic-complete-btn${t.completed ? ' done' : ''}`}
+                                    onClick={() => void updateTopicInline(s, t.id, { completed: !t.completed })}
+                                    disabled={saving}
+                                    title={t.completed ? 'Mark incomplete' : 'Mark complete'}
+                                  >
+                                    {t.completed ? '✓' : ''}
+                                  </button>
+                                  <span
+                                    className="topic-timeline-badge"
+                                    style={{ background: colors.bg, color: colors.text }}
+                                  >
+                                    {topicTypeLabel(t.type)}
+                                  </span>
+                                  <span className={`topic-timeline-title${t.completed ? ' topic-title-done' : ''}`}>
+                                    {t.title}
+                                    {t.remark ? <span className="muted"> — {t.remark}</span> : null}
+                                  </span>
+                                  <div className="topic-menu-wrap">
                                     <button
                                       type="button"
-                                      className="topic-menu-item"
-                                      onClick={() => { void updateTopicInline(s, t.id, { type: t.type === 'concept' ? 'exercise' : 'concept' }); setOpenMenuId(null) }}
+                                      className="topic-menu-btn"
+                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === t.id ? null : t.id) }}
                                       disabled={saving}
+                                      title="Options"
                                     >
-                                      {t.type === 'concept' ? 'Exercise' : 'Concept'}
+                                      ⋮
                                     </button>
-                                    <button
-                                      type="button"
-                                      className="topic-menu-item"
-                                      onClick={() => { void quickEditTopicTitle(s, t); setOpenMenuId(null) }}
-                                      disabled={saving}
-                                    >
-                                      Edit
-                                    </button>
-                                    <button
-                                      type="button"
-                                      className="topic-menu-item danger"
-                                      onClick={() => { void deleteTopicInline(s, t.id); setOpenMenuId(null) }}
-                                      disabled={saving}
-                                    >
-                                      Delete
-                                    </button>
+                                    {openMenuId === t.id && (
+                                      <div className="topic-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          className="topic-menu-item"
+                                          onClick={() => { void updateTopicInline(s, t.id, { type: t.type === 'concept' ? 'exercise' : 'concept' }); setOpenMenuId(null) }}
+                                          disabled={saving}
+                                        >
+                                          {t.type === 'concept' ? 'Exercise' : 'Concept'}
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="topic-menu-item"
+                                          onClick={() => { void quickEditTopicTitle(s, t); setOpenMenuId(null) }}
+                                          disabled={saving}
+                                        >
+                                          Edit
+                                        </button>
+                                        <button
+                                          type="button"
+                                          className="topic-menu-item danger"
+                                          onClick={() => { void deleteTopicInline(s, t.id); setOpenMenuId(null) }}
+                                          disabled={saving}
+                                        >
+                                          Delete
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
-                                )}
-                              </div>
-                            </li>
-                          )
-                        })}
-                      </ol>
-                    )}
-                  </li>
-                )
-              })}
-              {sessions.length === 0 ? <li className="muted small" style={{ padding: '0.5rem 0' }}>No sessions yet.</li> : null}
-            </ul>
+                                </li>
+                              )
+                            })}
+                          </ol>
+                        )}
+                      </li>
+                    )
+                  })}
+                  {sessions.length === 0 ? <li className="muted small" style={{ padding: '0.5rem 0' }}>No sessions yet.</li> : null}
+                </ul>
+              </>
+            )}
+            {rightTab === 'exam' && <ExamManager courseId={selectedCourseId} />}
           </div>
         ) : null}
       </div>

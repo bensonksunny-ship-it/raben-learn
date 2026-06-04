@@ -82,6 +82,7 @@ export default function ExamInstructions() {
         createdAt: serverTimestamp(),
       })
 
+      setStarting(false)
       navigate(`/exam/${courseId}/run`, { state: { attemptId: ref.id } })
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to start exam'); setStarting(false) }
   }

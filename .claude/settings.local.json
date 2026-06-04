@@ -6,7 +6,9 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(vercel --prod)",
-      "Bash(firebase deploy *)"
+      "Bash(firebase deploy *)",
+      "Bash(git commit *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

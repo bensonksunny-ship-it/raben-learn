@@ -822,3 +822,11 @@ code { background: rgba(0, 113, 227, 0.12); color: var(--primary); padding: 0.1e
   .syllabus-col { padding: 1rem; }
   .syllabus-col-wide { min-width: 0; }
 }
+
+/* Exam Runner */
+.exam-palette-desktop { display: flex; flex-direction: column; }
+.exam-palette-mobile-btn { display: none; }
+@media (max-width: 600px) {
+  .exam-palette-desktop { display: none; }
+  .exam-palette-mobile-btn { display: flex !important; }
+}

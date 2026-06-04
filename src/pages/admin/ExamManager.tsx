@@ -1,9 +1,10 @@
-import React, { useEffect, useState, type FormEvent } from 'react'
+import React, { useCallback, useEffect, useState, type FormEvent } from 'react'
 import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs,
   query, serverTimestamp, setDoc, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
+import { useAuth } from '../../context/AuthContext'
 import type { ExamAttempt, ExamConfig, ExamQuestion, UserProfile } from '../../types'
 
 interface Props { courseId: string }
@@ -57,9 +58,9 @@ export default function ExamManager({ courseId }: Props) {
   // Results expanded row
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  useEffect(() => { void load() }, [courseId])
+  const { firebaseUser } = useAuth()
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
       const [cfgSnap, qSnap, attSnap] = await Promise.all([
@@ -92,7 +93,9 @@ export default function ExamManager({ courseId }: Props) {
       }
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load') }
     finally { setLoading(false) }
-  }
+  }, [courseId])
+
+  useEffect(() => { void load() }, [load])
 
   // ─── Question Bank ─────────────────────────────────────────────────────────
 
@@ -144,8 +147,13 @@ export default function ExamManager({ courseId }: Props) {
 
   async function deleteQuestion(id: string, questionText: string) {
     if (!window.confirm(`Delete question: "${questionText.slice(0, 60)}…"?`)) return
-    try { await deleteDoc(doc(db, 'courses', courseId, 'questionBank', id)); await load() }
-    catch (e) { setError(e instanceof Error ? e.message : 'Delete failed') }
+    try {
+      await deleteDoc(doc(db, 'courses', courseId, 'questionBank', id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Delete failed')
+      return
+    }
+    await load()
   }
 
   // ─── Settings ─────────────────────────────────────────────────────────────
@@ -155,7 +163,7 @@ export default function ExamManager({ courseId }: Props) {
     try {
       await setDoc(doc(db, 'courses', courseId, 'exam', 'config'), {
         ...cfgForm,
-        createdBy: config?.createdBy ?? '',
+        createdBy: config?.createdBy || firebaseUser?.uid || '',
         updatedAt: serverTimestamp(),
       })
       setSuccess('Settings saved.')
@@ -359,7 +367,7 @@ export default function ExamManager({ courseId }: Props) {
             {cfgForm.isActive && questions.length < cfgForm.questionsPerExam && (
               <p className="error">⚠️ Question bank ({questions.length}) has fewer questions than the exam requires ({cfgForm.questionsPerExam}). Add more questions before activating.</p>
             )}
-            <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save Settings'}</button>
+            <button type="submit" className="btn primary" disabled={saving || (cfgForm.isActive && questions.length < cfgForm.questionsPerExam)}>{saving ? 'Saving…' : 'Save Settings'}</button>
           </form>
         </div>
       )}

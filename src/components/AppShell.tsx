@@ -31,6 +31,7 @@ export default function AppShell() {
             <NavLink to="/admin/students" className={nl}>🎓 Students</NavLink>
             <NavLink to="/admin/users" className={nl}>👤 Users</NavLink>
             <NavLink to="/admin/syllabus" className={nl}>📚 Syllabus</NavLink>
+            <NavLink to="/admin/planning" className={nl}>🗂️ Planning</NavLink>
             <NavLink to="/admin/reports" className={nl}>📊 Reports</NavLink>
           </>}
           {isMentor && <>
@@ -63,6 +64,7 @@ export default function AppShell() {
             <NavLink to="/admin" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
             <NavLink to="/admin/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
             <NavLink to="/admin/syllabus" className={bnl}><span className="bn-icon">📚</span><span className="bn-label">Syllabus</span></NavLink>
+            <NavLink to="/admin/planning" className={bnl}><span className="bn-icon">🗂️</span><span className="bn-label">Planning</span></NavLink>
             <NavLink to="/admin/reports" className={bnl}><span className="bn-icon">📊</span><span className="bn-label">Reports</span></NavLink>
           </>}
           {isMentor && <>

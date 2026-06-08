@@ -24,6 +24,9 @@ const UserManagement = lazy(() =>
 const StudentsPage = lazy(() =>
   import('./pages/admin/StudentsPage').then((m) => ({ default: m.StudentsPage })),
 )
+const PlanningPage = lazy(() =>
+  import('./pages/admin/PlanningPage').then((m) => ({ default: m.PlanningPage })),
+)
 
 function AdminRouteFallback() {
   return (
@@ -62,6 +65,14 @@ export default function App() {
             <Route path="syllabus" element={<SyllabusPage />} />
             <Route path="lessons" element={<SyllabusPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route
+              path="planning"
+              element={
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <PlanningPage />
+                </Suspense>
+              }
+            />
           </Route>
           <Route path="mentor">
             <Route index element={<MentorDashboard />} />

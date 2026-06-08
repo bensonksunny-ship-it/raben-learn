@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { collection, doc, getDocs, query, updateDoc, where } from 'firebase/firestore'
+import { useEffect, useRef, useState } from 'react'
+import { collection, doc, getDocs, query, where, writeBatch } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { Course, Session } from '../../types'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
@@ -12,6 +12,7 @@ export function PlanningPage() {
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState('')
+  const loadIdRef = useRef(0)
 
   useEffect(() => {
     void (async () => {
@@ -33,11 +34,13 @@ export function PlanningPage() {
   }, [])
 
   async function loadSessions(courseId: string) {
+    const thisLoad = ++loadIdRef.current
     setLoadingSessions(true)
     setError('')
     setSessions([])
     try {
       const snap = await getDocs(query(collection(db, 'sessions'), where('courseId', '==', courseId)))
+      if (thisLoad !== loadIdRef.current) return
       const list: Session[] = []
       snap.forEach((d) => {
         const x = d.data()
@@ -54,9 +57,10 @@ export function PlanningPage() {
       list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
       setSessions(list)
     } catch (e) {
+      if (thisLoad !== loadIdRef.current) return
       setError(e instanceof Error ? e.message : 'Failed to load sessions')
     } finally {
-      setLoadingSessions(false)
+      if (thisLoad === loadIdRef.current) setLoadingSessions(false)
     }
   }
 
@@ -113,6 +117,7 @@ export function PlanningPage() {
       <SessionList
         sessions={sessions}
         setSessions={setSessions}
+        saveStatus={saveStatus}
         setSaveStatus={setSaveStatus}
         setError={setError}
       />
@@ -123,11 +128,12 @@ export function PlanningPage() {
 interface SessionListProps {
   sessions: Session[]
   setSessions: React.Dispatch<React.SetStateAction<Session[]>>
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error'
   setSaveStatus: React.Dispatch<React.SetStateAction<'idle' | 'saving' | 'saved' | 'error'>>
   setError: React.Dispatch<React.SetStateAction<string>>
 }
 
-function SessionList({ sessions, setSessions, setSaveStatus, setError }: SessionListProps) {
+function SessionList({ sessions, setSessions, saveStatus, setSaveStatus, setError }: SessionListProps) {
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
 
@@ -144,6 +150,11 @@ function SessionList({ sessions, setSessions, setSaveStatus, setError }: Session
 
   function handleDragEnd() {
     if (dragIndex === null || overIndex === null || dragIndex === overIndex) {
+      setDragIndex(null)
+      setOverIndex(null)
+      return
+    }
+    if (saveStatus === 'saving') {
       setDragIndex(null)
       setOverIndex(null)
       return
@@ -204,9 +215,9 @@ async function saveOrder(
 ) {
   setSaveStatus('saving')
   try {
-    await Promise.all(
-      ordered.map((s) => updateDoc(doc(db, 'sessions', s.id), { order: s.order }))
-    )
+    const batch = writeBatch(db)
+    ordered.forEach((s) => batch.update(doc(db, 'sessions', s.id), { order: s.order }))
+    await batch.commit()
     setSaveStatus('saved')
     setTimeout(() => setSaveStatus('idle'), 2000)
   } catch (e) {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { collection, doc, getDocs, increment, query, updateDoc, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, increment, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { calculateScore, formatTime } from '../../lib/examUtils'
@@ -40,7 +40,6 @@ export default function ExamRunner() {
       let docs: Array<{ id: string; data: () => Record<string, unknown> }> = []
 
       if (stateAttemptId) {
-        const { getDoc } = await import('firebase/firestore')
         const d = await getDoc(doc(db, 'examAttempts', stateAttemptId))
         if (d.exists()) docs = [{ id: d.id, data: () => d.data() as Record<string, unknown> }]
       } else {
@@ -71,8 +70,7 @@ export default function ExamRunner() {
       setAnswers(att.answers)
 
       const elapsedSecs = Math.floor((Date.now() - new Date(att.startedAt).getTime()) / 1000)
-      const { getDoc: gd } = await import('firebase/firestore')
-      const cfgSnap = await gd(doc(db, 'courses', courseId, 'exam', 'config'))
+      const cfgSnap = await getDoc(doc(db, 'courses', courseId, 'exam', 'config'))
       const durationMinutes: number = cfgSnap.exists() ? (cfgSnap.data().duration as number) : 30
       const totalSecs = durationMinutes * 60
       const remaining = Math.max(0, totalSecs - elapsedSecs)
@@ -91,7 +89,7 @@ export default function ExamRunner() {
       })
     }, 1000)
     return () => clearInterval(id)
-  }, [!!attempt, timeLeft <= 0])
+  }, [attempt?.id, timeLeft <= 0])
 
   async function autoSubmit() {
     if (autoSubmitFired.current) return

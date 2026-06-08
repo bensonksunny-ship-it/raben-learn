@@ -8,7 +8,12 @@
       "Bash(vercel --prod)",
       "Bash(firebase deploy *)",
       "Bash(git commit *)",
-      "Bash(npx tsc *)"
+      "Bash(npx tsc *)",
+      "Bash(open *)",
+      "Bash(npx eslint *)",
+      "Bash(awk 'NR>=110,NR<=140' src/pages/admin/ExamManager.tsx)",
+      "Bash(npm cache *)",
+      "Bash(sudo chown *)"
     ]
   }
 }

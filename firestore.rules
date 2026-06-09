@@ -40,6 +40,10 @@ service cloud.firestore {
       allow delete: if hasRole('admin');
     }
 
+    match /planning_levels/{id} {
+      allow read, write: if hasRole('admin');
+    }
+
     // Legacy collections for Cloud Functions
     match /centres/{id} { allow read, write: if hasRole('admin'); }
     match /mentor_centres/{id} { allow read, write: if isAdminOrMentor(); }

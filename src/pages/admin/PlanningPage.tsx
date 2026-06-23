@@ -319,12 +319,41 @@ interface LevelCardProps {
 function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, onRemove }: LevelCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [subjectTotals, setSubjectTotals] = useState<Record<string, number>>({})
+  const [milestones, setMilestones] = useState('')
+  const [milestonesError, setMilestonesError] = useState('')
+  const milestonesLoadedRef = useRef(false)
 
   function handleSubjectTotal(courseId: string, total: number) {
     setSubjectTotals((prev) => ({ ...prev, [courseId]: total }))
   }
 
   const levelTotal = Object.values(subjectTotals).reduce((sum, t) => sum + t, 0)
+
+  async function handleExpand() {
+    setExpanded((v) => !v)
+    if (!milestonesLoadedRef.current) {
+      milestonesLoadedRef.current = true
+      try {
+        const snap = await getDocs(query(collection(db, 'planning_levels'), where('level', '==', level)))
+        snap.forEach((d) => {
+          const x = d.data()
+          setMilestones((x.milestones as string) ?? '')
+        })
+      } catch {
+        // non-critical read — silently ignore
+      }
+    }
+  }
+
+  async function saveMilestones(value: string) {
+    try {
+      await setDoc(doc(db, 'planning_levels', `level_${level}`), { milestones: value }, { merge: true })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to save goals'
+      setMilestonesError(msg)
+      setTimeout(() => setMilestonesError(''), 4000)
+    }
+  }
 
   return (
     <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
@@ -333,9 +362,9 @@ function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, o
         style={{
           display: 'flex', alignItems: 'center', gap: '0.75rem',
           padding: '0.85rem 1.25rem', cursor: 'pointer',
-          borderBottom: expanded && assignedCourses.length > 0 ? '1px solid var(--border, #e5e7eb)' : 'none',
+          borderBottom: expanded ? '1px solid var(--border, #e5e7eb)' : 'none',
         }}
-        onClick={() => setExpanded((v) => !v)}
+        onClick={() => void handleExpand()}
       >
         <span style={{ fontSize: '1rem', transition: 'transform 0.15s', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', color: 'var(--muted, #9ca3af)' }}>▶</span>
         <strong style={{ minWidth: '4.5rem' }}>Level {level}</strong>
@@ -357,9 +386,38 @@ function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, o
         </div>
       </div>
 
-      {/* Expanded subjects */}
+      {/* Expanded body */}
       {expanded && (
         <div>
+          {/* Goals / Milestones */}
+          <div style={{ padding: '0.75rem 1.25rem', background: '#fafafa', borderBottom: '1px solid var(--border, #e5e7eb)' }}>
+            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#6366f1', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+              🏁 Level Goals
+            </div>
+            <textarea
+              value={milestones}
+              onChange={(e) => setMilestones(e.target.value)}
+              onBlur={(e) => void saveMilestones(e.target.value)}
+              placeholder={`What should a student achieve by the end of Level ${level}?`}
+              style={{
+                width: '100%',
+                border: '1px solid var(--border, #d1d5db)',
+                borderRadius: '6px',
+                padding: '0.5rem 0.65rem',
+                fontSize: '0.88rem',
+                resize: 'vertical',
+                minHeight: '64px',
+                fontFamily: 'inherit',
+                color: '#374151',
+                boxSizing: 'border-box',
+              }}
+            />
+            {milestonesError && (
+              <p style={{ color: 'var(--error, red)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>{milestonesError}</p>
+            )}
+          </div>
+
+          {/* Subjects */}
           {assignedCourses.length === 0 ? (
             <p className="muted small" style={{ padding: '1rem 1.25rem', margin: 0 }}>No subjects assigned to this level yet.</p>
           ) : (

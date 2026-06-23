@@ -32,6 +32,7 @@ export function SyllabusPage() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
   const [sessionTitle, setSessionTitle] = useState('')
   const [sessionOrder, setSessionOrder] = useState(1)
+  const [sessionDuration, setSessionDuration] = useState(0)
   const [sessionTopics, setSessionTopics] = useState<Topic[]>([newTopic()])
 
   const [error, setError] = useState('')
@@ -82,6 +83,7 @@ export function SyllabusPage() {
         courseName: (x.courseName as string) ?? '',
         courseId: (x.courseId as string) ?? null,
         order: Number(x.order ?? 0),
+        durationMinutes: Number(x.durationMinutes ?? 0),
         activities: topics,
       })
     })
@@ -113,6 +115,7 @@ export function SyllabusPage() {
     setEditingSessionId(null)
     setSessionTitle('')
     setSessionOrder(sessions.length + 1)
+    setSessionDuration(0)
     setSessionTopics([newTopic()])
     setSessionFormOpen(true)
   }
@@ -121,6 +124,7 @@ export function SyllabusPage() {
     setEditingSessionId(session.id)
     setSessionTitle(session.title)
     setSessionOrder(session.order ?? 1)
+    setSessionDuration(session.durationMinutes ?? 0)
     setSessionTopics(session.activities.length > 0 ? [...session.activities] : [newTopic()])
     setSessionFormOpen(true)
   }
@@ -135,7 +139,7 @@ export function SyllabusPage() {
     if (cleaned.length === 0) { setError('Add at least one topic.'); return }
     setSaving(true); setError('')
     try {
-      const data = { courseId: selectedCourseId, courseName: selectedCourse?.title ?? '', title: sessionTitle.trim(), order: sessionOrder, activities: cleaned, updatedAt: serverTimestamp() }
+      const data = { courseId: selectedCourseId, courseName: selectedCourse?.title ?? '', title: sessionTitle.trim(), order: sessionOrder, durationMinutes: sessionDuration, activities: cleaned, updatedAt: serverTimestamp() }
       if (editingSessionId) await updateDoc(doc(db, 'sessions', editingSessionId), data)
       else await addDoc(collection(db, 'sessions'), { ...data, createdAt: serverTimestamp() })
       setSessionFormOpen(false)
@@ -412,6 +416,7 @@ export function SyllabusPage() {
                       <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
                         <label style={{ flex: 1 }}>Session title<input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="e.g. Session-1" required /></label>
                         <label style={{ width: 90, flexShrink: 0 }}>Order<input type="number" value={sessionOrder} onChange={(e) => setSessionOrder(Number(e.target.value))} min={1} /></label>
+                        <label style={{ width: 110, flexShrink: 0 }}>Duration (min)<input type="number" value={sessionDuration} min={0} step={5} onChange={(e) => setSessionDuration(Number(e.target.value))} /></label>
                       </div>
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -478,6 +483,7 @@ export function SyllabusPage() {
                             <span className="muted small syllabus-session-meta">
                               {s.activities.length} topic{s.activities.length === 1 ? '' : 's'}
                               {s.activities.length > 0 ? ` · ${conceptCount} concept${conceptCount === 1 ? '' : 's'}, ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}` : ''}
+                              {(s.durationMinutes ?? 0) > 0 ? ` · ${s.durationMinutes} min` : ''}
                             </span>
                           </div>
                           <div className="actions syllabus-session-actions">

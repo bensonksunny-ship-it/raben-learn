@@ -66,6 +66,7 @@ export interface Session {
   courseName?: string
   courseId: string | null
   order?: number
+  durationMinutes?: number
   /** Ordered list of Topics. Stored in Firestore under the same field name for back-compat. */
   activities: Topic[]
 }

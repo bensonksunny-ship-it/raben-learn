@@ -1,0 +1,71 @@
+<h2>Four Features — Suggested Build Order</h2>
+<p class="subtitle">Each is a separate sub-project. Which one should we design and build first?</p>
+
+<div style="display:flex;flex-direction:column;gap:0.75rem;margin-bottom:1.5rem">
+
+  <div style="background:#f0f9ff;border:1.5px solid #0ea5e9;border-radius:10px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start">
+    <div style="background:#0ea5e9;color:white;border-radius:6px;padding:0.2rem 0.6rem;font-weight:700;font-size:0.85rem;white-space:nowrap">1st — Easy win</div>
+    <div>
+      <strong>⏱ Time Planning</strong> — Add a duration field to each session. Show total hours per level. Small data change, big planning value.
+      <div style="margin-top:0.35rem;font-size:0.82rem;color:#64748b">Touches: sessions collection (add <code>durationMinutes</code>), Levels tab UI</div>
+    </div>
+  </div>
+
+  <div style="background:#f0fdf4;border:1.5px solid #22c55e;border-radius:10px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start">
+    <div style="background:#22c55e;color:white;border-radius:6px;padding:0.2rem 0.6rem;font-weight:700;font-size:0.85rem;white-space:nowrap">2nd — Quick</div>
+    <div>
+      <strong>🏁 Level Milestones</strong> — Add a goals/outcomes text area to each level card. Stored in the existing <code>planning_levels</code> collection.
+      <div style="margin-top:0.35rem;font-size:0.82rem;color:#64748b">Touches: planning_levels collection (add <code>milestones</code> field), Levels tab UI</div>
+    </div>
+  </div>
+
+  <div style="background:#fdf4ff;border:1.5px solid #a855f7;border-radius:10px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start">
+    <div style="background:#a855f7;color:white;border-radius:6px;padding:0.2rem 0.6rem;font-weight:700;font-size:0.85rem;white-space:nowrap">3rd — Medium</div>
+    <div>
+      <strong>🗺 Curriculum Roadmap</strong> — A new "Roadmap" tab inside Planning. Visual level-by-level overview using the data already in the levels collection.
+      <div style="margin-top:0.35rem;font-size:0.82rem;color:#64748b">Touches: new Roadmap tab component, reads planning_levels + courses + sessions</div>
+    </div>
+  </div>
+
+  <div style="background:#fff7ed;border:1.5px solid #f97316;border-radius:10px;padding:1rem 1.25rem;display:flex;gap:1rem;align-items:flex-start">
+    <div style="background:#f97316;color:white;border-radius:6px;padding:0.2rem 0.6rem;font-weight:700;font-size:0.85rem;white-space:nowrap">4th — Complex</div>
+    <div>
+      <strong>🔗 Prerequisites</strong> — Define which sessions unlock after others. Requires a new <code>prerequisites</code> collection and dependency graph logic.
+      <div style="margin-top:0.35rem;font-size:0.82rem;color:#64748b">Touches: new collection, new UI, potentially student unlock logic</div>
+    </div>
+  </div>
+
+</div>
+
+<div class="options">
+  <div class="option" data-choice="time" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>Start with Time Planning</h3>
+      <p>Fastest to build, most immediately useful for scheduling. Good foundation for Roadmap later.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="milestones" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>Start with Milestones</h3>
+      <p>Gives each level a purpose and narrative. Simple text additions to the existing levels UI.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="both-ab" onclick="toggleSelect(this)">
+    <div class="letter">C</div>
+    <div class="content">
+      <h3>Time + Milestones together</h3>
+      <p>Both are small changes to the same Levels tab. Build them in one go, then move to Roadmap.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="roadmap" onclick="toggleSelect(this)">
+    <div class="letter">D</div>
+    <div class="content">
+      <h3>Start with Roadmap</h3>
+      <p>Most visual impact. Build the big-picture view first, then fill in details with time and milestones.</p>
+    </div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:1rem">Select one, then tell me in the terminal. Prerequisites will be a separate spec after the others are done.</p>

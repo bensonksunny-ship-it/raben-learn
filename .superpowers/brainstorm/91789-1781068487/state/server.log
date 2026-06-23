@@ -1,0 +1,12 @@
+{"type":"server-started","port":58324,"host":"127.0.0.1","url_host":"localhost","url":"http://localhost:58324","screen_dir":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content","state_dir":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/state"}
+{"type":"screen-added","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/planning-directions.html"}
+{"type":"screen-updated","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/planning-directions.html"}
+{"type":"screen-updated","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/planning-directions.html"}
+{"type":"screen-updated","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/planning-directions.html"}
+{"source":"user-event","type":"click","text":"A\n    \n      ⏱ Time Planning\n      Assign estimated hours/minutes to sessions and topics. See total time per level and per course. Know exactly how long the full syllabus takes to complete.\n      \n        Session duration\n        Level totals\n        Full syllabus hours","choice":"time","id":null,"timestamp":1781068624849}
+{"source":"user-event","type":"click","text":"A\n    \n      ⏱ Time Planning\n      Assign estimated hours/minutes to sessions and topics. See total time per level and per course. Know exactly how long the full syllabus takes to complete.\n      \n        Session duration\n        Level totals\n        Full syllabus hours","choice":"time","id":null,"timestamp":1781068625914}
+{"type":"screen-added","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/scope-decomposition.html"}
+{"type":"screen-updated","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/scope-decomposition.html"}
+{"type":"screen-updated","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/scope-decomposition.html"}
+{"type":"screen-updated","file":"/Users/bensonksunny/Desktop/Raben learn/.superpowers/brainstorm/91789-1781068487/content/scope-decomposition.html"}
+{"type":"server-stopped","reason":"idle timeout"}

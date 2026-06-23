@@ -4,6 +4,14 @@ import { db } from '../../firebase/config'
 import type { Course, Session } from '../../types'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 
+function formatDuration(minutes: number): string {
+  if (minutes <= 0) return ''
+  if (minutes < 60) return `${minutes}m`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m === 0 ? `${h}h` : `${h}h ${m}m`
+}
+
 export function PlanningPage() {
   const [tab, setTab] = useState<'sessions' | 'levels'>('sessions')
   const [courses, setCourses] = useState<Course[]>([])
@@ -179,6 +187,11 @@ function DraggableSessionList({ sessions, setSessions, saveStatus, setSaveStatus
             <strong style={{ fontSize: '0.9rem' }}>{session.title}</strong>
             {session.subtitle && <p className="muted small" style={{ margin: '0.1rem 0 0' }}>{session.subtitle}</p>}
           </div>
+          {(session.durationMinutes ?? 0) > 0 && (
+            <span className="muted small" style={{ whiteSpace: 'nowrap' }}>
+              {formatDuration(session.durationMinutes ?? 0)}
+            </span>
+          )}
         </div>
       ))}
     </div>
@@ -305,6 +318,13 @@ interface LevelCardProps {
 
 function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, onRemove }: LevelCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const [subjectTotals, setSubjectTotals] = useState<Record<string, number>>({})
+
+  function handleSubjectTotal(courseId: string, total: number) {
+    setSubjectTotals((prev) => ({ ...prev, [courseId]: total }))
+  }
+
+  const levelTotal = Object.values(subjectTotals).reduce((sum, t) => sum + t, 0)
 
   return (
     <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
@@ -322,6 +342,11 @@ function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, o
         <span className="muted small">
           {assignedCourses.length === 0 ? 'No subjects' : `${assignedCourses.length} subject${assignedCourses.length !== 1 ? 's' : ''}`}
         </span>
+        {levelTotal > 0 && (
+          <span style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '0.78rem', padding: '2px 8px', borderRadius: '20px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            ⏱ {formatDuration(levelTotal)}
+          </span>
+        )}
         <div style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
           {!loadingCourses && available.length > 0 && (
             <select value="" onChange={(e) => { if (e.target.value) onAdd(e.target.value) }} style={{ fontSize: '0.8rem', padding: '0.2rem 0.4rem' }}>
@@ -344,6 +369,7 @@ function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, o
                 course={course}
                 isLast={idx === assignedCourses.length - 1}
                 onRemove={() => onRemove(course.id)}
+                onTotalChange={handleSubjectTotal}
               />
             ))
           )}
@@ -357,15 +383,21 @@ interface SubjectRowProps {
   course: Course
   isLast: boolean
   onRemove: () => void
+  onTotalChange: (courseId: string, totalMinutes: number) => void
 }
 
-function SubjectRow({ course, isLast, onRemove }: SubjectRowProps) {
+function SubjectRow({ course, isLast, onRemove, onTotalChange }: SubjectRowProps) {
   const [open, setOpen] = useState(false)
   const [sessions, setSessions] = useState<Session[]>([])
   const [loadingSessions, setLoadingSessions] = useState(false)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
   const [error, setError] = useState('')
   const loadIdRef = useRef(0)
+
+  useEffect(() => {
+    const total = sessions.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
+    onTotalChange(course.id, total)
+  }, [sessions])
 
   async function loadSessions() {
     const thisLoad = ++loadIdRef.current
@@ -380,7 +412,8 @@ function SubjectRow({ course, isLast, onRemove }: SubjectRowProps) {
         list.push({
           id: d.id, title: (x.title as string) ?? '', subtitle: (x.subtitle as string) ?? '',
           courseId: (x.courseId as string) ?? null, courseName: (x.courseName as string) ?? '',
-          order: Number(x.order ?? 0), activities: readTopicsFromSessionDoc(x.activities),
+          order: Number(x.order ?? 0), durationMinutes: Number(x.durationMinutes ?? 0),
+          activities: readTopicsFromSessionDoc(x.activities),
         })
       })
       list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -407,6 +440,12 @@ function SubjectRow({ course, isLast, onRemove }: SubjectRowProps) {
       >
         <span style={{ fontSize: '0.8rem', transition: 'transform 0.15s', display: 'inline-block', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', color: 'var(--muted, #9ca3af)' }}>▶</span>
         <span style={{ flex: 1, fontWeight: 500 }}>{course.title}</span>
+        {(() => {
+          const total = sessions.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
+          return total > 0 ? (
+            <span className="muted small" style={{ whiteSpace: 'nowrap' }}>⏱ {formatDuration(total)}</span>
+          ) : null
+        })()}
         {saveStatus === 'saving' && <span className="muted small">Saving…</span>}
         {saveStatus === 'saved' && <span className="muted small" style={{ color: 'var(--success, green)' }}>Saved</span>}
         {saveStatus === 'error' && <span className="muted small" style={{ color: 'var(--error, red)' }}>Error</span>}

@@ -294,10 +294,14 @@ export function SyllabusPage() {
     try {
       const buffer = await file.arrayBuffer()
       const wb = XLSX.read(buffer, { type: 'array' })
+      console.log('[Import] Sheet names:', wb.SheetNames)
       const ws = wb.Sheets[wb.SheetNames[0]]
       if (!ws) { setError('Excel file has no sheet.'); return }
       const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(ws, { header: 1 })
+      console.log('[Import] Total rows:', rows.length)
+      rows.slice(0, 20).forEach((r, i) => console.log(`[Import] Row ${i}:`, JSON.stringify(r)))
       const blocks = parseRows(rows)
+      console.log('[Import] Parsed blocks:', blocks.length, blocks.map(b => b.name))
       if (blocks.length === 0) { setError('No sessions found.'); return }
       let created = 0
       for (const s of blocks) {

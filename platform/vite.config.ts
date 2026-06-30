@@ -1,0 +1,134 @@
+import { defineConfig, loadEnv } from 'vite'
+import type { Plugin, ProxyOptions } from 'vite'
+import react from '@vitejs/plugin-react'
+import { VitePWA } from 'vite-plugin-pwa'
+
+/** Ensures Firebase ID tokens reach Cloud Functions (some http-proxy setups drop `Authorization`). */
+function gcfProxyOptions(gcfTarget: string): ProxyOptions {
+  return {
+    target: gcfTarget,
+    changeOrigin: true,
+    secure: true,
+    rewrite: (path) => path.replace(/^\/__gcf__/, '') || '/',
+    configure: (proxy) => {
+      proxy.on('proxyReq', (proxyReq, req) => {
+        const raw = req.headers.authorization
+        if (typeof raw === 'string' && raw.length > 0) {
+          proxyReq.setHeader('Authorization', raw)
+        } else if (Array.isArray(raw) && raw[0]) {
+          proxyReq.setHeader('Authorization', raw[0])
+        }
+      })
+    },
+  }
+}
+
+/** Dev-only: embedded / aggressive caches (e.g. some IDE browsers) may keep stale JS; discourage caching HTML. */
+function devNoCacheHtmlPlugin(): Plugin {
+  return {
+    name: 'dev-no-cache-html',
+    apply: 'serve',
+    transformIndexHtml(html) {
+      if (html.includes('http-equiv="Cache-Control"')) return html
+      return html.replace(
+        '<head>',
+        '<head>\n    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />',
+      )
+    },
+  }
+}
+
+// https://vite.dev/config/
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  const projectId = env.VITE_FIREBASE_PROJECT_ID || 'raben-learn'
+  const region = env.VITE_FIREBASE_FUNCTIONS_REGION || 'us-central1'
+  const gcfTarget = `https://${region}-${projectId}.cloudfunctions.net`
+
+  return {
+    plugins: [
+      react(),
+      devNoCacheHtmlPlugin(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        manifestFilename: 'manifest.json',
+        includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
+        manifest: {
+          name: 'Raben Learn',
+          short_name: 'Raben Learn',
+          description: 'Learning platform for students and mentors',
+          theme_color: '#0071e3',
+          background_color: '#f5f5f7',
+          display: 'standalone',
+          orientation: 'portrait-primary',
+          scope: '/',
+          start_url: '/',
+          icons: [
+            { src: 'pwa-64x64.png',            sizes: '64x64',   type: 'image/png' },
+            { src: 'pwa-192x192.png',           sizes: '192x192', type: 'image/png' },
+            { src: 'pwa-512x512.png',           sizes: '512x512', type: 'image/png' },
+            { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          ],
+        },
+        workbox: {
+          skipWaiting: true,
+          clientsClaim: true,
+          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+          navigateFallback: '/index.html',
+          navigateFallbackDenylist: [/^\/__gcf__/],
+          runtimeCaching: [
+            {
+              urlPattern: /^https:\/\/firestore\.googleapis\.com\/.*/i,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'firestore',
+                networkTimeoutSeconds: 10,
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
+              urlPattern: /^https:\/\/.*\.cloudfunctions\.net\/.*/i,
+              handler: 'NetworkOnly',
+            },
+          ],
+        },
+        devOptions: { enabled: false },
+      }),
+    ],
+    /**
+     * Dev-only: proxy callable HTTPS to Cloud Functions so the browser talks same-origin
+     * (e.g. http://localhost:5174/__gcf__/...) and avoids CORS preflight failures to *.cloudfunctions.net.
+     * Production builds call https://REGION-PROJECT.cloudfunctions.net directly (see adminGcfCallables.ts).
+     */
+    server: {
+      /** Embedded browsers (e.g. Cursor preview) may cache dev chunks; discourage caching HTML/JS. */
+      headers: {
+        'Cache-Control': 'no-store',
+      },
+      proxy: {
+        '/__gcf__': gcfProxyOptions(gcfTarget),
+      },
+    },
+    /** Same proxy for `vite preview` (e.g. port 4173). */
+    preview: {
+      proxy: {
+        '/__gcf__': gcfProxyOptions(gcfTarget),
+      },
+    },
+    /**
+     * When dependency optimization is invalidated (lockfile change, `npm install`, server restart),
+     * old `?v=` URLs can 504 with "Outdated Optimize Dep" until the cache matches. Pinning core
+     * entry points reduces churn; if you still see 504 loops: `npm run dev:clean` or `vite --force`.
+     */
+    optimizeDeps: {
+      include: [
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        'react-router-dom',
+      ],
+    },
+  }
+})

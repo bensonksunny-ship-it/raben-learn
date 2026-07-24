@@ -225,3 +225,7 @@ export async function callDisableUser(uid: string, disabled: boolean) {
 export async function callResetPassword(uid: string): Promise<{ temporaryPassword: string }> {
   return invokeCallable<{ temporaryPassword: string }>('adminResetPassword', { uid })
 }
+
+export async function callDeleteUser(uid: string) {
+  return invokeCallable<{ ok: boolean }>('adminDeleteUser', { uid })
+}

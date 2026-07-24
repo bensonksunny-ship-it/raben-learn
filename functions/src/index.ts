@@ -408,6 +408,43 @@ export const adminDisableUser = onCall(callableOpts, async (request) => {
   return { ok: true }
 })
 
+export const adminDeleteUser = onCall(callableOpts, async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Sign in required')
+  }
+  await assertAdmin(request.auth.uid)
+
+  const { uid } = request.data as { uid?: unknown }
+  if (!isNonEmptyString(uid, 128)) {
+    throw new HttpsError('invalid-argument', 'Invalid uid')
+  }
+  const targetUid = uid.trim()
+
+  if (targetUid === request.auth.uid) {
+    throw new HttpsError('failed-precondition', 'Cannot delete your own account')
+  }
+
+  try {
+    await auth.deleteUser(targetUid)
+  } catch (e: unknown) {
+    if (getFirebaseAuthErrorCode(e) !== 'auth/user-not-found') throw e
+  }
+
+  const batch = db.batch()
+  batch.delete(db.doc(`users/${targetUid}`))
+  batch.delete(db.doc(`students/${targetUid}`))
+  await batch.commit()
+
+  const centres = await db.collection('mentor_centres').where('mentorId', '==', targetUid).get()
+  if (!centres.empty) {
+    const b2 = db.batch()
+    centres.forEach((d) => b2.delete(d.ref))
+    await b2.commit()
+  }
+
+  return { ok: true }
+})
+
 export const adminResetPassword = onCall(callableOpts, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required')

@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
 import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
+import { callCreateUser, callDeleteUser, callDisableUser, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import { mapUserDoc, avatarClass } from '../../lib/userUtils'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
@@ -25,6 +24,8 @@ export function StudentsPage() {
   const [sessions, setSessions] = useState<Session[]>([])
   const [syllabusLoading, setSyllabusLoading] = useState(false)
   const [addCourseId, setAddCourseId] = useState('')
+
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
@@ -143,12 +144,15 @@ export function StudentsPage() {
     catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
-  async function resetPassword(u: UserProfile) {
+  async function deleteStudent(u: UserProfile) {
     if (!isAdmin) return
-    if (!window.confirm(`Reset password for ${u.email}?`)) return
-    setError(''); setCreatedPw('')
-    try { const res = await callResetPassword(u.id); setCreatedPw(res.temporaryPassword) }
-    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
+    if (!window.confirm(`Permanently delete ${u.name || u.email}? This cannot be undone.`)) return
+    setError('')
+    try {
+      await callDeleteUser(u.id)
+      if (selectedStudent?.id === u.id) setSelectedStudent(null)
+      await load()
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Delete failed')) }
   }
 
   async function saveCourses(u: UserProfile, nextCourseIds: string[]) {
@@ -247,6 +251,9 @@ export function StudentsPage() {
       {loading ? <p className="muted">Loading…</p> : null}
 
       {/* Student card grid */}
+      {openMenuId && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setOpenMenuId(null)} />
+      )}
       <div className="user-grid">
         {filtered.map((s) => (
           <div
@@ -265,22 +272,40 @@ export function StudentsPage() {
                 <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
                   {s.status}
                 </span>
+                {isAdmin && (
+                  <div className="topic-menu-wrap" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="topic-menu-btn"
+                      onClick={() => setOpenMenuId(openMenuId === s.id ? null : s.id)}
+                    >
+                      ⋮
+                    </button>
+                    {openMenuId === s.id && (
+                      <div className="topic-menu-dropdown">
+                        <button
+                          type="button"
+                          className="topic-menu-item"
+                          onClick={() => { setOpenMenuId(null); void toggleDisable(s) }}
+                        >
+                          {s.status === 'active' ? 'Disable' : 'Enable'}
+                        </button>
+                        <button
+                          type="button"
+                          className="topic-menu-item danger"
+                          onClick={() => { setOpenMenuId(null); void deleteStudent(s) }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               {(s.courseIds ?? []).length > 0
                 ? <div className="user-card-courses">📘 {courseLabel(s.courseIds ?? [])}</div>
                 : <div className="muted small">No courses assigned</div>
               }
-            </div>
-            <div className="user-card-footer" onClick={(e) => e.stopPropagation()}>
-              <Link className="btn small secondary" to={`/mentor/students/${s.id}`}>Open</Link>
-              {isAdmin && (
-                <>
-                  <button type="button" className="btn small secondary" onClick={() => void resetPassword(s)}>Reset PW</button>
-                  <button type="button" className="btn small secondary" onClick={() => void toggleDisable(s)}>
-                    {s.status === 'active' ? 'Disable' : 'Enable'}
-                  </button>
-                </>
-              )}
             </div>
           </div>
         ))}

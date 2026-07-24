@@ -19,7 +19,11 @@
       "Bash(git *)",
       "Bash(vercel --version)",
       "Bash(lsof -iTCP -sTCP:LISTEN -P)",
-      "Bash(lsof -iTCP:5173 -sTCP:LISTEN -P)"
+      "Bash(lsof -iTCP:5173 -sTCP:LISTEN -P)",
+      "Bash(npx skills *)",
+      "Read(//Users/bensonksunny/.claude/**)",
+      "Bash(python3 -m json.tool)",
+      "Skill(update-config)"
     ]
   }
 }

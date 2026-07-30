@@ -39,6 +39,10 @@ export function SyllabusPage() {
   const [saving, setSaving] = useState(false)
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<string | null>(null)
+  const [showPasteModal, setShowPasteModal] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [parsedBlocks, setParsedBlocks] = useState<SessionBlock[]>([])
+  const [pasteError, setPasteError] = useState<string | null>(null)
 
   const xlsxInputRef = useRef<HTMLInputElement>(null)
 
@@ -288,6 +292,56 @@ export function SyllabusPage() {
     return sessionsParsed
   }
 
+  function parseTsv(text: string): SessionBlock[] {
+    const lines = text.trim().split(/\r?\n/)
+    if (lines.length < 2) return []
+    const headers = lines[0]!.split('\t').map(h => h.trim().toLowerCase())
+
+    const sessionIdx = headers.indexOf('session')
+    const topicIdx = headers.findIndex(h => h === 'topic' || h === 'title' || h === 'activity')
+    const typeIdx = headers.indexOf('type')
+    const orderIdx = headers.indexOf('order')
+    const durationIdx = headers.findIndex(h => h === 'duration' || h === 'duration (min)' || h === 'duration(min)')
+
+    if (sessionIdx === -1 || topicIdx === -1) return []
+
+    const sessionMap = new Map<string, { order: number; durationMinutes: number; topics: Topic[] }>()
+    const sessionKeys: string[] = []
+    let autoOrder = 0
+
+    for (const line of lines.slice(1)) {
+      const cells = line.split('\t')
+      const sessionName = (cells[sessionIdx] ?? '').trim()
+      const topicTitle = (cells[topicIdx] ?? '').trim()
+      if (!sessionName || !topicTitle) continue
+
+      if (!sessionMap.has(sessionName)) {
+        autoOrder++
+        const parsedOrder = orderIdx >= 0 ? parseInt(cells[orderIdx] ?? '', 10) : NaN
+        const parsedDur = durationIdx >= 0 ? parseInt(cells[durationIdx] ?? '', 10) : NaN
+        sessionMap.set(sessionName, {
+          order: isNaN(parsedOrder) ? autoOrder : parsedOrder,
+          durationMinutes: isNaN(parsedDur) ? 0 : parsedDur,
+          topics: [],
+        })
+        sessionKeys.push(sessionName)
+      }
+
+      const rawType = typeIdx >= 0 ? (cells[typeIdx] ?? '').trim() : ''
+      sessionMap.get(sessionName)!.topics.push({
+        id: crypto.randomUUID(),
+        title: topicTitle,
+        type: parseTopicType(rawType),
+        remark: '',
+      })
+    }
+
+    return sessionKeys.map(name => {
+      const s = sessionMap.get(name)!
+      return { name, order: s.order, durationMinutes: s.durationMinutes, topics: s.topics }
+    })
+  }
+
   async function importBlocks(blocks: SessionBlock[]) {
     let created = 0
     for (const s of blocks) {
@@ -304,6 +358,44 @@ export function SyllabusPage() {
     }
     setImportResult(`✓ Imported ${created} session${created !== 1 ? 's' : ''}.`)
     await loadSessions(selectedCourseId!)
+  }
+
+  function handlePaste(text: string) {
+    setPasteText(text)
+    if (!text.trim()) {
+      setParsedBlocks([])
+      setPasteError(null)
+      return
+    }
+    const blocks = parseTsv(text)
+    if (blocks.length > 0) {
+      setParsedBlocks(blocks)
+      setPasteError(null)
+    } else {
+      setParsedBlocks([])
+      const lines = text.trim().split(/\r?\n/)
+      if (lines.length < 2) {
+        setPasteError('No data rows found. Paste must have a header row and at least one data row.')
+      } else {
+        setPasteError('Couldn\'t detect columns. Expected headers: Session, Topic, Type, Duration.')
+      }
+    }
+  }
+
+  async function handlePasteImport() {
+    if (!selectedCourseId || parsedBlocks.length === 0) return
+    setImporting(true); setError('')
+    try {
+      await importBlocks(parsedBlocks)
+      setShowPasteModal(false)
+      setPasteText('')
+      setParsedBlocks([])
+      setPasteError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to import')
+    } finally {
+      setImporting(false)
+    }
   }
 
   async function onImportCourse(file: File) {

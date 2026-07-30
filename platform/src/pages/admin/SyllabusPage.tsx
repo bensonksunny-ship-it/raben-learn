@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
@@ -469,6 +469,14 @@ export function SyllabusPage() {
             <div className="syllabus-col-header">
               <h2>📝 Sessions</h2>
               <div className="row">
+                <button
+                  type="button"
+                  className="btn small ghost"
+                  title="Paste from Excel or Google Sheets"
+                  onClick={() => setShowPasteModal(true)}
+                >
+                  📋 Paste Syllabus
+                </button>
                 <label className="btn small ghost" style={{ cursor: 'pointer' }} title="Import sessions from Excel">
                   {importing ? '⏳…' : '📥 Import Sessions'}
                   <input ref={xlsxInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
@@ -692,6 +700,125 @@ export function SyllabusPage() {
                 <button type="button" className="btn primary" disabled={saving} onClick={() => void saveAddTopic()}>Add</button>
                 <button type="button" className="btn ghost" onClick={() => setAddTopicSessionId(null)}>Cancel</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPasteModal && (
+        <div className="modal-backdrop" onClick={() => { setShowPasteModal(false); setPasteText(''); setParsedBlocks([]); setPasteError(null) }}>
+          <div className="modal" style={{ maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>📋 Paste Syllabus</h3>
+              <button
+                type="button"
+                className="btn small ghost"
+                onClick={() => { setShowPasteModal(false); setPasteText(''); setParsedBlocks([]); setPasteError(null) }}
+              >✕</button>
+            </div>
+
+            <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+              Copy cells from Excel or Google Sheets and paste below. First row must be column headers:&nbsp;
+              <code>Session · Order · Duration · Topic · Type</code>
+            </p>
+
+            <textarea
+              style={{
+                width: '100%',
+                minHeight: 120,
+                fontFamily: 'monospace',
+                fontSize: '0.8rem',
+                padding: '0.5rem',
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--radius)',
+                resize: 'vertical',
+                boxSizing: 'border-box',
+              }}
+              placeholder={"Session\tOrder\tDuration\tTopic\tType\nIntro to Python\t1\t60\tVariables\tconcept"}
+              value={pasteText}
+              onPaste={(e) => {
+                e.preventDefault()
+                const text = e.clipboardData.getData('text/plain')
+                handlePaste(text)
+              }}
+              onChange={(e) => handlePaste(e.target.value)}
+            />
+
+            {pasteError && (
+              <p className="error" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                ⚠ {pasteError}
+              </p>
+            )}
+
+            {parsedBlocks.length > 0 && (
+              <div style={{ marginTop: '1rem' }}>
+                <p className="muted small" style={{ marginBottom: '0.4rem' }}>
+                  <strong style={{ color: 'var(--text)' }}>Preview</strong> — {parsedBlocks.length} session{parsedBlocks.length !== 1 ? 's' : ''},{' '}
+                  {parsedBlocks.reduce((n, b) => n + b.topics.length, 0)} topic{parsedBlocks.reduce((n, b) => n + b.topics.length, 0) !== 1 ? 's' : ''}
+                </p>
+                <div style={{ maxHeight: 'calc(10 * 36px)', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
+                    <thead>
+                      <tr style={{ background: 'var(--surface-2, #f4f6fb)', position: 'sticky', top: 0 }}>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', width: 32 }}>#</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Session</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Topic</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', width: 90 }}>Type</th>
+                        <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid var(--border)', width: 70 }}>Dur (min)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedBlocks.map((block) => (
+                        <Fragment key={block.name}>
+                          {block.topics.map((topic, tidx) => (
+                            <tr key={topic.id} style={{ height: 36, borderBottom: '1px solid var(--border)' }}>
+                              <td style={{ padding: '4px 8px', color: 'var(--muted-2)', fontSize: '0.75rem' }}>{tidx + 1}</td>
+                              <td style={{ padding: '4px 8px', color: tidx === 0 ? 'var(--text)' : 'var(--muted-2)', fontWeight: tidx === 0 ? 600 : 400 }}>
+                                {tidx === 0 ? block.name : ''}
+                              </td>
+                              <td style={{ padding: '4px 8px' }}>{topic.title}</td>
+                              <td style={{ padding: '4px 8px' }}>
+                                <span style={{
+                                  ...topicTypeColor(topic.type),
+                                  padding: '1px 6px',
+                                  borderRadius: 4,
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                }}>
+                                  {topicTypeLabel(topic.type)}
+                                </span>
+                              </td>
+                              <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--muted-2)' }}>
+                                {tidx === 0 && (block.durationMinutes ?? 0) > 0 ? block.durationMinutes : ''}
+                              </td>
+                            </tr>
+                          ))}
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="row" style={{ marginTop: '1.25rem', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn ghost"
+                onClick={() => { setShowPasteModal(false); setPasteText(''); setParsedBlocks([]); setPasteError(null) }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={parsedBlocks.length === 0 || importing || !selectedCourseId}
+                onClick={() => void handlePasteImport()}
+              >
+                {importing
+                  ? '⏳ Importing…'
+                  : `Import ${parsedBlocks.reduce((n, b) => n + b.topics.length, 0)} topic${parsedBlocks.reduce((n, b) => n + b.topics.length, 0) !== 1 ? 's' : ''}`}
+              </button>
             </div>
           </div>
         </div>

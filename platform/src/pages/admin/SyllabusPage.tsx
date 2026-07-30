@@ -240,7 +240,7 @@ export function SyllabusPage() {
     return first
   }
 
-  interface SessionBlock { name: string; order: number; topics: Topic[] }
+  interface SessionBlock { name: string; order: number; durationMinutes?: number; topics: Topic[] }
 
   function parseRows(rows: (string | number | null)[][]): SessionBlock[] {
     const sessionsParsed: SessionBlock[] = []
@@ -288,6 +288,24 @@ export function SyllabusPage() {
     return sessionsParsed
   }
 
+  async function importBlocks(blocks: SessionBlock[]) {
+    let created = 0
+    for (const s of blocks) {
+      await addDoc(collection(db, 'sessions'), {
+        courseId: selectedCourseId,
+        courseName: selectedCourse?.title ?? '',
+        title: s.name,
+        order: s.order,
+        durationMinutes: s.durationMinutes ?? 0,
+        activities: s.topics,
+        createdAt: serverTimestamp(),
+      })
+      created++
+    }
+    setImportResult(`✓ Imported ${created} session${created !== 1 ? 's' : ''}.`)
+    await loadSessions(selectedCourseId!)
+  }
+
   async function onImportCourse(file: File) {
     if (!selectedCourseId) return
     setImporting(true); setImportResult(null); setError('')
@@ -303,21 +321,8 @@ export function SyllabusPage() {
       const blocks = parseRows(rows)
       console.log('[Import] Parsed blocks:', blocks.length, blocks.map(b => b.name))
       if (blocks.length === 0) { setError('No sessions found.'); return }
-      let created = 0
-      for (const s of blocks) {
-        await addDoc(collection(db, 'sessions'), {
-          courseId: selectedCourseId,
-          courseName: selectedCourse?.title ?? '',
-          title: s.name,
-          order: s.order,
-          activities: s.topics,
-          createdAt: serverTimestamp(),
-        })
-        created++
-      }
-      setImportResult(`✓ Imported ${created} session${created !== 1 ? 's' : ''}.`)
+      await importBlocks(blocks)
       if (xlsxInputRef.current) xlsxInputRef.current.value = ''
-      await loadSessions(selectedCourseId)
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to import') } finally { setImporting(false) }
   }
 

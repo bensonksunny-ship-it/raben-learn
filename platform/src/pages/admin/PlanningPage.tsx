@@ -1,539 +1,431 @@
-import { useEffect, useRef, useState } from 'react'
-import { collection, doc, getDocs, query, setDoc, where, writeBatch } from 'firebase/firestore'
+import { useEffect, useState, type FormEvent } from 'react'
+import { addDoc, collection, deleteDoc, doc, getDocs, serverTimestamp, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import type { Course, Session } from '../../types'
-import { readTopicsFromSessionDoc } from '../../lib/topics'
 
-function formatDuration(minutes: number): string {
-  if (minutes <= 0) return ''
-  if (minutes < 60) return `${minutes}m`
-  const h = Math.floor(minutes / 60)
-  const m = minutes % 60
-  return m === 0 ? `${h}h` : `${h}h ${m}m`
+interface SubjectLevel {
+  id: string
+  level: number
+  name: string
+  coreOutcome: string
+}
+
+interface Subject {
+  id: string
+  name: string
+  levels: SubjectLevel[]
+}
+
+function nextLevelNumber(levels: SubjectLevel[]): number {
+  return levels.reduce((max, l) => Math.max(max, l.level), 0) + 1
 }
 
 export function PlanningPage() {
-  const [tab, setTab] = useState<'sessions' | 'levels'>('sessions')
-  const [courses, setCourses] = useState<Course[]>([])
-  const [loadingCourses, setLoadingCourses] = useState(true)
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        const snap = await getDocs(collection(db, 'courses'))
-        const list: Course[] = []
-        snap.forEach((d) => {
-          const x = d.data()
-          list.push({ id: d.id, title: (x.title as string) ?? '' })
-        })
-        list.sort((a, b) => a.title.localeCompare(b.title))
-        setCourses(list)
-      } finally {
-        setLoadingCourses(false)
-      }
-    })()
-  }, [])
-
-  return (
-    <div>
-      <h1 style={{ margin: '0 0 1.25rem' }}>🗂️ Planning</h1>
-
-      <div className="course-tabs" style={{ marginBottom: '1.5rem' }}>
-        <button type="button" className={`course-tab${tab === 'sessions' ? ' active' : ''}`} onClick={() => setTab('sessions')}>
-          Sessions
-        </button>
-        <button type="button" className={`course-tab${tab === 'levels' ? ' active' : ''}`} onClick={() => setTab('levels')}>
-          Levels
-        </button>
-      </div>
-
-      {tab === 'sessions' && <SessionsTab courses={courses} loadingCourses={loadingCourses} />}
-      {tab === 'levels' && <LevelsTab courses={courses} loadingCourses={loadingCourses} />}
-    </div>
-  )
-}
-
-// ─── Sessions tab ─────────────────────────────────────────────────────────────
-
-interface SessionsTabProps {
-  courses: Course[]
-  loadingCourses: boolean
-}
-
-function SessionsTab({ courses, loadingCourses }: SessionsTabProps) {
-  const [selectedCourseId, setSelectedCourseId] = useState('')
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [loadingSessions, setLoadingSessions] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [error, setError] = useState('')
-  const loadIdRef = useRef(0)
-
-  async function loadSessions(courseId: string) {
-    const thisLoad = ++loadIdRef.current
-    setLoadingSessions(true)
-    setError('')
-    setSessions([])
-    try {
-      const snap = await getDocs(query(collection(db, 'sessions'), where('courseId', '==', courseId)))
-      if (thisLoad !== loadIdRef.current) return
-      const list: Session[] = []
-      snap.forEach((d) => {
-        const x = d.data()
-        list.push({
-          id: d.id, title: (x.title as string) ?? '', subtitle: (x.subtitle as string) ?? '',
-          courseId: (x.courseId as string) ?? null, courseName: (x.courseName as string) ?? '',
-          order: Number(x.order ?? 0), activities: readTopicsFromSessionDoc(x.activities),
-        })
-      })
-      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      setSessions(list)
-    } catch (e) {
-      if (thisLoad !== loadIdRef.current) return
-      setError(e instanceof Error ? e.message : 'Failed to load sessions')
-    } finally {
-      if (thisLoad === loadIdRef.current) setLoadingSessions(false)
-    }
-  }
-
-  function handleCourseChange(courseId: string) {
-    setSelectedCourseId(courseId)
-    if (courseId) void loadSessions(courseId)
-    else setSessions([])
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
-        <p className="muted small" style={{ margin: 0 }}>Drag sessions to reorder them within a course.</p>
-        {saveStatus === 'saving' && <span className="muted small">Saving…</span>}
-        {saveStatus === 'saved' && <span className="muted small" style={{ color: 'var(--success, green)' }}>Saved</span>}
-        {saveStatus === 'error' && <span className="muted small" style={{ color: 'var(--error, red)' }}>Save failed</span>}
-      </div>
-      <div style={{ marginBottom: '1.5rem' }}>
-        <select value={selectedCourseId} onChange={(e) => handleCourseChange(e.target.value)} disabled={loadingCourses} style={{ minWidth: 240 }}>
-          <option value="">{loadingCourses ? 'Loading courses…' : 'Select a course…'}</option>
-          {courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-        </select>
-      </div>
-      {error && <p className="error">{error}</p>}
-      {!selectedCourseId && !loadingCourses && (
-        <div className="panel" style={{ textAlign: 'center', padding: '2.5rem' }}>
-          <p style={{ fontSize: '2.5rem', margin: 0 }}>🗂️</p>
-          <h3>Select a course to start planning</h3>
-          <p className="muted">Choose a course above to see and reorder its sessions.</p>
-        </div>
-      )}
-      {loadingSessions && <p className="muted">Loading…</p>}
-      {selectedCourseId && !loadingSessions && sessions.length === 0 && !error && (
-        <p className="muted">No sessions found for this course.</p>
-      )}
-      <DraggableSessionList sessions={sessions} setSessions={setSessions} saveStatus={saveStatus} setSaveStatus={setSaveStatus} setError={setError} />
-    </div>
-  )
-}
-
-// ─── Shared draggable session list ────────────────────────────────────────────
-
-type SaveStatus = 'idle' | 'saving' | 'saved' | 'error'
-
-interface DraggableSessionListProps {
-  sessions: Session[]
-  setSessions: React.Dispatch<React.SetStateAction<Session[]>>
-  saveStatus: SaveStatus
-  setSaveStatus: React.Dispatch<React.SetStateAction<SaveStatus>>
-  setError: React.Dispatch<React.SetStateAction<string>>
-}
-
-function DraggableSessionList({ sessions, setSessions, saveStatus, setSaveStatus, setError }: DraggableSessionListProps) {
-  const [dragIndex, setDragIndex] = useState<number | null>(null)
-  const [overIndex, setOverIndex] = useState<number | null>(null)
-
-  if (sessions.length === 0) return null
-
-  function handleDragOver(e: React.DragEvent, index: number) { e.preventDefault(); setOverIndex(index) }
-
-  function handleDragEnd() {
-    if (dragIndex === null || overIndex === null || dragIndex === overIndex) { setDragIndex(null); setOverIndex(null); return }
-    if (saveStatus === 'saving') { setDragIndex(null); setOverIndex(null); return }
-    const reordered = [...sessions]
-    const [moved] = reordered.splice(dragIndex, 1)
-    reordered.splice(overIndex, 0, moved)
-    const withOrder = reordered.map((s, i) => ({ ...s, order: i }))
-    const rollback = sessions
-    setSessions(withOrder); setDragIndex(null); setOverIndex(null)
-    void saveSessionOrder(withOrder, rollback, setSessions, setSaveStatus, setError)
-  }
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-      {sessions.map((session, index) => (
-        <div
-          key={session.id} draggable
-          onDragStart={() => setDragIndex(index)}
-          onDragOver={(e) => handleDragOver(e, index)}
-          onDragEnd={handleDragEnd}
-          className="panel"
-          style={{
-            display: 'flex', alignItems: 'center', gap: '0.6rem',
-            padding: '0.6rem 0.85rem', cursor: 'grab',
-            opacity: dragIndex === index ? 0.4 : 1,
-            outline: overIndex === index && dragIndex !== index ? '2px solid var(--primary, #6366f1)' : 'none',
-            userSelect: 'none',
-          }}
-        >
-          <span style={{ color: 'var(--muted, #9ca3af)', fontSize: '1rem' }}>⠿</span>
-          <span className="muted small" style={{ minWidth: '1.4rem', textAlign: 'right' }}>{index + 1}</span>
-          <div style={{ flex: 1 }}>
-            <strong style={{ fontSize: '0.9rem' }}>{session.title}</strong>
-            {session.subtitle && <p className="muted small" style={{ margin: '0.1rem 0 0' }}>{session.subtitle}</p>}
-          </div>
-          {(session.durationMinutes ?? 0) > 0 && (
-            <span className="muted small" style={{ whiteSpace: 'nowrap' }}>
-              {formatDuration(session.durationMinutes ?? 0)}
-            </span>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-async function saveSessionOrder(
-  ordered: Session[], rollback: Session[],
-  setSessions: React.Dispatch<React.SetStateAction<Session[]>>,
-  setSaveStatus: React.Dispatch<React.SetStateAction<SaveStatus>>,
-  setError: React.Dispatch<React.SetStateAction<string>>,
-) {
-  setSaveStatus('saving')
-  try {
-    const batch = writeBatch(db)
-    ordered.forEach((s) => batch.update(doc(db, 'sessions', s.id), { order: s.order }))
-    await batch.commit()
-    setSaveStatus('saved')
-    setTimeout(() => setSaveStatus('idle'), 2000)
-  } catch (e) {
-    setSaveStatus('error')
-    setError(e instanceof Error ? e.message : 'Failed to save order')
-    setSessions(rollback)
-  }
-}
-
-// ─── Levels tab ───────────────────────────────────────────────────────────────
-
-const LEVELS = Array.from({ length: 11 }, (_, i) => i)
-
-interface LevelsTabProps {
-  courses: Course[]
-  loadingCourses: boolean
-}
-
-function LevelsTab({ courses, loadingCourses }: LevelsTabProps) {
-  const [levelCourseIds, setLevelCourseIds] = useState<Record<number, string[]>>({})
+  const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [selectedSubjectId, setSelectedSubjectId] = useState<string | null>(null)
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const snap = await getDocs(collection(db, 'planning_levels'))
-        const map: Record<number, string[]> = {}
-        snap.forEach((d) => {
-          const x = d.data()
-          const level = Number(x.level)
-          if (Number.isFinite(level)) map[level] = (x.courseIds as string[]) ?? []
-        })
-        setLevelCourseIds(map)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load levels')
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [])
+  const [addingSubject, setAddingSubject] = useState(false)
+  const [newSubjectName, setNewSubjectName] = useState('')
 
-  async function addCourse(level: number, courseId: string) {
-    const current = levelCourseIds[level] ?? []
-    if (current.includes(courseId)) return
-    const updated = [...current, courseId]
-    setLevelCourseIds((m) => ({ ...m, [level]: updated }))
+  const selectedSubject = subjects.find((s) => s.id === selectedSubjectId) ?? null
+
+  async function loadSubjects() {
     try {
-      await setDoc(doc(db, 'planning_levels', `level_${level}`), { level, courseIds: updated })
+      const snap = await getDocs(collection(db, 'planning_subjects'))
+      const list: Subject[] = []
+      snap.forEach((d) => {
+        const x = d.data()
+        const levels = Array.isArray(x.levels) ? (x.levels as SubjectLevel[]) : []
+        list.push({ id: d.id, name: (x.name as string) ?? '', levels })
+      })
+      list.sort((a, b) => a.name.localeCompare(b.name))
+      setSubjects(list)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
-      setLevelCourseIds((m) => ({ ...m, [level]: current }))
+      setError(e instanceof Error ? e.message : 'Failed to load subjects')
+    } finally {
+      setLoading(false)
     }
   }
 
-  async function removeCourse(level: number, courseId: string) {
-    const current = levelCourseIds[level] ?? []
-    const updated = current.filter((id) => id !== courseId)
-    setLevelCourseIds((m) => ({ ...m, [level]: updated }))
+  useEffect(() => { void loadSubjects() }, [])
+
+  async function createSubject(e: FormEvent) {
+    e.preventDefault()
+    const name = newSubjectName.trim()
+    if (!name) return
+    setSaving(true); setError('')
     try {
-      await setDoc(doc(db, 'planning_levels', `level_${level}`), { level, courseIds: updated })
+      const ref = await addDoc(collection(db, 'planning_subjects'), { name, levels: [], createdAt: serverTimestamp() })
+      setNewSubjectName(''); setAddingSubject(false)
+      await loadSubjects()
+      setSelectedSubjectId(ref.id)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
-      setLevelCourseIds((m) => ({ ...m, [level]: current }))
+      setError(e instanceof Error ? e.message : 'Failed to create subject')
+    } finally {
+      setSaving(false)
     }
   }
 
-  if (loading) return <p className="muted">Loading…</p>
+  async function deleteSubject(id: string) {
+    if (!window.confirm('Delete this subject and all its levels? This cannot be undone.')) return
+    try {
+      await deleteDoc(doc(db, 'planning_subjects', id))
+      if (selectedSubjectId === id) setSelectedSubjectId(null)
+      await loadSubjects()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete subject')
+    }
+  }
+
+  async function saveLevels(subjectId: string, levels: SubjectLevel[]) {
+    setSaving(true); setError('')
+    // optimistic local update so the table doesn't flicker while saving
+    setSubjects((prev) => prev.map((s) => (s.id === subjectId ? { ...s, levels } : s)))
+    try {
+      await updateDoc(doc(db, 'planning_subjects', subjectId), { levels })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save levels')
+      await loadSubjects()
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div>
-      <p className="muted small" style={{ marginBottom: '1.5rem' }}>
-        Assign subjects to difficulty levels and plan the session order within each subject. Level 0 is easiest, Level 10 is hardest.
+      <h1 style={{ margin: '0 0 0.35rem' }}>🗂️ Planning</h1>
+      <p className="muted" style={{ marginBottom: '1.25rem' }}>
+        Define subjects and the levels students progress through — a name and the core outcome expected at each level.
       </p>
-      {error && <p className="error">{error}</p>}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        {LEVELS.map((level) => {
-          const assignedIds = levelCourseIds[level] ?? []
-          const assignedCourses = assignedIds.map((id) => courses.find((c) => c.id === id)).filter((c): c is Course => !!c)
-          const available = courses.filter((c) => !assignedIds.includes(c.id))
+      {error ? <p className="error">{error}</p> : null}
 
-          return (
-            <LevelCard
-              key={level}
-              level={level}
-              assignedCourses={assignedCourses}
-              available={available}
-              loadingCourses={loadingCourses}
-              onAdd={(courseId) => void addCourse(level, courseId)}
-              onRemove={(courseId) => void removeCourse(level, courseId)}
+      <div className="syllabus-columns">
+        {/* SUBJECTS */}
+        <div className="syllabus-col">
+          <div className="syllabus-col-header">
+            <h2>📚 Subjects</h2>
+            <button type="button" className="btn small primary" onClick={() => setAddingSubject((v) => !v)}>+ Subject</button>
+          </div>
+          {addingSubject && (
+            <form onSubmit={(e) => void createSubject(e)} className="form syllabus-mini-form">
+              <input placeholder="Subject name *" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} required autoFocus />
+              <div className="row">
+                <button type="submit" className="btn small primary" disabled={saving}>Save</button>
+                <button type="button" className="btn small ghost" onClick={() => setAddingSubject(false)}>Cancel</button>
+              </div>
+            </form>
+          )}
+          {loading ? (
+            <p className="muted small">Loading…</p>
+          ) : (
+            <ul className="syllabus-list">
+              {subjects.map((s) => (
+                <li key={s.id} className={`syllabus-item${selectedSubjectId === s.id ? ' active' : ''}`}>
+                  <button type="button" className="syllabus-item-btn" onClick={() => setSelectedSubjectId(s.id)}>
+                    <span className="syllabus-item-title">{s.name}</span>
+                    <span className="muted small syllabus-item-desc">{s.levels.length} level{s.levels.length === 1 ? '' : 's'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="syllabus-delete"
+                    onClick={() => void deleteSubject(s.id)}
+                    aria-label="Delete subject"
+                    title="Delete subject"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.6rem', fontSize: '1rem' }}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+              {subjects.length === 0 ? <li className="muted small" style={{ padding: '0.5rem 0' }}>No subjects yet.</li> : null}
+            </ul>
+          )}
+        </div>
+
+        {/* LEVELS */}
+        {selectedSubject ? (
+          <div className="syllabus-col syllabus-col-wide">
+            <SubjectLevelsPanel
+              subject={selectedSubject}
+              saving={saving}
+              onSaveLevels={(levels) => void saveLevels(selectedSubject.id, levels)}
             />
-          )
-        })}
+          </div>
+        ) : (
+          <div className="syllabus-col syllabus-col-wide" style={{ textAlign: 'center', padding: '2.5rem' }}>
+            <p style={{ fontSize: '2.5rem', margin: 0 }}>🎯</p>
+            <h3>Select a subject to define its levels</h3>
+            <p className="muted">Choose a subject on the left, or add a new one.</p>
+          </div>
+        )}
       </div>
     </div>
   )
 }
 
-interface LevelCardProps {
-  level: number
-  assignedCourses: Course[]
-  available: Course[]
-  loadingCourses: boolean
-  onAdd: (courseId: string) => void
-  onRemove: (courseId: string) => void
+// ─── Levels panel ──────────────────────────────────────────────────────────────
+
+interface SubjectLevelsPanelProps {
+  subject: Subject
+  saving: boolean
+  onSaveLevels: (levels: SubjectLevel[]) => void
 }
 
-function LevelCard({ level, assignedCourses, available, loadingCourses, onAdd, onRemove }: LevelCardProps) {
-  const [expanded, setExpanded] = useState(false)
-  const [subjectTotals, setSubjectTotals] = useState<Record<string, number>>({})
-  const [milestones, setMilestones] = useState('')
-  const [milestonesError, setMilestonesError] = useState('')
-  const milestonesLoadedRef = useRef(false)
+function SubjectLevelsPanel({ subject, saving, onSaveLevels }: SubjectLevelsPanelProps) {
+  const [addingLevel, setAddingLevel] = useState(false)
+  const [levelName, setLevelName] = useState('')
+  const [levelOutcome, setLevelOutcome] = useState('')
 
-  function handleSubjectTotal(courseId: string, total: number) {
-    setSubjectTotals((prev) => ({ ...prev, [courseId]: total }))
+  const [pasteText, setPasteText] = useState('')
+  const [parsedLevels, setParsedLevels] = useState<SubjectLevel[]>([])
+  const [pasteError, setPasteError] = useState<string | null>(null)
+
+  const sortedLevels = [...subject.levels].sort((a, b) => a.level - b.level)
+
+  function openAddLevel() {
+    setLevelName(''); setLevelOutcome(''); setAddingLevel(true)
   }
 
-  const levelTotal = Object.values(subjectTotals).reduce((sum, t) => sum + t, 0)
+  function addLevel(e: FormEvent) {
+    e.preventDefault()
+    const name = levelName.trim()
+    if (!name) return
+    const next: SubjectLevel = { id: crypto.randomUUID(), level: nextLevelNumber(subject.levels), name, coreOutcome: levelOutcome.trim() }
+    onSaveLevels([...subject.levels, next])
+    setAddingLevel(false)
+  }
 
-  async function handleExpand() {
-    setExpanded((v) => !v)
-    if (!milestonesLoadedRef.current) {
-      milestonesLoadedRef.current = true
-      try {
-        const snap = await getDocs(query(collection(db, 'planning_levels'), where('level', '==', level)))
-        snap.forEach((d) => {
-          const x = d.data()
-          setMilestones((x.milestones as string) ?? '')
-        })
-      } catch {
-        // non-critical read — silently ignore
+  function updateLevel(id: string, patch: Partial<SubjectLevel>) {
+    onSaveLevels(subject.levels.map((l) => (l.id === id ? { ...l, ...patch } : l)))
+  }
+
+  function deleteLevel(id: string) {
+    if (!window.confirm('Delete this level?')) return
+    onSaveLevels(subject.levels.filter((l) => l.id !== id))
+  }
+
+  function handlePaste(text: string) {
+    setPasteText(text)
+    if (!text.trim()) { setParsedLevels([]); setPasteError(null); return }
+    const rows = parseLevelsTsv(text, nextLevelNumber(subject.levels))
+    if (rows.length > 0) {
+      setParsedLevels(rows)
+      setPasteError(null)
+    } else {
+      setParsedLevels([])
+      const lines = text.trim().split(/\r?\n/)
+      if (lines.length < 2) {
+        setPasteError('No data rows found. Paste must have a header row and at least one data row.')
+      } else {
+        setPasteError("Couldn't detect columns. Expected headers: Level (optional), Name, Core Outcome.")
       }
     }
   }
 
-  async function saveMilestones(value: string) {
-    try {
-      await setDoc(doc(db, 'planning_levels', `level_${level}`), { milestones: value }, { merge: true })
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to save goals'
-      setMilestonesError(msg)
-      setTimeout(() => setMilestonesError(''), 4000)
-    }
+  function importPasted() {
+    if (parsedLevels.length === 0) return
+    onSaveLevels([...subject.levels, ...parsedLevels])
+    setPasteText(''); setParsedLevels([]); setPasteError(null)
   }
 
   return (
-    <div className="panel" style={{ padding: 0, overflow: 'hidden' }}>
-      {/* Level header */}
-      <div
-        style={{
-          display: 'flex', alignItems: 'center', gap: '0.75rem',
-          padding: '0.85rem 1.25rem', cursor: 'pointer',
-          borderBottom: expanded ? '1px solid var(--border, #e5e7eb)' : 'none',
-        }}
-        onClick={() => void handleExpand()}
-      >
-        <span style={{ fontSize: '1rem', transition: 'transform 0.15s', display: 'inline-block', transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)', color: 'var(--muted, #9ca3af)' }}>▶</span>
-        <strong style={{ minWidth: '4.5rem' }}>Level {level}</strong>
-        <span className="muted small">
-          {assignedCourses.length === 0 ? 'No subjects' : `${assignedCourses.length} subject${assignedCourses.length !== 1 ? 's' : ''}`}
-        </span>
-        {levelTotal > 0 && (
-          <span style={{ background: '#e0f2fe', color: '#0369a1', fontSize: '0.78rem', padding: '2px 8px', borderRadius: '20px', fontWeight: 600, whiteSpace: 'nowrap' }}>
-            ⏱ {formatDuration(levelTotal)}
-          </span>
-        )}
-        <div style={{ marginLeft: 'auto' }} onClick={(e) => e.stopPropagation()}>
-          {!loadingCourses && available.length > 0 && (
-            <select value="" onChange={(e) => { if (e.target.value) onAdd(e.target.value) }} style={{ fontSize: '0.8rem', padding: '0.2rem 0.4rem' }}>
-              <option value="">+ Add subject…</option>
-              {available.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
-            </select>
-          )}
-        </div>
+    <div>
+      <div className="syllabus-col-header">
+        <h2>🎯 {subject.name}</h2>
+        <button type="button" className="btn small primary" onClick={openAddLevel}>+ Level</button>
       </div>
 
-      {/* Expanded body */}
-      {expanded && (
-        <div>
-          {/* Goals / Milestones */}
-          <div style={{ padding: '0.75rem 1.25rem', background: '#fafafa', borderBottom: '1px solid var(--border, #e5e7eb)' }}>
-            <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#6366f1', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-              🏁 Level Goals
-            </div>
-            <textarea
-              value={milestones}
-              onChange={(e) => setMilestones(e.target.value)}
-              onBlur={(e) => void saveMilestones(e.target.value)}
-              placeholder={`What should a student achieve by the end of Level ${level}?`}
-              style={{
-                width: '100%',
-                border: '1px solid var(--border, #d1d5db)',
-                borderRadius: '6px',
-                padding: '0.5rem 0.65rem',
-                fontSize: '0.88rem',
-                resize: 'vertical',
-                minHeight: '64px',
-                fontFamily: 'inherit',
-                color: '#374151',
-                boxSizing: 'border-box',
-              }}
+      {addingLevel && (
+        <form onSubmit={addLevel} className="form syllabus-mini-form">
+          <div className="row" style={{ marginBottom: '0.4rem', alignItems: 'center' }}>
+            <span className="muted small" style={{ minWidth: '4rem' }}>Level {nextLevelNumber(subject.levels)}</span>
+            <input
+              placeholder="Level name * (e.g. Speak Clearly)"
+              value={levelName}
+              onChange={(e) => setLevelName(e.target.value)}
+              required
+              autoFocus
+              style={{ flex: 1 }}
             />
-            {milestonesError && (
-              <p style={{ color: 'var(--error, red)', fontSize: '0.8rem', margin: '0.25rem 0 0' }}>{milestonesError}</p>
-            )}
           </div>
+          <textarea
+            placeholder="Core outcome expected…"
+            value={levelOutcome}
+            onChange={(e) => setLevelOutcome(e.target.value)}
+            style={{ width: '100%', minHeight: 60, fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '0.5rem' }}
+          />
+          <div className="row">
+            <button type="submit" className="btn small primary" disabled={saving}>Save</button>
+            <button type="button" className="btn small ghost" onClick={() => setAddingLevel(false)}>Cancel</button>
+          </div>
+        </form>
+      )}
 
-          {/* Subjects */}
-          {assignedCourses.length === 0 ? (
-            <p className="muted small" style={{ padding: '1rem 1.25rem', margin: 0 }}>No subjects assigned to this level yet.</p>
-          ) : (
-            assignedCourses.map((course, idx) => (
-              <SubjectRow
-                key={course.id}
-                course={course}
-                isLast={idx === assignedCourses.length - 1}
-                onRemove={() => onRemove(course.id)}
-                onTotalChange={handleSubjectTotal}
-              />
-            ))
-          )}
+      {sortedLevels.length === 0 ? (
+        <p className="muted small" style={{ padding: '0.5rem 0' }}>No levels yet — add one above, or paste a batch below.</p>
+      ) : (
+        <div className="table-wrap" style={{ marginBottom: '1.5rem' }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th style={{ width: 70 }}>Level</th>
+                <th style={{ width: 200 }}>Name</th>
+                <th>Core Outcome</th>
+                <th style={{ width: 40 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedLevels.map((l) => (
+                <LevelRow
+                  key={`${l.id}:${l.name}:${l.coreOutcome}`}
+                  level={l}
+                  onUpdate={(patch) => updateLevel(l.id, patch)}
+                  onDelete={() => deleteLevel(l.id)}
+                />
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
+
+      {/* Paste to bulk-add */}
+      <div>
+        <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#6366f1', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+          📋 Paste levels
+        </div>
+        <p className="muted small" style={{ marginBottom: '0.5rem' }}>
+          Copy cells from Excel or Google Sheets and paste below. First row must be column headers:&nbsp;
+          <code>Level · Name · Core Outcome</code> (Level column is optional — numbered automatically if omitted).
+        </p>
+        <textarea
+          style={{
+            width: '100%', minHeight: 100, fontFamily: 'monospace', fontSize: '0.8rem', padding: '0.5rem',
+            border: '1px solid var(--border)', borderRadius: 'var(--radius)', resize: 'vertical', boxSizing: 'border-box',
+          }}
+          placeholder={'Name\tCore Outcome\nSpeak Clearly\tStudent can construct basic sentences and speak with clear pronunciation\nWrite Well\tStudent can write structured, grammatically correct paragraphs'}
+          value={pasteText}
+          onPaste={(e) => { e.preventDefault(); handlePaste(e.clipboardData.getData('text/plain')) }}
+          onChange={(e) => handlePaste(e.target.value)}
+        />
+        {pasteError && (
+          <p className="error" style={{ marginTop: '0.5rem', marginBottom: 0 }}>⚠ {pasteError}</p>
+        )}
+        {parsedLevels.length > 0 && (
+          <div style={{ marginTop: '0.75rem' }}>
+            <p className="muted small" style={{ marginBottom: '0.4rem' }}>
+              <strong style={{ color: 'var(--text)' }}>Preview</strong> — {parsedLevels.length} level{parsedLevels.length !== 1 ? 's' : ''}
+            </p>
+            <div style={{ maxHeight: 'calc(6 * 36px)', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-2, #f4f6fb)', position: 'sticky', top: 0 }}>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', width: 60 }}>Level</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Name</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Core Outcome</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedLevels.map((l) => (
+                    <tr key={l.id} style={{ height: 36, borderBottom: '1px solid var(--border)' }}>
+                      <td style={{ padding: '4px 8px', color: 'var(--muted-2)' }}>{l.level}</td>
+                      <td style={{ padding: '4px 8px' }}>{l.name}</td>
+                      <td style={{ padding: '4px 8px' }}>{l.coreOutcome}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn small ghost" onClick={() => { setPasteText(''); setParsedLevels([]); setPasteError(null) }}>Clear</button>
+              <button type="button" className="btn small primary" disabled={saving} onClick={importPasted}>
+                {saving ? '⏳ Adding…' : `Add ${parsedLevels.length} level${parsedLevels.length !== 1 ? 's' : ''}`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
-interface SubjectRowProps {
-  course: Course
-  isLast: boolean
-  onRemove: () => void
-  onTotalChange: (courseId: string, totalMinutes: number) => void
+interface LevelRowProps {
+  level: SubjectLevel
+  onUpdate: (patch: Partial<SubjectLevel>) => void
+  onDelete: () => void
 }
 
-function SubjectRow({ course, isLast, onRemove, onTotalChange }: SubjectRowProps) {
-  const [open, setOpen] = useState(false)
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [loadingSessions, setLoadingSessions] = useState(false)
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('idle')
-  const [error, setError] = useState('')
-  const loadIdRef = useRef(0)
-
-  useEffect(() => {
-    const total = sessions.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
-    onTotalChange(course.id, total)
-  }, [sessions])
-
-  async function loadSessions() {
-    const thisLoad = ++loadIdRef.current
-    setLoadingSessions(true)
-    setError('')
-    try {
-      const snap = await getDocs(query(collection(db, 'sessions'), where('courseId', '==', course.id)))
-      if (thisLoad !== loadIdRef.current) return
-      const list: Session[] = []
-      snap.forEach((d) => {
-        const x = d.data()
-        list.push({
-          id: d.id, title: (x.title as string) ?? '', subtitle: (x.subtitle as string) ?? '',
-          courseId: (x.courseId as string) ?? null, courseName: (x.courseName as string) ?? '',
-          order: Number(x.order ?? 0), durationMinutes: Number(x.durationMinutes ?? 0),
-          activities: readTopicsFromSessionDoc(x.activities),
-        })
-      })
-      list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-      setSessions(list)
-    } catch (e) {
-      if (thisLoad !== loadIdRef.current) return
-      setError(e instanceof Error ? e.message : 'Failed to load sessions')
-    } finally {
-      if (thisLoad === loadIdRef.current) setLoadingSessions(false)
-    }
-  }
-
-  function toggle() {
-    if (!open && sessions.length === 0 && !loadingSessions) void loadSessions()
-    setOpen((v) => !v)
-  }
+function LevelRow({ level, onUpdate, onDelete }: LevelRowProps) {
+  // Keyed by `${id}:${name}:${coreOutcome}` in the parent, so this remounts
+  // (and re-seeds local state) whenever the underlying level data changes
+  // externally, without resetting state on every local keystroke.
+  const [name, setName] = useState(level.name)
+  const [outcome, setOutcome] = useState(level.coreOutcome)
 
   return (
-    <div style={{ borderBottom: isLast ? 'none' : '1px solid var(--border, #e5e7eb)' }}>
-      {/* Subject row header */}
-      <div
-        style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', padding: '0.75rem 1.25rem', cursor: 'pointer' }}
-        onClick={toggle}
-      >
-        <span style={{ fontSize: '0.8rem', transition: 'transform 0.15s', display: 'inline-block', transform: open ? 'rotate(90deg)' : 'rotate(0deg)', color: 'var(--muted, #9ca3af)' }}>▶</span>
-        <span style={{ flex: 1, fontWeight: 500 }}>{course.title}</span>
-        {(() => {
-          const total = sessions.reduce((sum, s) => sum + (s.durationMinutes ?? 0), 0)
-          return total > 0 ? (
-            <span className="muted small" style={{ whiteSpace: 'nowrap' }}>⏱ {formatDuration(total)}</span>
-          ) : null
-        })()}
-        {saveStatus === 'saving' && <span className="muted small">Saving…</span>}
-        {saveStatus === 'saved' && <span className="muted small" style={{ color: 'var(--success, green)' }}>Saved</span>}
-        {saveStatus === 'error' && <span className="muted small" style={{ color: 'var(--error, red)' }}>Error</span>}
+    <tr style={{ verticalAlign: 'top' }}>
+      <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--muted-2)' }}>{level.level}</td>
+      <td>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onBlur={() => { const trimmed = name.trim(); if (trimmed && trimmed !== level.name) onUpdate({ name: trimmed }) }}
+          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.4rem', font: 'inherit', boxSizing: 'border-box' }}
+        />
+      </td>
+      <td>
+        <textarea
+          value={outcome}
+          onChange={(e) => setOutcome(e.target.value)}
+          onBlur={() => { const trimmed = outcome.trim(); if (trimmed !== level.coreOutcome) onUpdate({ coreOutcome: trimmed }) }}
+          rows={1}
+          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.4rem', font: 'inherit', resize: 'vertical', boxSizing: 'border-box' }}
+        />
+      </td>
+      <td style={{ textAlign: 'right' }}>
         <button
           type="button"
-          onClick={(e) => { e.stopPropagation(); onRemove() }}
-          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.25rem', opacity: 0.45, lineHeight: 1, fontSize: '1rem' }}
-          aria-label="Remove subject"
+          onClick={onDelete}
+          aria-label="Delete level"
+          title="Delete level"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.45, fontSize: '1rem' }}
         >
-          ×
+          ✕
         </button>
-      </div>
-
-      {/* Session list */}
-      {open && (
-        <div style={{ padding: '0 1.25rem 0.75rem 2.5rem' }}>
-          {loadingSessions && <p className="muted small" style={{ margin: '0.5rem 0' }}>Loading sessions…</p>}
-          {error && <p className="error" style={{ margin: '0.5rem 0' }}>{error}</p>}
-          {!loadingSessions && sessions.length === 0 && !error && (
-            <p className="muted small" style={{ margin: '0.5rem 0' }}>No sessions found for this subject.</p>
-          )}
-          <DraggableSessionList
-            sessions={sessions}
-            setSessions={setSessions}
-            saveStatus={saveStatus}
-            setSaveStatus={setSaveStatus}
-            setError={setError}
-          />
-        </div>
-      )}
-    </div>
+      </td>
+    </tr>
   )
+}
+
+// ─── Paste parsing ─────────────────────────────────────────────────────────────
+
+function parseLevelsTsv(text: string, startLevel: number): SubjectLevel[] {
+  const lines = text.trim().split(/\r?\n/)
+  if (lines.length < 2) return []
+  const headers = lines[0]!.split('\t').map((h) => h.trim().toLowerCase())
+
+  const levelIdx = headers.indexOf('level')
+  const nameIdx = headers.findIndex((h) => h === 'name' || h === 'level name')
+  const outcomeIdx = headers.findIndex((h) => h.includes('outcome'))
+
+  if (nameIdx === -1) return []
+
+  const rows: SubjectLevel[] = []
+  let autoLevel = startLevel - 1
+  for (const line of lines.slice(1)) {
+    const cells = line.split('\t')
+    const name = (cells[nameIdx] ?? '').trim()
+    if (!name) continue
+    autoLevel++
+    const parsedLevel = levelIdx >= 0 ? parseInt(cells[levelIdx] ?? '', 10) : NaN
+    const coreOutcome = outcomeIdx >= 0 ? (cells[outcomeIdx] ?? '').trim() : ''
+    rows.push({
+      id: crypto.randomUUID(),
+      level: Number.isFinite(parsedLevel) ? parsedLevel : autoLevel,
+      name,
+      coreOutcome,
+    })
+  }
+  return rows
 }

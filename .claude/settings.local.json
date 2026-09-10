@@ -33,7 +33,8 @@
       "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" \"fc94f8be38e86d665e35153334c57ff1f5a5afd7\" HEAD)",
       "Bash(nohup npm run dev)",
       "Bash(disown)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)"
     ]
   }
 }

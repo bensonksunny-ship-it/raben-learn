@@ -5,6 +5,7 @@ import { db } from '../../firebase/config'
 import { normalizeRoles } from '../../lib/roles'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import type { Course, ProgressEntry, Session } from '../../types'
+import { DashboardImageCard } from '../../components/DashboardImageCard'
 
 interface StudentSummary { id: string; name: string; email: string; courseIds: string[]; pct: number; reviewCount: number }
 
@@ -107,6 +108,8 @@ export function MentorDashboard() {
         ))}
         {filtered.length === 0 && !loading && <p className="muted">No students found.</p>}
       </div>
+
+      <DashboardImageCard />
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firesto
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import type { Course, DailyPlan, ProgressEntry } from '../../types'
+import { DashboardImageCard } from '../../components/DashboardImageCard'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
 function formatDate(d: Date) {
@@ -220,6 +221,8 @@ export function StudentDashboard() {
           </section>
         </>
       )}
+
+      <DashboardImageCard />
     </div>
   )
 }

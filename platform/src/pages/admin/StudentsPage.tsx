@@ -260,7 +260,7 @@ export function StudentsPage() {
             key={s.id}
             className={`user-card${selectedStudent?.id === s.id ? ' selected' : ''}`}
             onClick={() => openStudentDetail(s)}
-            style={{ cursor: 'pointer' }}
+            style={{ cursor: 'pointer', overflow: 'visible' }}
           >
             <div className="user-card-body">
               <div className="user-card-top">

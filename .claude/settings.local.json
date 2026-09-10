@@ -23,7 +23,17 @@
       "Bash(npx skills *)",
       "Read(//Users/bensonksunny/.claude/**)",
       "Bash(python3 -m json.tool)",
-      "Skill(update-config)"
+      "Skill(update-config)",
+      "Bash(cat \"$\\(git -C \"/Users/bensonksunny/Desktop/Raben learn\" rev-parse --show-toplevel\\)/.superpowers/sdd/progress.md\")",
+      "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/task-brief\" \"docs/superpowers/plans/2026-07-30-syllabus-paste-import.md\" 1)",
+      "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" \"c6fd73f9e22bf30d56032a16d52534d277bc976b\" HEAD)",
+      "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/task-brief\" \"docs/superpowers/plans/2026-07-30-syllabus-paste-import.md\" 2)",
+      "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" \"ea7b44f186a24ab2dc75849e8c29a318ee498f25\" HEAD)",
+      "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/task-brief\" \"docs/superpowers/plans/2026-07-30-syllabus-paste-import.md\" 3)",
+      "Bash(bash \"/Users/bensonksunny/.claude/plugins/cache/claude-plugins-official/superpowers/6.1.1/skills/subagent-driven-development/scripts/review-package\" \"fc94f8be38e86d665e35153334c57ff1f5a5afd7\" HEAD)",
+      "Bash(nohup npm run dev)",
+      "Bash(disown)",
+      "Read(//tmp/**)"
     ]
   }
 }

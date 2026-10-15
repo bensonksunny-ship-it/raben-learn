@@ -367,13 +367,14 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } }
 
 /* Diary page — compact toolbar (student dropdown + week nav) above a full-width panel */
-.diary-toolbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.diary-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
 .diary-toolbar-controls { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .diary-toolbar-controls .sselect { min-width: 288px; max-width: 360px; }
+.diary-toolbar-controls .daysel { min-width: 196px; }
 .diary-week-nav { display: flex; align-items: center; gap: 0.5rem; }
 .diary-week-label { white-space: nowrap; font-weight: 600; min-width: 11ch; text-align: center; }
-.diary-panel { width: 100%; box-sizing: border-box; }
-.diary-panel-header { margin-bottom: 1.25rem; }
+.diary-panel { width: 100%; box-sizing: border-box; padding: 1rem 1.1rem; }
+.diary-panel-header { margin: 0 0 0.6rem; }
 @media (max-width: 640px) {
   .diary-toolbar-controls { width: 100%; }
   .diary-toolbar-controls .sselect { flex: 1; min-width: 0; max-width: none; }
@@ -436,6 +437,52 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   .sselect-chevron { transition: none; }
 }
 
+/* ── Week-day selector (listbox) ─────────────────────────────────────────────
+   "Jump to day" picker in the diary toolbar. Each day keeps the same identity
+   color as its column header in the schedule grid below (see DAY_COLORS in
+   StudentDiaryPage.tsx) — the day name reads large and in that color, the
+   calendar date stays small and muted beside/under it. */
+.daysel { position: relative; }
+
+.daysel-trigger { display: flex; align-items: center; gap: 0.65rem; min-width: 190px; padding: 0.5rem 0.75rem; background: var(--surface); border: 1.5px solid var(--border); border-radius: 12px; cursor: pointer; text-align: left; color: var(--text); font-family: var(--font-body); transition: border-color 0.15s, box-shadow 0.15s; }
+.daysel-trigger:hover:not(:disabled) { border-color: rgba(45,98,200,0.45); }
+.daysel-trigger:focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent); }
+.daysel-trigger[aria-expanded='true'] { border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent); }
+.daysel-trigger:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.daysel-trigger-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.05rem; line-height: 1.15; }
+.daysel-chevron { flex-shrink: 0; display: flex; color: var(--muted-2); transition: transform 0.18s ease; }
+.daysel-trigger:hover:not(:disabled) .daysel-chevron { color: var(--muted); }
+.daysel-trigger[aria-expanded='true'] .daysel-chevron { transform: rotate(180deg); color: var(--primary); }
+
+.daysel-badge { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-optical-sizing: auto; font-weight: 700; font-size: 0.76rem; letter-spacing: -0.01em; }
+.daysel-badge.is-empty { background: var(--surface-soft); border: 1.5px dashed rgba(18,25,46,0.18); color: var(--muted-2); }
+
+/* The day name: the big, colored half of the pair. */
+.daysel-day { font-family: var(--font-display); font-optical-sizing: auto; font-size: 1.08rem; font-weight: 700; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daysel-trigger-text .daysel-day:not([style]) { color: var(--muted); font-weight: 500; font-size: 0.95rem; }
+/* The calendar date: the small, muted half. */
+.daysel-date { font-size: 0.74rem; color: var(--muted); }
+
+.daysel-list { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: max(100%, 278px); list-style: none; margin: 0; padding: 0.4rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 18px 44px rgba(10,18,40,0.16), 0 2px 8px rgba(10,18,40,0.08); max-height: 360px; overflow-y: auto; animation: sselect-in 0.16s ease-out; }
+.daysel-list:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 10px; }
+
+.daysel-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.7rem; border-radius: 10px; cursor: pointer; background: transparent; transition: background 0.12s, box-shadow 0.12s; }
+.daysel-option .daysel-day { font-size: 1.12rem; }
+.daysel-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.05rem; line-height: 1.25; }
+.daysel-option.is-active { background: var(--primary-soft); }
+.daysel-option.is-selected .daysel-day { font-weight: 800; }
+.daysel-today-tag { margin-left: auto; flex-shrink: 0; }
+
+@media (max-width: 640px) {
+  .daysel-trigger { min-width: 0; flex: 1; }
+  .daysel-list { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .daysel-list { animation: none; }
+  .daysel-chevron { transition: none; }
+}
+
 /* Weekly schedule grid — classic timetable: hours as rows, days as columns */
 .week-grid-wrap { overflow-x: auto; }
 .week-grid {
@@ -473,10 +520,40 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .week-grid-card-title { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .week-grid-card-meta { font-size: 0.68rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Timetable Planner — clickable weekly grid (hours as rows, days as columns). Mirrors the
-   Diary's week-grid visual language, but cells are buttons (add) and periods are absolutely
-   positioned cards overlaid per day-column so a period's height is proportional to its
-   duration ("spans across grid slots") rather than confined to one row like the Diary. */
+/* Timetable Planner — clickable weekly grid (hours as rows, days as columns). Each cell is
+   exactly one of two things: an empty-slot "add" button, or a plain div holding that cell's
+   period card(s) — same bucket-by-starting-hour technique as the Diary's read-only grid, so
+   there's never a separate overlay layer competing with the cells for clicks. */
+/* Kid-friendly theme — scoped to a page wrapper (e.g. Timetable Planner) via
+   .kid-theme. Everything else in this file reads colors/fonts off the shared
+   custom properties below, so redefining them here re-themes every panel,
+   button, and input inside the wrapper automatically — no rule duplication. */
+.kid-theme {
+  --font-display: 'Baloo 2', 'Fraunces', Georgia, serif;
+  --font-body:    'Quicksand', 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --bg:           #fff6e0;
+  --surface:      #fffdf7;
+  --surface-soft: #fff1d6;
+  --primary:      #ff8a3d;
+  --primary-soft: #ffe8d6;
+  --amber:        #f5a524;
+  --amber-soft:   rgba(245,165,36,0.18);
+  --green:        #2fb380;
+  --accent-green: #2fb380;
+  --danger:       #f0506e;
+  --text:         #3a2e5c;
+  --muted:        #8a7fa8;
+  --muted-2:      #b8aed0;
+  --border:       rgba(124,58,237,0.16);
+  --radius:       20px;
+  --shadow:       0 4px 16px rgba(124,58,237,0.1), 0 1px 4px rgba(124,58,237,0.06);
+  background: var(--bg);
+  font-family: var(--font-body);
+  padding: 1.5rem;
+  border-radius: 24px;
+}
+.kid-theme h1, .kid-theme h2, .kid-theme h3 { letter-spacing: -0.01em; }
+
 .timetable-grid-wrap { overflow-x: auto; }
 .timetable-grid { display: grid; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; min-width: 760px; position: relative; }
 .timetable-grid-corner { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface-soft); }
@@ -500,13 +577,18 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   transition: background 0.12s;
 }
 .timetable-grid-cell:hover { background: var(--surface-soft); }
-.timetable-grid-cell-plus { opacity: 0; color: var(--muted-2); font-size: 1.1rem; transition: opacity 0.12s; }
-.timetable-grid-cell:hover .timetable-grid-cell-plus { opacity: 1; }
-.timetable-grid-overlay { position: relative; pointer-events: none; }
+.timetable-grid-cell-plus {
+  display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
+  border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 1rem;
+  font-weight: 700; line-height: 1; transition: background 0.12s, color 0.12s, transform 0.12s;
+}
+.timetable-grid-cell:hover .timetable-grid-cell-plus { background: var(--primary); color: #fff; transform: scale(1.08); }
+/* A period's card is a plain grid item spanning the rows its duration covers (set via
+   inline grid-row), with a small margin so the grid lines still show around it — no
+   absolute positioning, no overlay, no pointer-events trickery. */
 .timetable-grid-card {
-  position: absolute; left: 4px; right: 4px; pointer-events: auto; cursor: pointer;
-  border: none; border-left: 3px solid; border-radius: 7px; padding: 0.3rem 0.45rem;
-  display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; text-align: left;
+  cursor: pointer; border: none; border-left: 4px solid; border-radius: 10px; padding: 0.3rem 0.45rem;
+  margin: 2px; display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; text-align: left;
   font-family: var(--font-body); box-shadow: var(--shadow); overflow: hidden;
 }
 .timetable-grid-card-title { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

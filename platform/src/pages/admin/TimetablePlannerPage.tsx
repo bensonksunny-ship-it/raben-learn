@@ -3,19 +3,19 @@ import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { ClassTimetable, TimetableDay, TimetablePeriod, Weekday } from '../../types'
 
-const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+/** Rainbow-bright, one hue per weekday — reads as a kid-friendly weekly chart. */
 const DAY_COLORS: Record<Weekday, { bg: string; text: string }> = {
-  Mon: { bg: '#eef2ff', text: '#4338ca' },
-  Tue: { bg: '#ecfdf5', text: '#047857' },
-  Wed: { bg: '#fff7ed', text: '#c2410c' },
-  Thu: { bg: '#fdf4ff', text: '#a21caf' },
-  Fri: { bg: '#eff6ff', text: '#1d4ed8' },
-  Sat: { bg: '#fdf2f8', text: '#be185d' },
-  Sun: { bg: '#fffbeb', text: '#b45309' },
+  Mon: { bg: '#ffe3e3', text: '#e03131' },
+  Tue: { bg: '#ffe8cc', text: '#e8590c' },
+  Wed: { bg: '#fff3bf', text: '#f08c00' },
+  Thu: { bg: '#d3f9d8', text: '#2b8a3e' },
+  Fri: { bg: '#d0ebff', text: '#1971c2' },
+  Sat: { bg: '#e5dbff', text: '#7048e8' },
 }
 
-const PERIOD_COLOR = { bg: '#dbeafe', text: '#1d4ed8' }
+const PERIOD_COLOR = { bg: '#c3fae8', text: '#087f5b' }
 const ROW_PX = 64
 
 function timeStrToMinutes(s: string): number | null {
@@ -207,8 +207,25 @@ export function TimetablePlannerPage() {
   const hours = Array.from({ length: Math.max(1, maxHour - minHour + 1) }, (_, i) => minHour + i)
   const gridTopMin = minHour * 60
 
+  // The hour labels on the left are a ruler, not fixed-size boxes — rows are split into
+  // 15-minute slots so a period's card is a real CSS Grid item spanning exactly the
+  // number of rows its duration covers (e.g. 45 min = 3 rows), not confined to one hour.
+  const slotsPerHour = 4
+  const totalSlots = hours.length * slotsPerHour
+
+  // Which hours each day has ANY period touching (fully or partially) — those hours
+  // don't get an "add" button, since the period's own card already occupies that space.
+  const touchedHours = {} as Record<Weekday, Set<number>>
+  for (const d of WEEKDAYS) {
+    const set = new Set<number>()
+    for (const t of timedByDay[d]) {
+      for (let h = Math.floor(t.startMin / 60); h <= Math.floor((t.endMin - 1) / 60); h++) set.add(h)
+    }
+    touchedHours[d] = set
+  }
+
   return (
-    <div>
+    <div className="kid-theme">
       <h1 style={{ margin: '0 0 0.2rem' }}>🗓️ Timetable Planner</h1>
       <p className="muted" style={{ marginBottom: '1.25rem' }}>
         Click an empty slot to add a mandatory period. Click an existing period to edit or remove it.
@@ -218,6 +235,7 @@ export function TimetablePlannerPage() {
       <div className="panel" style={{ marginBottom: '1.25rem' }}>
         <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
           <strong style={{ fontSize: '0.88rem' }}>Grid time range</strong>
+          <span className="muted small">(default view only — periods can be any time, the grid expands to fit)</span>
           <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
             Start
             <input type="time" className="date-picker" value={timetable.windowStart} onChange={(e) => updateWindow({ windowStart: e.target.value })} />
@@ -233,7 +251,7 @@ export function TimetablePlannerPage() {
       <div className="timetable-grid-wrap">
         <div
           className="timetable-grid"
-          style={{ gridTemplateColumns: `72px repeat(7, minmax(130px, 1fr))`, gridTemplateRows: `auto repeat(${hours.length}, ${ROW_PX}px)` }}
+          style={{ gridTemplateColumns: `72px repeat(${WEEKDAYS.length}, minmax(130px, 1fr))`, gridTemplateRows: `auto repeat(${totalSlots}, ${ROW_PX / slotsPerHour}px)` }}
         >
           <div className="timetable-grid-corner" style={{ gridColumn: 1, gridRow: 1 }} />
           {WEEKDAYS.map((d, di) => {
@@ -246,46 +264,52 @@ export function TimetablePlannerPage() {
           })}
 
           {hours.map((h, hi) => (
-            <div key={`t_${h}`} className="timetable-grid-time-cell" style={{ gridColumn: 1, gridRow: hi + 2 }}>
+            <div key={`t_${h}`} className="timetable-grid-time-cell" style={{ gridColumn: 1, gridRow: `${2 + hi * slotsPerHour} / span ${slotsPerHour}` }}>
               <span className="timetable-grid-time-tag">{formatHourLabel(h)}</span>
             </div>
           ))}
 
+          {/* Empty-slot "add" button — one per hour with no period touching it. */}
           {hours.map((h, hi) =>
-            WEEKDAYS.map((d, di) => (
-              <button
-                key={`${d}_${h}`}
-                type="button"
-                className="timetable-grid-cell"
-                style={{ gridColumn: di + 2, gridRow: hi + 2 }}
-                onClick={() => openAddModal(d, h)}
-                aria-label={`Add period — ${d} ${formatHourLabel(h)}`}
-              >
-                <span className="timetable-grid-cell-plus" aria-hidden>＋</span>
-              </button>
-            )),
+            WEEKDAYS.map((d, di) => {
+              if (touchedHours[d].has(h)) return null
+              return (
+                <button
+                  key={`${d}_${h}`}
+                  type="button"
+                  className="timetable-grid-cell"
+                  style={{ gridColumn: di + 2, gridRow: `${2 + hi * slotsPerHour} / span ${slotsPerHour}` }}
+                  onClick={() => openAddModal(d, h)}
+                  aria-label={`Add period — ${d} ${formatHourLabel(h)}`}
+                >
+                  <span className="timetable-grid-cell-plus" aria-hidden>＋</span>
+                </button>
+              )
+            }),
           )}
 
-          {WEEKDAYS.map((d, di) => (
-            <div key={`overlay_${d}`} className="timetable-grid-overlay" style={{ gridColumn: di + 2, gridRow: `2 / span ${hours.length}` }}>
-              {timedByDay[d].map(({ period, startMin, endMin }) => {
-                const top = ((startMin - gridTopMin) / 60) * ROW_PX
-                const height = Math.max(20, ((endMin - startMin) / 60) * ROW_PX - 2)
-                return (
-                  <button
-                    key={period.id}
-                    type="button"
-                    className="timetable-grid-card"
-                    style={{ top, height, background: PERIOD_COLOR.bg, borderLeftColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }}
-                    onClick={() => openEditModal(d, period)}
-                  >
-                    <strong className="timetable-grid-card-title">{period.title}</strong>
-                    <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
-                  </button>
-                )
-              })}
-            </div>
-          ))}
+          {/* Period cards — real grid items spanning exactly as many rows as their duration covers. */}
+          {WEEKDAYS.map((d, di) =>
+            timedByDay[d].map(({ period, startMin, endMin }) => {
+              const startSlot = Math.round((startMin - gridTopMin) / (60 / slotsPerHour))
+              const span = Math.max(1, Math.round((endMin - startMin) / (60 / slotsPerHour)))
+              return (
+                <button
+                  key={period.id}
+                  type="button"
+                  className="timetable-grid-card"
+                  style={{
+                    gridColumn: di + 2, gridRow: `${2 + startSlot} / span ${span}`,
+                    background: PERIOD_COLOR.bg, borderLeftColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text,
+                  }}
+                  onClick={() => openEditModal(d, period)}
+                >
+                  <strong className="timetable-grid-card-title">{period.title}</strong>
+                  <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                </button>
+              )
+            }),
+          )}
         </div>
       </div>
 
@@ -294,8 +318,8 @@ export function TimetablePlannerPage() {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 1rem' }}>{modal.mode === 'add' ? `Add period — ${modal.day}` : `Edit period — ${modal.day}`}</h3>
             <form className="form" onSubmit={submitModal}>
-              <label>Title<input value={modal.title} onChange={(e) => setModal({ ...modal, title: e.target.value })} placeholder="e.g. Math" required autoFocus /></label>
-              <label>Start time<input type="time" value={modal.startTime} onChange={(e) => setModal({ ...modal, startTime: e.target.value })} required /></label>
+              <label>Start time<input type="time" value={modal.startTime} onChange={(e) => setModal({ ...modal, startTime: e.target.value })} required autoFocus /></label>
+              <label>Title<input value={modal.title} onChange={(e) => setModal({ ...modal, title: e.target.value })} placeholder="e.g. Math" required /></label>
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Duration</div>
                 <div className="row" style={{ marginBottom: '0.5rem' }}>

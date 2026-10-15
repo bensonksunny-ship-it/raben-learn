@@ -12,8 +12,8 @@ export interface UserProfile {
   courseIds?: string[]
 }
 
-/** Monday-first weekday key used by the class timetable and the admin diary's weekly grid. */
-export type Weekday = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun'
+/** Weekday key for the class timetable — Monday through Saturday, no Sunday. */
+export type Weekday = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat'
 
 /** One mandatory ("locked") slot in the shared class timetable. Each period carries its
  *  own start time, so periods may have gaps between them — picking a grid slot fixes

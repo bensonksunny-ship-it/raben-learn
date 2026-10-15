@@ -3,6 +3,7 @@ import { collection, doc, getDoc, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
 import { StudentSelect } from '../../components/StudentSelect'
+import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
 import type { DailyPlan, DailyPlanItem, LessonItemType, UserProfile } from '../../types'
 
 /**
@@ -66,12 +67,16 @@ function mondayOf(s: string): string {
 function formatDayName(s: string): string {
   return parseDateStr(s).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
 }
+function formatDayFullName(s: string): string {
+  return parseDateStr(s).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
+}
 function formatDayDate(s: string): string {
   return parseDateStr(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
 }
+/** Label covers Mon–Sat only — the grid doesn't show Sunday. */
 function formatWeekRangeLabel(monday: string): string {
-  const sunday = addDays(monday, 6)
-  return `${formatDayDate(monday)} – ${formatDayDate(sunday)}, ${parseDateStr(sunday).getUTCFullYear()}`
+  const saturday = addDays(monday, 5)
+  return `${formatDayDate(monday)} – ${formatDayDate(saturday)}, ${parseDateStr(saturday).getUTCFullYear()}`
 }
 function formatHourLabel(hour: number): string {
   const h = ((hour % 24) + 24) % 24
@@ -88,11 +93,10 @@ const DAY_COLORS: Record<string, { bg: string; text: string }> = {
   Thu: { bg: '#fdf4ff', text: '#a21caf' },
   Fri: { bg: '#eff6ff', text: '#1d4ed8' },
   Sat: { bg: '#fdf2f8', text: '#be185d' },
-  Sun: { bg: '#fffbeb', text: '#b45309' },
 }
 
-const DEFAULT_MIN_HOUR = 7
-const DEFAULT_MAX_HOUR = 21
+const DEFAULT_MIN_HOUR = 10
+const DEFAULT_MAX_HOUR = 18
 
 interface TimedItem { item: DailyPlanItem; startMin: number; endMin: number }
 
@@ -120,7 +124,8 @@ export function StudentDiaryPage() {
   const [error, setError] = useState('')
 
   const weekStart = mondayOf(date)
-  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+  // Mon–Sat only — no Sunday column.
+  const weekDates = Array.from({ length: 6 }, (_, i) => addDays(weekStart, i))
 
   useEffect(() => {
     void (async () => {
@@ -150,7 +155,10 @@ export function StudentDiaryPage() {
     void (async () => {
       setLoadingPlans(true); setError('')
       try {
-        const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
+        // Mon–Sat only, matching the grid's `weekDates` above — kept as a separate local
+        // array (rather than closing over `weekDates`) so it isn't an unstable effect
+        // dependency that would refetch on every render.
+        const days = Array.from({ length: 6 }, (_, i) => addDays(weekStart, i))
         const snaps = await Promise.all(days.map((d) => getDoc(doc(db, 'student_daily_plans', `${selectedStudentId}_${d}`))))
         const map: Record<string, DailyPlan | null> = {}
         snaps.forEach((snap, i) => {
@@ -179,6 +187,14 @@ export function StudentDiaryPage() {
 
   const selectedStudent = students.find((s) => s.id === selectedStudentId) ?? null
   const studentOptions = useMemo(() => students.map((s) => ({ id: s.id, name: studentLabel(s) })), [students])
+  const today = todayStr()
+  const dayOptions: WeekDayOption[] = weekDates.map((d) => ({
+    date: d,
+    dayName: formatDayFullName(d),
+    dateLabel: formatDayDate(d),
+    color: DAY_COLORS[formatDayName(d)] ?? { bg: 'var(--surface-soft)', text: 'var(--text)' },
+    isToday: d === today,
+  }))
 
   const allItems = weekDates.flatMap((d) => weekPlans[d]?.items ?? [])
   const totalItems = allItems.length
@@ -195,12 +211,7 @@ export function StudentDiaryPage() {
   return (
     <div className="diary-page">
       <div className="diary-toolbar">
-        <div>
-          <h1 style={{ margin: '0 0 0.2rem' }}>📔 Student Diary</h1>
-          <p className="muted small" style={{ margin: 0 }}>
-            Read-only weekly schedule of a student's daily plans — activities, time tracked, and completion.
-          </p>
-        </div>
+        <h1 style={{ margin: 0 }}>📔 Student Diary</h1>
         <div className="diary-toolbar-controls">
           <StudentSelect
             students={studentOptions}
@@ -213,6 +224,7 @@ export function StudentDiaryPage() {
             <span className="muted small diary-week-label">{formatWeekRangeLabel(weekStart)}</span>
             <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, 7))} aria-label="Next week">›</button>
           </div>
+          <WeekDaySelect options={dayOptions} value={date} onChange={setDate} />
           <input
             type="date"
             className="date-picker"
@@ -229,15 +241,11 @@ export function StudentDiaryPage() {
         {!selectedStudent ? (
           <div style={{ textAlign: 'center', padding: '2.5rem' }}>
             <p style={{ fontSize: '2.5rem', margin: 0 }}>📔</p>
-            <h3>Select a student to view their diary</h3>
-            <p className="muted">Pick a student from the dropdown above, then browse weeks.</p>
+            <h3 style={{ margin: '0.5rem 0 0' }}>Select a student</h3>
           </div>
         ) : (
           <>
-            <div className="diary-panel-header">
-              <h2 style={{ margin: 0 }}>{selectedStudent.name}</h2>
-              <p className="muted small" style={{ margin: '0.2rem 0 0' }}>{selectedStudent.email}</p>
-            </div>
+            <h2 className="diary-panel-header">{selectedStudent.name}</h2>
 
             {totalItems > 0 && (
               <div className="planner-stats">
@@ -250,11 +258,11 @@ export function StudentDiaryPage() {
             )}
 
             {!loadingPlans && !hasAnyEntry && (
-              <p className="muted small" style={{ margin: '0 0 0.75rem' }}>No diary entries logged this week — the grid below is empty.</p>
+              <p className="muted small" style={{ margin: '0 0 0.6rem' }}>No entries this week.</p>
             )}
             {noStartTimeDays.length > 0 && (
-              <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
-                ⚠ {noStartTimeDays.map(formatDayDate).join(', ')} {noStartTimeDays.length === 1 ? 'has' : 'have'} activities logged but no start time, so they can't be placed on the grid.
+              <p className="muted small" style={{ margin: '0 0 0.6rem' }}>
+                ⚠ No start time: {noStartTimeDays.map(formatDayDate).join(', ')}
               </p>
             )}
 
@@ -300,7 +308,7 @@ function WeeklyScheduleGrid({ weekDates, weekPlans }: WeeklyScheduleGridProps) {
     <div className="week-grid-wrap">
       <div
         className="week-grid"
-        style={{ gridTemplateColumns: `72px repeat(7, minmax(150px, 1fr))`, gridTemplateRows: `auto repeat(${hours.length}, minmax(56px, auto))` }}
+        style={{ gridTemplateColumns: `72px repeat(7, minmax(160px, 1fr))`, gridTemplateRows: `auto repeat(${hours.length}, minmax(76px, auto))` }}
       >
         <div className="week-grid-corner" style={{ gridColumn: 1, gridRow: 1 }} />
         {weekDates.map((d, di) => {

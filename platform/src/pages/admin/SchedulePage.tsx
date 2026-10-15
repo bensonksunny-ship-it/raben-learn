@@ -330,9 +330,15 @@ export function SchedulePage() {
     void saveTimetable({ ...timetable, ...patch })
   }
 
-  function openAddModal(day: Weekday, hour: number) {
+  /**
+   * `startMin` is the gap's own start (= end of the previous period that day, or the
+   * schedule's start time if there isn't one yet — see `computeGaps`). `gapMinutes`
+   * is how much open time is actually there; the suggested duration fills all of it,
+   * capped to the duration field's own 5–240 min range.
+   */
+  function openAddModal(day: Weekday, startMin: number, gapMinutes: number) {
     setModalError('')
-    setModal({ mode: 'add', day, title: '', startTime: `${String(hour).padStart(2, '0')}:00`, durationMinutes: 45 })
+    setModal({ mode: 'add', day, title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)) })
   }
   function openEditModal(day: Weekday, period: TimetablePeriod) {
     setModalError('')

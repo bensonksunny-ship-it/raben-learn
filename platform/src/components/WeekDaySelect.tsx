@@ -4,9 +4,9 @@ import { ChevronIcon } from './icons'
 export interface WeekDayOption {
   /** The underlying value — an ISO date string (yyyy-mm-dd). */
   date: string
-  /** Full weekday name, e.g. "Monday" — shown large, set in this day's identity color. */
+  /** Full weekday name, e.g. "Monday" — shown second, small and muted. */
   dayName: string
-  /** Short calendar date, e.g. "Oct 13" — shown small and muted. */
+  /** Short calendar date, e.g. "Oct 13" — shown first, large and set in this day's identity color. */
   dateLabel: string
   /** This weekday's identity color, shared with the schedule grid's column headers below. */
   color: { bg: string; text: string }
@@ -128,7 +128,7 @@ export function WeekDaySelect({ options, value, onChange }: WeekDaySelectProps) 
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
-        aria-label={selected ? `Day: ${selected.dayName}, ${selected.dateLabel}. Jump to a different day` : 'Jump to a day'}
+        aria-label={selected ? `Day: ${selected.dateLabel}, ${selected.dayName}. Jump to a different day` : 'Jump to a day'}
       >
         <span
           className={`daysel-badge${selected ? '' : ' is-empty'}`}
@@ -138,10 +138,12 @@ export function WeekDaySelect({ options, value, onChange }: WeekDaySelectProps) 
           {selected ? selected.dayName.slice(0, 2) : '—'}
         </span>
         <span className="daysel-trigger-text">
-          <span className="daysel-day" style={selected ? { color: selected.color.text } : undefined}>
-            {selected?.dayName ?? 'Jump to day'}
+          {/* Date leads now — it's the more specific of the two, and reads as the
+              primary label; the weekday name below it is secondary context. */}
+          <span className="daysel-primary" style={selected ? { color: selected.color.text } : undefined}>
+            {selected?.dateLabel ?? 'Jump to day'}
           </span>
-          {selected && <span className="daysel-date">{selected.dateLabel}</span>}
+          {selected && <span className="daysel-secondary">{selected.dayName}</span>}
         </span>
         <span className="daysel-chevron" aria-hidden><ChevronIcon /></span>
       </button>
@@ -174,8 +176,8 @@ export function WeekDaySelect({ options, value, onChange }: WeekDaySelectProps) 
                   {o.dayName.slice(0, 2)}
                 </span>
                 <span className="daysel-option-text">
-                  <span className="daysel-day" style={{ color: o.color.text }}>{o.dayName}</span>
-                  <span className="daysel-date">{o.dateLabel}</span>
+                  <span className="daysel-primary" style={{ color: o.color.text }}>{o.dateLabel}</span>
+                  <span className="daysel-secondary">{o.dayName}</span>
                 </span>
                 {o.isToday && <span className="tag daysel-today-tag">Today</span>}
               </li>

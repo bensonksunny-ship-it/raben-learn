@@ -463,20 +463,21 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .daysel-badge { width: 32px; height: 32px; flex-shrink: 0; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--font-display); font-optical-sizing: auto; font-weight: 700; font-size: 0.76rem; letter-spacing: -0.01em; }
 .daysel-badge.is-empty { background: var(--surface-soft); border: 1.5px dashed rgba(18,25,46,0.18); color: var(--muted-2); }
 
-/* The day name: the big, colored half of the pair. */
-.daysel-day { font-family: var(--font-display); font-optical-sizing: auto; font-size: 1.08rem; font-weight: 700; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.daysel-trigger-text .daysel-day:not([style]) { color: var(--muted); font-weight: 500; font-size: 0.95rem; }
-/* The calendar date: the small, muted half. */
-.daysel-date { font-size: 0.74rem; color: var(--muted); }
+/* Named by role, not by field, since which field fills which role is a display
+   choice made in WeekDaySelect.tsx (currently: date leads as primary, day name
+   is the secondary line) — the class itself doesn't care which text it holds. */
+.daysel-primary { font-family: var(--font-display); font-optical-sizing: auto; font-size: 1.08rem; font-weight: 700; letter-spacing: -0.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.daysel-trigger-text .daysel-primary:not([style]) { color: var(--muted); font-weight: 500; font-size: 0.95rem; }
+.daysel-secondary { font-size: 0.74rem; color: var(--muted); }
 
 .daysel-list { position: absolute; top: calc(100% + 6px); left: 0; z-index: 60; width: max(100%, 278px); list-style: none; margin: 0; padding: 0.4rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 18px 44px rgba(10,18,40,0.16), 0 2px 8px rgba(10,18,40,0.08); max-height: 360px; overflow-y: auto; animation: sselect-in 0.16s ease-out; }
 .daysel-list:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; border-radius: 10px; }
 
 .daysel-option { display: flex; align-items: center; gap: 0.75rem; padding: 0.6rem 0.7rem; border-radius: 10px; cursor: pointer; background: transparent; transition: background 0.12s, box-shadow 0.12s; }
-.daysel-option .daysel-day { font-size: 1.12rem; }
+.daysel-option .daysel-primary { font-size: 1.12rem; }
 .daysel-option-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.05rem; line-height: 1.25; }
 .daysel-option.is-active { background: var(--primary-soft); }
-.daysel-option.is-selected .daysel-day { font-weight: 800; }
+.daysel-option.is-selected .daysel-primary { font-weight: 800; }
 .daysel-today-tag { margin-left: auto; flex-shrink: 0; }
 
 @media (max-width: 640px) {
@@ -590,6 +591,10 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   font-weight: 700; line-height: 1; transition: background 0.12s, color 0.12s, transform 0.12s;
 }
 .timetable-grid-cell:hover .timetable-grid-cell-plus { background: var(--primary); color: #fff; transform: scale(1.08); }
+/* Every empty-slot button is a "fill this gap" target now (one per open span, not
+   per hour) — stack the icon above a label so even a short gap reads as actionable. */
+.timetable-grid-cell.gap { flex-direction: column; gap: 0.25rem; padding: 0.2rem; overflow: hidden; }
+.timetable-grid-gap-label { font-size: 0.66rem; font-weight: 600; color: var(--primary); text-align: center; line-height: 1.15; white-space: normal; }
 /* A period's card is a plain grid item spanning the rows its duration covers (set via
    inline grid-row), with a small margin so the grid lines still show around it — no
    absolute positioning, no overlay, no pointer-events trickery. */
@@ -599,13 +604,20 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   font-family: var(--font-body); box-shadow: var(--shadow); overflow: hidden;
 }
 .timetable-grid-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; }
-/* Priority-1 badge — marks a card as a manager-locked school period, distinct from
-   the period's own title (e.g. "Math") shown just below it. */
+/* Priority badge — marks a card as either a manager-locked school period or a
+   Priority-2 elective (whose optional "· Mentor name" suffix has no fixed length,
+   unlike "School period"), distinct from the card's own title shown just below it. */
 .timetable-grid-card-lock {
   display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.6rem; font-weight: 700;
   letter-spacing: 0.04em; text-transform: uppercase; background: rgba(255,255,255,0.55);
-  border-radius: 99px; padding: 0.1rem 0.4rem; white-space: nowrap; width: fit-content;
+  border-radius: 99px; padding: 0.1rem 0.4rem; max-width: 100%;
+  /* Flex items default to min-width:auto, which lets content overflow its container
+     instead of shrinking — without this the badge just grows past the card instead
+     of truncating. text-overflow itself goes on the text span below, not here:
+     applied directly to a flex container it just clips with no "…", no exceptions. */
+  min-width: 0;
 }
+.timetable-grid-card-lock-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .timetable-grid-card-title { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timetable-grid-card-meta { font-size: 0.68rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The shared schedule rendered as backdrop context (a student is selected, so this
@@ -655,6 +667,34 @@ a.dash-stat-card:hover .dash-stat-arrow { opacity: 1; transform: translateX(0); 
 @media (prefers-reduced-motion: reduce) {
   .nav-card, .nav-card-arrow { transition: none; }
   .nav-card:hover { transform: none; }
+}
+
+/* Manager Dashboard's own in-theme navigation rail, alongside its content — distinct
+   from AppShell's shared navy `.sidebar`, which still wraps the whole app outside this
+   for branding/sign-out and is unaffected. Pastel pill links, fully rounded, matching
+   the rest of .kid-theme rather than borrowing the navy sidebar's look. */
+.manager-layout { display: flex; align-items: flex-start; gap: 1.5rem; }
+.manager-main { flex: 1; min-width: 0; }
+.manager-nav {
+  flex: 0 0 188px; display: flex; flex-direction: column; gap: 1.1rem;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 1.1rem 0.9rem; box-shadow: var(--shadow); position: sticky; top: 1.5rem;
+}
+.manager-nav-brand { display: flex; align-items: center; gap: 0.6rem; padding: 0 0.3rem; }
+.manager-nav-brand-label { font-family: var(--font-display); font-optical-sizing: auto; font-weight: 700; font-size: 1.05rem; color: var(--text); }
+.manager-nav-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; }
+.manager-nav-link {
+  display: flex; align-items: center; gap: 0.6rem; padding: 0.55rem 0.85rem; border-radius: 999px;
+  font-weight: 600; font-size: 0.92rem; color: var(--muted); text-decoration: none; transition: background 0.15s, color 0.15s;
+}
+.manager-nav-link:hover { background: var(--surface-soft); color: var(--text); text-decoration: none; }
+.manager-nav-link.active { background: var(--primary-soft); color: var(--primary); }
+
+@media (max-width: 820px) {
+  .manager-layout { flex-direction: column; }
+  .manager-nav { position: static; flex-direction: row; align-items: center; width: 100%; overflow-x: auto; gap: 0.75rem; }
+  .manager-nav-list { flex-direction: row; }
+  .manager-nav-link { white-space: nowrap; }
 }
 
 .dash-banner { position: relative; margin-top: 1.75rem; padding: 0; overflow: hidden; display: flex; min-height: 172px; }

@@ -1,16 +1,15 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState } from 'react'
 import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
 import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
-import { LockIcon } from '../../components/manager/StatIcons'
+import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
+import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, formatTime } from '../../components/manager/schedulerShared'
 import type {
-  ClassTimetable, DailyPlan, DailyPlanItem, LessonItemType,
+  ClassTimetable, DailyPlan, DailyPlanItem, ElectiveSchedule,
   TimetableDay, TimetablePeriod, UserProfile, Weekday,
 } from '../../types'
-
-const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /**
  * Name for the student picker. Staff identify students by name, so the email stays
@@ -22,40 +21,6 @@ function studentLabel(s: UserProfile): string {
 }
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
-function formatTime(ms: number) {
-  const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m ${String(sec).padStart(2, '0')}s`
-}
-function itemTypeLabel(t: LessonItemType | string): string {
-  if (t === 'concept') return 'Concept'
-  if (t === 'custom') return 'Custom'
-  return 'Exercise'
-}
-function itemTypeColors(t: LessonItemType | string): { bg: string; text: string } {
-  if (t === 'concept') return { bg: '#ede9fe', text: '#5b21b6' }
-  if (t === 'custom') return { bg: '#f3f4f6', text: '#374151' }
-  return { bg: '#dcfce7', text: '#166534' }
-}
-function timeStrToMinutes(s: string): number | null {
-  const m = /^(\d{2}):(\d{2})$/.exec(s.trim())
-  if (!m) return null
-  const hh = Number(m[1]); const mm = Number(m[2])
-  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
-  return hh * 60 + mm
-}
-function minutesToTimeStr(min: number): string {
-  const m = ((min % (24 * 60)) + (24 * 60)) % (24 * 60)
-  const hh = Math.floor(m / 60)
-  const mm = m % 60
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
-}
-function formatClockLabel(min: number): string {
-  const h = Math.floor(min / 60); const m = min % 60
-  const period = h < 12 ? 'AM' : 'PM'
-  const display = h % 12 === 0 ? 12 : h % 12
-  return m === 0 ? `${display} ${period}` : `${display}:${String(m).padStart(2, '0')} ${period}`
-}
 
 // ─── Week date helpers (UTC-anchored so day math never drifts with local TZ) ──
 
@@ -90,30 +55,8 @@ function formatWeekRangeLabel(monday: string): string {
   const saturday = addDays(monday, 5)
   return `${formatDayDate(monday)} – ${formatDayDate(saturday)}, ${parseDateStr(saturday).getUTCFullYear()}`
 }
-function formatHourLabel(hour: number): string {
-  const h = ((hour % 24) + 24) % 24
-  const period = h < 12 ? 'AM' : 'PM'
-  const display = h % 12 === 0 ? 12 : h % 12
-  return `${display} ${period}`
-}
 
-/** Rainbow-bright, one hue per weekday — reads as a kid-friendly weekly chart. */
-const DAY_COLORS: Record<Weekday, { bg: string; text: string }> = {
-  Mon: { bg: '#ffe3e3', text: '#e03131' },
-  Tue: { bg: '#ffe8cc', text: '#e8590c' },
-  Wed: { bg: '#fff3bf', text: '#f08c00' },
-  Thu: { bg: '#d3f9d8', text: '#2b8a3e' },
-  Fri: { bg: '#d0ebff', text: '#1971c2' },
-  Sat: { bg: '#e5dbff', text: '#7048e8' },
-}
-
-const PERIOD_COLOR = { bg: '#c3fae8', text: '#087f5b' }
-const ROW_PX = 64
-const SLOTS_PER_HOUR = 4
-const DEFAULT_MIN_HOUR = 7
-const DEFAULT_MAX_HOUR = 21
-
-// ─── Shared class timetable helpers ────────────────────────────────────────────
+// ─── Shared class timetable (Priority 1) ───────────────────────────────────────
 
 function createDefaultTimetable(): ClassTimetable {
   const days = {} as Record<Weekday, TimetableDay>
@@ -147,70 +90,42 @@ function normalizeTimetable(data: Record<string, unknown> | undefined): ClassTim
   }
 }
 
-interface TimedPeriod { period: TimetablePeriod; startMin: number; endMin: number }
+// ─── Elective-session board (Priority 2) ───────────────────────────────────────
 
-function timedPeriodsOf(day: TimetableDay): TimedPeriod[] {
-  return day.periods.map((period) => {
-    const startMin = timeStrToMinutes(period.startTime) ?? 0
-    return { period, startMin, endMin: startMin + period.durationMinutes }
-  })
+function createDefaultElectives(): ElectiveSchedule {
+  const days = {} as ElectiveSchedule['days']
+  for (const d of WEEKDAYS) days[d] = { sessions: [] }
+  return { days }
 }
 
-function overlapsAny(startMin: number, endMin: number, timed: TimedPeriod[], excludePeriodId?: string): TimetablePeriod | null {
-  for (const t of timed) {
-    if (t.period.id === excludePeriodId) continue
-    if (startMin < t.endMin && t.startMin < endMin) return t.period
+/** Same defensive-merge treatment as `normalizeTimetable`, for the sibling collection. */
+function normalizeElectives(data: Record<string, unknown> | undefined): ElectiveSchedule {
+  const fallback = createDefaultElectives()
+  if (!data) return fallback
+  const rawDays = (data.days as Record<string, unknown>) ?? {}
+  const days = {} as ElectiveSchedule['days']
+  for (const d of WEEKDAYS) {
+    const rd = rawDays[d] as Record<string, unknown> | undefined
+    const rawSessions = Array.isArray(rd?.sessions) ? (rd!.sessions as Record<string, unknown>[]) : []
+    const sessions = rawSessions
+      .map((s) => ({
+        id: typeof s.id === 'string' ? s.id : crypto.randomUUID(),
+        title: typeof s.title === 'string' ? s.title : '',
+        startTime: typeof s.startTime === 'string' ? s.startTime : '',
+        durationMinutes: Number(s.durationMinutes ?? 0),
+        mentorName: typeof s.mentorName === 'string' ? s.mentorName : null,
+      }))
+      .filter((s) => s.title && timeStrToMinutes(s.startTime) != null && s.durationMinutes > 0)
+    days[d] = { sessions }
   }
-  return null
+  return { days }
 }
-
-interface Gap { startMin: number; endMin: number }
-
-/**
- * Open/flexible time left in the schedule's own window (e.g. 10:00–18:00) once that
- * day's periods are carved out — each gap's `startMin` is, by construction, exactly
- * the end of the period right before it (or the window start if it's the first gap
- * of the day), and `endMin` is exactly the start of the next period (or the window
- * end). That's what makes a gap's own bounds the correct auto-fill defaults.
- */
-function computeGaps(windowStartMin: number, windowEndMin: number, timed: TimedPeriod[]): Gap[] {
-  const sorted = [...timed].sort((a, b) => a.startMin - b.startMin)
-  const gaps: Gap[] = []
-  let cursor = windowStartMin
-  for (const t of sorted) {
-    const start = Math.max(t.startMin, windowStartMin)
-    const end = Math.min(t.endMin, windowEndMin)
-    if (start > cursor) gaps.push({ startMin: cursor, endMin: Math.min(start, windowEndMin) })
-    cursor = Math.max(cursor, end)
-  }
-  if (cursor < windowEndMin) gaps.push({ startMin: cursor, endMin: windowEndMin })
-  return gaps.filter((g) => g.endMin > g.startMin)
-}
-
-// ─── Student daily-plan ("diary") helpers ──────────────────────────────────────
-
-interface TimedItem { item: DailyPlanItem; startMin: number; endMin: number }
-
-function timedItemsOf(plan: DailyPlan | null | undefined): TimedItem[] {
-  const planStartMin = plan?.startTime ? timeStrToMinutes(plan.startTime) : null
-  if (!plan || planStartMin == null) return []
-  return plan.items.map((item, idx) => {
-    const startMin = planStartMin + plan.items.slice(0, idx).reduce((s, it) => s + (it.plannedMinutes ?? 0), 0)
-    return { item, startMin, endMin: startMin + (item.plannedMinutes ?? 0) }
-  })
-}
-
-type ModalState =
-  | { mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number }
-  | { mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number }
-
-const DURATION_PRESETS = [30, 45, 60]
 
 /**
  * One grid, two modes, picked by the student dropdown:
- *  - No student selected → "edit mode": the shared class timetable (one mandatory
- *    weekly schedule for everyone) in full color, clickable — click an empty slot
- *    to add a period, click a period to edit/delete it.
+ *  - No student selected → "edit mode": the shared class timetable (Priority 1,
+ *    locked) plus the elective-session board (Priority 2, flexible) — both
+ *    clickable, via `<PriorityScheduler />`.
  *  - A student selected → "view mode": that student's actual logged activities
  *    (the old read-only "Diary"), shown as full-color cards layered on top of the
  *    same shared schedule rendered as a faded, non-interactive backdrop. Nothing
@@ -229,12 +144,11 @@ export function SchedulePage() {
 
   const [timetable, setTimetable] = useState<ClassTimetable | null>(null)
   const [loadingTimetable, setLoadingTimetable] = useState(true)
+  const [electives, setElectives] = useState<ElectiveSchedule | null>(null)
+  const [loadingElectives, setLoadingElectives] = useState(true)
   const [saving, setSaving] = useState(false)
 
   const [error, setError] = useState('')
-
-  const [modal, setModal] = useState<ModalState | null>(null)
-  const [modalError, setModalError] = useState('')
 
   const weekStart = mondayOf(date)
   // Mon–Sat only — no Sunday column. Index-aligned with WEEKDAYS (both start Monday),
@@ -275,6 +189,20 @@ export function SchedulePage() {
         setTimetable(createDefaultTimetable())
       } finally {
         setLoadingTimetable(false)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'elective_sessions', 'master'))
+        setElectives(normalizeElectives(snap.exists() ? snap.data() : undefined))
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load elective sessions')
+        setElectives(createDefaultElectives())
+      } finally {
+        setLoadingElectives(false)
       }
     })()
   }, [])
@@ -325,59 +253,24 @@ export function SchedulePage() {
     }
   }
 
+  async function saveElectives(next: ElectiveSchedule) {
+    setSaving(true); setError('')
+    setElectives(next) // optimistic, same as saveTimetable
+    try {
+      await setDoc(doc(db, 'elective_sessions', 'master'), next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save elective sessions')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function updateWindow(patch: Partial<Pick<ClassTimetable, 'windowStart' | 'windowEnd'>>) {
     if (!timetable) return
     void saveTimetable({ ...timetable, ...patch })
   }
 
-  /**
-   * `startMin` is the gap's own start (= end of the previous period that day, or the
-   * schedule's start time if there isn't one yet — see `computeGaps`). `gapMinutes`
-   * is how much open time is actually there; the suggested duration fills all of it,
-   * capped to the duration field's own 5–240 min range.
-   */
-  function openAddModal(day: Weekday, startMin: number, gapMinutes: number) {
-    setModalError('')
-    setModal({ mode: 'add', day, title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)) })
-  }
-  function openEditModal(day: Weekday, period: TimetablePeriod) {
-    setModalError('')
-    setModal({ mode: 'edit', day, periodId: period.id, title: period.title, startTime: period.startTime, durationMinutes: period.durationMinutes })
-  }
-  function closeModal() { setModal(null); setModalError('') }
-
-  function submitModal(e: FormEvent) {
-    e.preventDefault()
-    if (!modal || !timetable) return
-    const title = modal.title.trim()
-    if (!title) { setModalError('Title is required.'); return }
-    const startMin = timeStrToMinutes(modal.startTime)
-    if (startMin == null) { setModalError('Enter a valid start time.'); return }
-    if (!Number.isFinite(modal.durationMinutes) || modal.durationMinutes < 5) { setModalError('Duration must be at least 5 minutes.'); return }
-    const endMin = startMin + modal.durationMinutes
-
-    const day = timetable.days[modal.day]
-    const timed = timedPeriodsOf(day)
-    const clash = overlapsAny(startMin, endMin, timed, modal.mode === 'edit' ? modal.periodId : undefined)
-    if (clash) { setModalError(`Overlaps "${clash.title}" (${minutesToTimeStr(timeStrToMinutes(clash.startTime) ?? 0)}–${minutesToTimeStr((timeStrToMinutes(clash.startTime) ?? 0) + clash.durationMinutes)}).`); return }
-
-    const nextPeriods = modal.mode === 'add'
-      ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes }]
-      : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes } : p))
-
-    void saveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: nextPeriods } } })
-    closeModal()
-  }
-
-  function deleteModalPeriod() {
-    if (!modal || modal.mode !== 'edit' || !timetable) return
-    if (!window.confirm('Delete this period?')) return
-    const day = timetable.days[modal.day]
-    void saveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: day.periods.filter((p) => p.id !== modal.periodId) } } })
-    closeModal()
-  }
-
-  if (loadingTimetable || !timetable) return <p className="muted">Loading…</p>
+  if (loadingTimetable || loadingElectives || !timetable || !electives) return <p className="muted">Loading…</p>
 
   const selectedStudent = students.find((s) => s.id === selectedStudentId) ?? null
   const studentOptions = students.map((s) => ({ id: s.id, name: studentLabel(s) }))
@@ -402,52 +295,6 @@ export function SchedulePage() {
     return !!p && p.items.length > 0 && !p.startTime
   })
 
-  // ─── Grid bounds: the shared schedule's window, widened to the old Diary default
-  // (7 AM–9 PM) once a student is selected (logged activities can fall outside school
-  // hours), then expanded further to fit whatever's actually there — same defensive
-  // technique both source pages already used. ──────────────────────────────────────
-  const windowStartMin = timeStrToMinutes(timetable.windowStart) ?? 10 * 60
-  const windowEndMin = timeStrToMinutes(timetable.windowEnd) ?? 18 * 60
-  let minHour = editingAllowed ? Math.floor(windowStartMin / 60) : Math.min(DEFAULT_MIN_HOUR, Math.floor(windowStartMin / 60))
-  let maxHour = editingAllowed ? Math.ceil(windowEndMin / 60) - 1 : Math.max(DEFAULT_MAX_HOUR, Math.ceil(windowEndMin / 60) - 1)
-
-  const timedByDay = {} as Record<Weekday, TimedPeriod[]>
-  for (const d of WEEKDAYS) {
-    const timed = timedPeriodsOf(timetable.days[d])
-    timedByDay[d] = timed
-    for (const t of timed) {
-      minHour = Math.min(minHour, Math.floor(t.startMin / 60))
-      maxHour = Math.max(maxHour, Math.floor((t.endMin - 1) / 60))
-    }
-  }
-  const timedByDate: Record<string, TimedItem[]> = {}
-  if (!editingAllowed) {
-    for (const d of weekDates) {
-      const timed = timedItemsOf(weekPlans[d])
-      timedByDate[d] = timed
-      for (const t of timed) {
-        minHour = Math.min(minHour, Math.floor(t.startMin / 60))
-        maxHour = Math.max(maxHour, Math.floor((t.endMin - 1) / 60))
-      }
-    }
-  }
-
-  const hours = Array.from({ length: Math.max(1, maxHour - minHour + 1) }, (_, i) => minHour + i)
-  const gridTopMin = minHour * 60
-  const totalSlots = hours.length * SLOTS_PER_HOUR
-  const slotMin = 60 / SLOTS_PER_HOUR
-
-  // Which hours each day has ANY shared-schedule period touching — those hours don't
-  // get an "add" button in edit mode, since the period's own card occupies that space.
-  const touchedHours = {} as Record<Weekday, Set<number>>
-  for (const d of WEEKDAYS) {
-    const set = new Set<number>()
-    for (const t of timedByDay[d]) {
-      for (let h = Math.floor(t.startMin / 60); h <= Math.floor((t.endMin - 1) / 60); h++) set.add(h)
-    }
-    touchedHours[d] = set
-  }
-
   return (
     <div className="kid-theme">
       <div className="diary-toolbar">
@@ -470,7 +317,7 @@ export function SchedulePage() {
         <div className="panel" style={{ marginBottom: '1.25rem' }}>
           <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
             <strong style={{ fontSize: '0.88rem' }}>Grid time range</strong>
-            <span className="muted small">(default view only — periods can be any time, the grid expands to fit)</span>
+            <span className="muted small">(default view only — periods and electives can be any time, the grid expands to fit)</span>
             <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               Start
               <input type="time" className="date-picker" value={timetable.windowStart} onChange={(e) => updateWindow({ windowStart: e.target.value })} />
@@ -479,7 +326,6 @@ export function SchedulePage() {
               End
               <input type="time" className="date-picker" value={timetable.windowEnd} onChange={(e) => updateWindow({ windowEnd: e.target.value })} />
             </label>
-            {saving ? <span className="muted small">Saving…</span> : null}
           </div>
         </div>
       )}
@@ -498,10 +344,10 @@ export function SchedulePage() {
 
       <p className="muted" style={{ marginBottom: '0.75rem' }}>
         {editingAllowed
-          ? 'Click an empty slot to add a mandatory period. Click an existing period to edit or remove it. The faded blocks are the shared class schedule — pick a student above to see their actual logged activities on top of it.'
+          ? 'Green, locked blocks are mandatory school periods — add one with the button below. The lighter, open slots are free: click one to book an elective session there, with an end time calculated for you. Pick a student above to see their actual logged activities on top of this schedule.'
           : !loadingPlans && !hasAnyEntry
             ? `No entries logged this week for ${selectedStudent?.name ?? 'this student'}.`
-            : `Showing ${selectedStudent?.name ?? 'this student'}'s logged activities (bright cards) over the shared class schedule (faded, read-only here).`}
+            : `Showing ${selectedStudent?.name ?? 'this student'}'s logged activities (bright cards) over the shared schedule (faded, read-only here).`}
       </p>
       {!editingAllowed && noStartTimeDays.length > 0 && (
         <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
@@ -509,166 +355,16 @@ export function SchedulePage() {
         </p>
       )}
 
-      <div className="timetable-grid-wrap">
-        <div
-          className="timetable-grid"
-          style={{ gridTemplateColumns: `72px repeat(${WEEKDAYS.length}, minmax(130px, 1fr))`, gridTemplateRows: `auto repeat(${totalSlots}, ${ROW_PX / SLOTS_PER_HOUR}px)` }}
-        >
-          <div className="timetable-grid-corner" style={{ gridColumn: 1, gridRow: 1 }} />
-          {WEEKDAYS.map((d, di) => {
-            const colors = DAY_COLORS[d]
-            return (
-              <div key={d} className="timetable-grid-day-header" style={{ gridColumn: di + 2, gridRow: 1, background: colors.bg, color: colors.text }}>
-                {d}
-              </div>
-            )
-          })}
-
-          {hours.map((h, hi) => (
-            <div key={`t_${h}`} className="timetable-grid-time-cell" style={{ gridColumn: 1, gridRow: `${2 + hi * SLOTS_PER_HOUR} / span ${SLOTS_PER_HOUR}` }}>
-              <span className="timetable-grid-time-tag">{formatHourLabel(h)}</span>
-            </div>
-          ))}
-
-          {/* Empty-slot "add" button — edit mode only, one per hour with no period touching it. */}
-          {editingAllowed && hours.map((h, hi) =>
-            WEEKDAYS.map((d, di) => {
-              if (touchedHours[d].has(h)) return null
-              return (
-                <button
-                  key={`${d}_${h}`}
-                  type="button"
-                  className="timetable-grid-cell"
-                  style={{ gridColumn: di + 2, gridRow: `${2 + hi * SLOTS_PER_HOUR} / span ${SLOTS_PER_HOUR}` }}
-                  onClick={() => openAddModal(d, h)}
-                  aria-label={`Add period — ${d} ${formatHourLabel(h)}`}
-                >
-                  <span className="timetable-grid-cell-plus" aria-hidden>＋</span>
-                </button>
-              )
-            }),
-          )}
-
-          {/* Shared schedule periods — clickable cards in edit mode, faded backdrop in view mode. */}
-          {WEEKDAYS.map((d, di) =>
-            timedByDay[d].map(({ period, startMin, endMin }) => {
-              const startSlot = Math.round((startMin - gridTopMin) / slotMin)
-              const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
-              const gridPos = { gridColumn: di + 2, gridRow: `${2 + startSlot} / span ${span}` }
-              if (editingAllowed) {
-                return (
-                  <button
-                    key={period.id}
-                    type="button"
-                    className="timetable-grid-card"
-                    style={{ ...gridPos, background: PERIOD_COLOR.bg, borderLeftColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }}
-                    onClick={() => openEditModal(d, period)}
-                  >
-                    <span className="timetable-grid-card-lock"><LockIcon color={PERIOD_COLOR.text} />School period</span>
-                    <strong className="timetable-grid-card-title">{period.title}</strong>
-                    <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
-                  </button>
-                )
-              }
-              return (
-                <div
-                  key={period.id}
-                  className="timetable-grid-card ghost"
-                  style={{ ...gridPos, background: PERIOD_COLOR.bg, borderLeftColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }}
-                >
-                  <span className="timetable-grid-card-lock"><LockIcon color={PERIOD_COLOR.text} />School period</span>
-                  <strong className="timetable-grid-card-title">{period.title}</strong>
-                  <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
-                </div>
-              )
-            }),
-          )}
-
-          {/* Student's logged activities — view mode only, layered on top of the schedule. */}
-          {!editingAllowed && weekDates.map((d, di) =>
-            (timedByDate[d] ?? []).map(({ item, startMin, endMin }) => {
-              const colors = itemTypeColors(item.activityType)
-              const overTime = item.timeSpentMs > item.plannedMinutes * 60000
-              const startSlot = Math.round((startMin - gridTopMin) / slotMin)
-              const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
-              return (
-                <div
-                  key={item.id}
-                  className="timetable-grid-card"
-                  style={{
-                    gridColumn: di + 2, gridRow: `${2 + startSlot} / span ${span}`,
-                    background: colors.bg, borderLeftColor: colors.text, color: colors.text,
-                    opacity: item.done ? 0.65 : 1,
-                  }}
-                >
-                  <div className="timetable-grid-card-head">
-                    <span className="tag" style={{ background: 'rgba(255,255,255,0.6)', color: colors.text, border: 'none', fontSize: '0.65rem' }}>
-                      {itemTypeLabel(item.activityType)}
-                    </span>
-                    {item.done ? <span aria-hidden>✓</span> : null}
-                  </div>
-                  <strong className="timetable-grid-card-title" style={{ textDecoration: item.done ? 'line-through' : 'none' }}>
-                    {item.activityTitle}
-                  </strong>
-                  <span className="timetable-grid-card-meta">
-                    {minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)} · {formatTime(item.timeSpentMs)}
-                    {overTime ? ' ⚠' : ''}
-                  </span>
-                </div>
-              )
-            }),
-          )}
-        </div>
-      </div>
-
-      {modal && (
-        <div className="modal-backdrop" onClick={closeModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 1rem' }}>{modal.mode === 'add' ? `Add period — ${modal.day}` : `Edit period — ${modal.day}`}</h3>
-            <form className="form" onSubmit={submitModal}>
-              <label>Start time<input type="time" value={modal.startTime} onChange={(e) => setModal({ ...modal, startTime: e.target.value })} required autoFocus /></label>
-              <label>Title<input value={modal.title} onChange={(e) => setModal({ ...modal, title: e.target.value })} placeholder="e.g. Math" required /></label>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Duration</div>
-                <div className="row" style={{ marginBottom: '0.5rem' }}>
-                  {DURATION_PRESETS.map((mins) => (
-                    <button
-                      key={mins}
-                      type="button"
-                      className={`btn small ${modal.durationMinutes === mins ? 'primary' : 'secondary'}`}
-                      onClick={() => setModal({ ...modal, durationMinutes: mins })}
-                    >
-                      {mins < 60 ? `${mins} mins` : `${mins / 60} hour${mins > 60 ? 's' : ''}`}
-                    </button>
-                  ))}
-                </div>
-                <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-                  Custom (minutes)
-                  <input
-                    type="number" min={5} max={240} step={5}
-                    value={modal.durationMinutes}
-                    onChange={(e) => setModal({ ...modal, durationMinutes: Number(e.target.value) })}
-                    style={{ width: 90 }}
-                  />
-                </label>
-              </div>
-              {timeStrToMinutes(modal.startTime) != null && (
-                <p className="muted small" style={{ margin: 0 }}>
-                  Ends at <strong style={{ color: 'var(--text)' }}>{formatClockLabel((timeStrToMinutes(modal.startTime) ?? 0) + modal.durationMinutes)}</strong>
-                </p>
-              )}
-              {modalError ? <p className="error" style={{ margin: 0 }}>⚠ {modalError}</p> : null}
-              <div className="row">
-                <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
-                <button type="button" className="btn secondary" onClick={closeModal}>Cancel</button>
-                {modal.mode === 'edit' && (
-                  <button type="button" className="btn secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={deleteModalPeriod}>Delete</button>
-                )}
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <PriorityScheduler
+        timetable={timetable}
+        electives={electives}
+        editingAllowed={editingAllowed}
+        saving={saving}
+        onSaveTimetable={saveTimetable}
+        onSaveElectives={saveElectives}
+        weekDates={weekDates}
+        weekPlans={weekPlans}
+      />
     </div>
   )
 }

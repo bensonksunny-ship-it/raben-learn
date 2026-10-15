@@ -1,8 +1,9 @@
-import { NavLink, Navigate, Outlet } from 'react-router-dom'
+import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
 export default function AppShell() {
   const { firebaseUser, profile, loading, logout } = useAuth()
+  const location = useLocation()
 
   if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
   if (!firebaseUser) return <Navigate to="/login" replace />
@@ -16,6 +17,13 @@ export default function AppShell() {
 
   const nl = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? ' active' : ''}`
   const bnl = ({ isActive }: { isActive: boolean }) => `bottom-nav-link${isActive ? ' active' : ''}`
+
+  // Manager's Users/Students/Schedule links point at /manager?view=... (they open as a
+  // popup over the dashboard, not a real navigation — see ManagerDashboard), so NavLink's
+  // own pathname-only matching can't tell them apart. Compute "active" from the ?view=
+  // param ourselves instead; `managerView` of '' means the plain Dashboard link.
+  const managerView = isManager && location.pathname === '/manager' ? (new URLSearchParams(location.search).get('view') ?? '') : null
+  function managerLinkClass(base: string, view: string) { return `${base}${managerView === view ? ' active' : ''}` }
 
   function handleLogout() {
     if (window.confirm('Are you sure you want to sign out?')) void logout()
@@ -33,7 +41,8 @@ export default function AppShell() {
             <NavLink to="/admin/users" className={nl}>👤 Users</NavLink>
             <NavLink to="/admin/syllabus" className={nl}>📚 Syllabus</NavLink>
             <NavLink to="/admin/planning" className={nl}>🗂️ Planning</NavLink>
-            <NavLink to="/admin/diary" className={nl}>📔 Diary</NavLink>
+            <NavLink to="/schedule" className={nl}>🗓️ Schedule</NavLink>
+            <NavLink to="/manager" className={nl}>🧑‍💼 Manager</NavLink>
             <NavLink to="/admin/reports" className={nl}>📊 Reports</NavLink>
           </>}
           {isMentor && <>
@@ -49,9 +58,10 @@ export default function AppShell() {
             <NavLink to="/student/history" className={nl}>🏆 History</NavLink>
           </>}
           {isManager && <>
-            <NavLink to="/users" className={nl}>👤 Users</NavLink>
-            <NavLink to="/students" className={nl}>🎓 Students</NavLink>
-            <NavLink to="/timetable" className={nl}>🗓️ Timetable</NavLink>
+            <Link to="/manager" className={managerLinkClass('nav-link', '')}>🏠 Dashboard</Link>
+            <Link to="/manager?view=users" className={managerLinkClass('nav-link', 'users')}>👤 Users</Link>
+            <Link to="/manager?view=students" className={managerLinkClass('nav-link', 'students')}>🎓 Students</Link>
+            <Link to="/manager?view=schedule" className={managerLinkClass('nav-link', 'schedule')}>🗓️ Schedule</Link>
           </>}
         </nav>
         <div className="user-meta">
@@ -72,7 +82,8 @@ export default function AppShell() {
             <NavLink to="/admin/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
             <NavLink to="/admin/syllabus" className={bnl}><span className="bn-icon">📚</span><span className="bn-label">Syllabus</span></NavLink>
             <NavLink to="/admin/planning" className={bnl}><span className="bn-icon">🗂️</span><span className="bn-label">Planning</span></NavLink>
-            <NavLink to="/admin/diary" className={bnl}><span className="bn-icon">📔</span><span className="bn-label">Diary</span></NavLink>
+            <NavLink to="/schedule" className={bnl}><span className="bn-icon">🗓️</span><span className="bn-label">Schedule</span></NavLink>
+            <NavLink to="/manager" className={bnl}><span className="bn-icon">🧑‍💼</span><span className="bn-label">Manager</span></NavLink>
             <NavLink to="/admin/reports" className={bnl}><span className="bn-icon">📊</span><span className="bn-label">Reports</span></NavLink>
           </>}
           {isMentor && <>
@@ -87,9 +98,10 @@ export default function AppShell() {
             <NavLink to="/student/history" className={bnl}><span className="bn-icon">🏆</span><span className="bn-label">History</span></NavLink>
           </>}
           {isManager && <>
-            <NavLink to="/users" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">Users</span></NavLink>
-            <NavLink to="/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
-            <NavLink to="/timetable" className={bnl}><span className="bn-icon">🗓️</span><span className="bn-label">Timetable</span></NavLink>
+            <Link to="/manager" className={managerLinkClass('bottom-nav-link', '')}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></Link>
+            <Link to="/manager?view=users" className={managerLinkClass('bottom-nav-link', 'users')}><span className="bn-icon">👤</span><span className="bn-label">Users</span></Link>
+            <Link to="/manager?view=students" className={managerLinkClass('bottom-nav-link', 'students')}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></Link>
+            <Link to="/manager?view=schedule" className={managerLinkClass('bottom-nav-link', 'schedule')}><span className="bn-icon">🗓️</span><span className="bn-label">Schedule</span></Link>
           </>}
           <NavLink to="/profile" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">You</span></NavLink>
         </div>

@@ -100,6 +100,11 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .modal-backdrop { position: fixed; inset: 0; background: rgba(10,18,40,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
 .modal { background: var(--surface); border-radius: calc(var(--radius) + 4px); padding: 1.75rem; width: 100%; max-width: 580px; box-shadow: 0 24px 60px rgba(10,18,40,0.2); max-height: 90vh; overflow-y: auto; }
 
+/* Manager dashboard popups — Students/Users/Schedule render full-size inside these,
+   so they get a much wider cap than the default .modal (form dialogs). */
+.manager-view-modal { max-width: 1200px; position: relative; padding-top: 2.75rem; }
+.manager-view-close { position: absolute; top: 1rem; right: 1rem; z-index: 1; }
+
 .syllabus-columns { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin: 0 auto; max-width: 1100px; justify-content: center; }
 .syllabus-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; min-width: 320px; flex: 0 0 420px; box-shadow: var(--shadow); }
 .syllabus-col-wide { flex: 1 1 520px; min-width: 420px; }
@@ -570,13 +575,15 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   font-size: 0.7rem; font-weight: 600; color: var(--muted); background: var(--surface);
   border: 1px solid var(--border); border-radius: 99px; padding: 0.15rem 0.55rem; white-space: nowrap;
 }
+/* Open/flexible slots (Priority 2) get a faint pastel tint by default — not plain
+   white — so "available" reads at a glance, before any hover. */
 .timetable-grid-cell {
   border: none; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
-  background: var(--surface); padding: 0; cursor: pointer; font-family: var(--font-body);
+  background: var(--primary-soft); padding: 0; cursor: pointer; font-family: var(--font-body);
   display: flex; align-items: center; justify-content: center; min-width: 0;
   transition: background 0.12s;
 }
-.timetable-grid-cell:hover { background: var(--surface-soft); }
+.timetable-grid-cell:hover { background: var(--surface); }
 .timetable-grid-cell-plus {
   display: flex; align-items: center; justify-content: center; width: 26px; height: 26px;
   border-radius: 50%; background: var(--primary-soft); color: var(--primary); font-size: 1rem;
@@ -591,8 +598,19 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   margin: 2px; display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; text-align: left;
   font-family: var(--font-body); box-shadow: var(--shadow); overflow: hidden;
 }
+.timetable-grid-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; }
+/* Priority-1 badge — marks a card as a manager-locked school period, distinct from
+   the period's own title (e.g. "Math") shown just below it. */
+.timetable-grid-card-lock {
+  display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.6rem; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase; background: rgba(255,255,255,0.55);
+  border-radius: 99px; padding: 0.1rem 0.4rem; white-space: nowrap; width: fit-content;
+}
 .timetable-grid-card-title { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .timetable-grid-card-meta { font-size: 0.68rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The shared schedule rendered as backdrop context (a student is selected, so this
+   card is non-interactive) — faded and dashed so it reads as "behind," not the focus. */
+.timetable-grid-card.ghost { cursor: default; opacity: 0.55; border-left-style: dashed; box-shadow: none; }
 
 .filter-bar { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.25rem; }
 .filter-bar input { flex: 1; min-width: 180px; max-width: 340px; }
@@ -601,7 +619,7 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 
 .dash-stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 1rem; margin-bottom: 1.75rem; }
 .dash-stat-card { display: flex; flex-direction: column; gap: 0.3rem; padding: 1.35rem; border-left: 3px solid transparent; }
-.dash-stat-icon { font-size: 1.4rem; margin-bottom: 0.1rem; }
+.dash-stat-icon { display: inline-flex; align-items: center; font-size: 1.4rem; margin-bottom: 0.1rem; }
 .dash-stat-value { font-family: var(--font-display); font-optical-sizing: auto; font-size: 2.1rem; font-weight: 700; line-height: 1; letter-spacing: -0.03em; }
 .dash-stat-label { font-weight: 700; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
 a.dash-stat-card { position: relative; text-decoration: none; color: inherit; transition: transform 0.15s ease, box-shadow 0.15s ease, border-left-color 0.15s ease; }
@@ -609,6 +627,35 @@ a.dash-stat-card:hover { transform: translateY(-2px); border-left-color: var(--p
 a.dash-stat-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .dash-stat-arrow { position: absolute; top: 1rem; right: 1.1rem; font-size: 1rem; color: var(--muted-2); opacity: 0; transform: translateX(-4px); transition: opacity 0.15s ease, transform 0.15s ease; }
 a.dash-stat-card:hover .dash-stat-arrow { opacity: 1; transform: translateX(0); }
+
+/* Manager Dashboard's owl banner — a flex row (icon + text), unlike .dash-banner's
+   cropped-photo-with-scrim layout, since there's no photo to crop here. */
+.manager-welcome-banner { display: flex; align-items: center; gap: 1.25rem; margin-bottom: 1.75rem; flex-wrap: wrap; }
+.manager-welcome-banner__title { display: block; font-family: var(--font-display); font-optical-sizing: auto; font-size: 1.35rem; font-weight: 700; margin-bottom: 0.3rem; }
+.manager-welcome-banner__sub { display: block; color: var(--muted); font-size: 0.92rem; max-width: 42ch; }
+
+/* Manager Dashboard's launcher tiles — solid color, page name as headline, unlike
+   .dash-stat-card (pale panel, a number as headline) used by Admin/Student dashboards. */
+.nav-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.75rem; }
+.nav-card {
+  position: relative; display: flex; flex-direction: column; gap: 0.3rem; padding: 1.5rem 1.4rem 1.35rem;
+  border-radius: var(--radius); color: #fff; text-decoration: none; box-shadow: var(--shadow);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+}
+.nav-card:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(0,0,0,0.2); filter: brightness(1.06); text-decoration: none; }
+.nav-card:focus-visible { outline: 3px solid rgba(255,255,255,0.85); outline-offset: 2px; }
+.nav-card-icon {
+  width: 42px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.22); border-radius: 12px; margin-bottom: 0.5rem;
+}
+.nav-card-title { font-family: var(--font-display); font-optical-sizing: auto; font-size: 1.3rem; font-weight: 700; letter-spacing: -0.01em; }
+.nav-card-subtitle { font-size: 0.82rem; opacity: 0.92; line-height: 1.35; }
+.nav-card-arrow { position: absolute; top: 1.2rem; right: 1.2rem; font-size: 1.15rem; opacity: 0.75; transition: transform 0.15s ease, opacity 0.15s ease; }
+.nav-card:hover .nav-card-arrow { opacity: 1; transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) {
+  .nav-card, .nav-card-arrow { transition: none; }
+  .nav-card:hover { transform: none; }
+}
 
 .dash-banner { position: relative; margin-top: 1.75rem; padding: 0; overflow: hidden; display: flex; min-height: 172px; }
 .dash-banner img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 36%; }

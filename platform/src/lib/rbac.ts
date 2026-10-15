@@ -6,18 +6,24 @@ import type { Role } from '../types'
  * table, so a page can never be reachable by URL while being hidden from nav
  * (or vice versa) — there's one list to update, not two to keep in sync.
  */
-export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable'
+// `manageTimetable` now gates /schedule — the merged page that absorbed both the old
+// Timetable Planner (editable shared class schedule) and the old Student Diary
+// (read-only per-student log). Kept the original capability name to limit churn.
+export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable'
 
 const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
-  admin: ['adminArea'],
+  // Admin can also reach /schedule and /manager (no separate /admin/* routes for
+  // either) — in practice admin is the only account most people have day to day,
+  // so without this neither page would ever actually get looked at.
+  admin: ['adminArea', 'manageTimetable', 'managerArea'],
   mentor: ['mentorArea'],
   student: ['studentArea'],
-  // Manager is intentionally narrow: just the Users, Students, and Timetable
-  // pages, nothing under /admin, /mentor, or /student. See UserManagement/
-  // StudentsPage for the additional restriction that a manager can't touch
-  // admin/manager accounts or grant those roles — that's enforced server-side,
-  // this table only decides which pages are reachable at all.
-  manager: ['manageUsers', 'manageStudents', 'manageTimetable'],
+  // Manager is intentionally narrow: just the Dashboard, Users, Students, and
+  // Schedule pages, nothing under /admin, /mentor, or /student. See
+  // UserManagement/StudentsPage for the additional restriction that a manager
+  // can't touch admin/manager accounts or grant those roles — that's enforced
+  // server-side, this table only decides which pages are reachable at all.
+  manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable'],
 }
 
 export function can(roles: Role[], cap: Capability): boolean {

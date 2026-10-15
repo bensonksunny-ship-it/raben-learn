@@ -6,6 +6,7 @@ import { Login } from './pages/Login'
 import { HomeRedirect } from './pages/HomeRedirect'
 import { ChangePassword } from './pages/ChangePassword'
 import AdminDashboard from './pages/admin/AdminDashboard'
+import { ManagerDashboard } from './pages/admin/ManagerDashboard'
 import ProfilePage from './pages/ProfilePage'
 import ExamPage from './pages/ExamPage'
 import { SyllabusPage } from './pages/admin/SyllabusPage'
@@ -28,11 +29,8 @@ const StudentsPage = lazy(() =>
 const PlanningPage = lazy(() =>
   import('./pages/admin/PlanningPage').then((m) => ({ default: m.PlanningPage })),
 )
-const StudentDiaryPage = lazy(() =>
-  import('./pages/admin/StudentDiaryPage').then((m) => ({ default: m.StudentDiaryPage })),
-)
-const TimetablePlannerPage = lazy(() =>
-  import('./pages/admin/TimetablePlannerPage').then((m) => ({ default: m.TimetablePlannerPage })),
+const SchedulePage = lazy(() =>
+  import('./pages/admin/SchedulePage').then((m) => ({ default: m.SchedulePage })),
 )
 
 function AdminRouteFallback() {
@@ -51,6 +49,14 @@ export default function App() {
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomeRedirect />} />
+          <Route
+            path="manager"
+            element={
+              <RequireCapability cap="managerArea">
+                <ManagerDashboard />
+              </RequireCapability>
+            }
+          />
           <Route
             path="users"
             element={
@@ -72,15 +78,18 @@ export default function App() {
             }
           />
           <Route
-            path="timetable"
+            path="schedule"
             element={
               <RequireCapability cap="manageTimetable">
                 <Suspense fallback={<AdminRouteFallback />}>
-                  <TimetablePlannerPage />
+                  <SchedulePage />
                 </Suspense>
               </RequireCapability>
             }
           />
+          {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
+          <Route path="timetable" element={<Navigate to="/schedule" replace />} />
+          <Route path="admin/diary" element={<Navigate to="/schedule" replace />} />
           <Route path="admin" element={<RequireCapability cap="adminArea"><Outlet /></RequireCapability>}>
             <Route index element={<AdminDashboard />} />
             <Route
@@ -107,14 +116,6 @@ export default function App() {
               element={
                 <Suspense fallback={<AdminRouteFallback />}>
                   <PlanningPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="diary"
-              element={
-                <Suspense fallback={<AdminRouteFallback />}>
-                  <StudentDiaryPage />
                 </Suspense>
               }
             />

@@ -38,6 +38,33 @@ export interface ClassTimetable {
   days: Record<Weekday, TimetableDay>
 }
 
+/**
+ * One Priority-2 ("flexible") booking into an otherwise-open slot on the scheduler
+ * grid — e.g. an elective a mentor is running. Unlike a `TimetablePeriod` it's never
+ * mandatory: it layers on top of the locked timetable rather than replacing it, and
+ * can be added, edited, or removed without touching the school's fixed periods.
+ */
+export interface ElectiveSession {
+  id: string
+  title: string
+  /** "HH:MM" — this session's own start time. */
+  startTime: string
+  durationMinutes: number
+  /** Optional — who's running it, free text (no mentor directory lookup). */
+  mentorName?: string | null
+}
+
+export interface ElectiveDay {
+  sessions: ElectiveSession[]
+}
+
+/** The single shared, platform-wide weekly elective-session board
+ *  (`elective_sessions/master`) — Priority-2 bookings shown over the
+ *  locked `ClassTimetable` (Priority 1) on the same scheduler grid. */
+export interface ElectiveSchedule {
+  days: Record<Weekday, ElectiveDay>
+}
+
 export interface Course {
   id: string
   title: string

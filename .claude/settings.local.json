@@ -35,7 +35,10 @@
       "Bash(disown)",
       "Read(//tmp/**)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)",
-      "Bash(firebase projects:list)"
+      "Bash(firebase projects:list)",
+      "Bash(firebase hosting:sites:list)",
+      "Bash(ps -p 32654 -o pid,etime,command)",
+      "Bash(curl -s http://localhost:5173/src/App.tsx)"
     ]
   }
 }

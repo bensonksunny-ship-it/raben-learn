@@ -66,6 +66,13 @@ service cloud.firestore {
       allow write: if hasRole('manager');
     }
 
+    // Priority-2 elective-session board, layered over class_timetable on the same
+    // scheduler grid — same access pattern as the locked timetable above.
+    match /elective_sessions/{id} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager');
+    }
+
     // Legacy collections for Cloud Functions
     match /centres/{id} { allow read, write: if hasRole('admin'); }
     match /mentor_centres/{id} { allow read, write: if isAdminOrMentor(); }

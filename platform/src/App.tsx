@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import AppShell from './components/AppShell'
+import { RequireCapability } from './components/RequireCapability'
 import { Login } from './pages/Login'
 import { HomeRedirect } from './pages/HomeRedirect'
 import { ChangePassword } from './pages/ChangePassword'
@@ -27,6 +28,12 @@ const StudentsPage = lazy(() =>
 const PlanningPage = lazy(() =>
   import('./pages/admin/PlanningPage').then((m) => ({ default: m.PlanningPage })),
 )
+const StudentDiaryPage = lazy(() =>
+  import('./pages/admin/StudentDiaryPage').then((m) => ({ default: m.StudentDiaryPage })),
+)
+const TimetablePlannerPage = lazy(() =>
+  import('./pages/admin/TimetablePlannerPage').then((m) => ({ default: m.TimetablePlannerPage })),
+)
 
 function AdminRouteFallback() {
   return (
@@ -44,7 +51,37 @@ export default function App() {
         <Route path="/change-password" element={<ChangePassword />} />
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomeRedirect />} />
-          <Route path="admin">
+          <Route
+            path="users"
+            element={
+              <RequireCapability cap="manageUsers">
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <UserManagement />
+                </Suspense>
+              </RequireCapability>
+            }
+          />
+          <Route
+            path="students"
+            element={
+              <RequireCapability cap="manageStudents">
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <StudentsPage />
+                </Suspense>
+              </RequireCapability>
+            }
+          />
+          <Route
+            path="timetable"
+            element={
+              <RequireCapability cap="manageTimetable">
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <TimetablePlannerPage />
+                </Suspense>
+              </RequireCapability>
+            }
+          />
+          <Route path="admin" element={<RequireCapability cap="adminArea"><Outlet /></RequireCapability>}>
             <Route index element={<AdminDashboard />} />
             <Route
               path="users"
@@ -73,14 +110,22 @@ export default function App() {
                 </Suspense>
               }
             />
+            <Route
+              path="diary"
+              element={
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <StudentDiaryPage />
+                </Suspense>
+              }
+            />
           </Route>
-          <Route path="mentor">
+          <Route path="mentor" element={<RequireCapability cap="mentorArea"><Outlet /></RequireCapability>}>
             <Route index element={<MentorDashboard />} />
             <Route path="students/:studentId" element={<MentorStudentProgress />} />
             <Route path="syllabus" element={<SyllabusPage />} />
             <Route path="reports" element={<ReportsPage />} />
           </Route>
-          <Route path="student">
+          <Route path="student" element={<RequireCapability cap="studentArea"><Outlet /></RequireCapability>}>
             <Route index element={<StudentDashboard />} />
             <Route path="courses" element={<StudentCoursesPage />} />
             <Route path="courses/:courseId" element={<StudentCourseView />} />

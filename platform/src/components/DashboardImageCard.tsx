@@ -2,12 +2,12 @@ import pngtreeOnline from '../assets/pngtree-online-education-and-learning-apps-
 
 export function DashboardImageCard() {
   return (
-    <section className="panel" style={{ marginTop: '1.75rem', padding: 0, overflow: 'hidden' }}>
-      <img
-        src={pngtreeOnline}
-        alt="Online education and learning apps"
-        style={{ display: 'block', width: '100%', height: 'auto' }}
-      />
+    <section className="panel dash-banner">
+      <img src={pngtreeOnline} alt="" aria-hidden />
+      <div className="dash-banner__scrim">
+        <span className="dash-banner__title">Everything for the learning journey</span>
+        <span className="dash-banner__sub">Courses, daily plans, and progress — all in one place.</span>
+      </div>
     </section>
   )
 }

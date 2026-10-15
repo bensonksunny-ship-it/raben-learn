@@ -12,6 +12,7 @@ export default function AppShell() {
   const isAdmin = profile.roles.includes('admin')
   const isMentor = profile.roles.includes('mentor')
   const isStudent = profile.roles.includes('student')
+  const isManager = profile.roles.includes('manager')
 
   const nl = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? ' active' : ''}`
   const bnl = ({ isActive }: { isActive: boolean }) => `bottom-nav-link${isActive ? ' active' : ''}`
@@ -32,6 +33,7 @@ export default function AppShell() {
             <NavLink to="/admin/users" className={nl}>👤 Users</NavLink>
             <NavLink to="/admin/syllabus" className={nl}>📚 Syllabus</NavLink>
             <NavLink to="/admin/planning" className={nl}>🗂️ Planning</NavLink>
+            <NavLink to="/admin/diary" className={nl}>📔 Diary</NavLink>
             <NavLink to="/admin/reports" className={nl}>📊 Reports</NavLink>
           </>}
           {isMentor && <>
@@ -45,6 +47,11 @@ export default function AppShell() {
             <NavLink to="/student/courses" className={nl}>📖 My Courses</NavLink>
             <NavLink to="/student/planner" className={nl}>📅 Today's Plan</NavLink>
             <NavLink to="/student/history" className={nl}>🏆 History</NavLink>
+          </>}
+          {isManager && <>
+            <NavLink to="/users" className={nl}>👤 Users</NavLink>
+            <NavLink to="/students" className={nl}>🎓 Students</NavLink>
+            <NavLink to="/timetable" className={nl}>🗓️ Timetable</NavLink>
           </>}
         </nav>
         <div className="user-meta">
@@ -65,6 +72,7 @@ export default function AppShell() {
             <NavLink to="/admin/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
             <NavLink to="/admin/syllabus" className={bnl}><span className="bn-icon">📚</span><span className="bn-label">Syllabus</span></NavLink>
             <NavLink to="/admin/planning" className={bnl}><span className="bn-icon">🗂️</span><span className="bn-label">Planning</span></NavLink>
+            <NavLink to="/admin/diary" className={bnl}><span className="bn-icon">📔</span><span className="bn-label">Diary</span></NavLink>
             <NavLink to="/admin/reports" className={bnl}><span className="bn-icon">📊</span><span className="bn-label">Reports</span></NavLink>
           </>}
           {isMentor && <>
@@ -77,6 +85,11 @@ export default function AppShell() {
             <NavLink to="/student/courses" className={bnl}><span className="bn-icon">📖</span><span className="bn-label">Courses</span></NavLink>
             <NavLink to="/student/planner" className={bnl}><span className="bn-icon">📅</span><span className="bn-label">Planner</span></NavLink>
             <NavLink to="/student/history" className={bnl}><span className="bn-icon">🏆</span><span className="bn-label">History</span></NavLink>
+          </>}
+          {isManager && <>
+            <NavLink to="/users" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">Users</span></NavLink>
+            <NavLink to="/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
+            <NavLink to="/timetable" className={bnl}><span className="bn-icon">🗓️</span><span className="bn-label">Timetable</span></NavLink>
           </>}
           <NavLink to="/profile" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">You</span></NavLink>
         </div>

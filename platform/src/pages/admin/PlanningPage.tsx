@@ -19,6 +19,11 @@ function nextLevelNumber(levels: SubjectLevel[]): number {
   return levels.reduce((max, l) => Math.max(max, l.level), 0) + 1
 }
 
+/** Sort by level and renumber 1..n so the ladder stays gap-free after reorder/delete. */
+function renumber(levels: SubjectLevel[]): SubjectLevel[] {
+  return [...levels].sort((a, b) => a.level - b.level).map((l, i) => ({ ...l, level: i + 1 }))
+}
+
 export function PlanningPage() {
   const [subjects, setSubjects] = useState<Subject[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,6 +33,7 @@ export function PlanningPage() {
 
   const [addingSubject, setAddingSubject] = useState(false)
   const [newSubjectName, setNewSubjectName] = useState('')
+  const [confirmDeleteSubjectId, setConfirmDeleteSubjectId] = useState<string | null>(null)
 
   const selectedSubject = subjects.find((s) => s.id === selectedSubjectId) ?? null
 
@@ -69,7 +75,7 @@ export function PlanningPage() {
   }
 
   async function deleteSubject(id: string) {
-    if (!window.confirm('Delete this subject and all its levels? This cannot be undone.')) return
+    setConfirmDeleteSubjectId(null)
     try {
       await deleteDoc(doc(db, 'planning_subjects', id))
       if (selectedSubjectId === id) setSelectedSubjectId(null)
@@ -81,7 +87,7 @@ export function PlanningPage() {
 
   async function saveLevels(subjectId: string, levels: SubjectLevel[]) {
     setSaving(true); setError('')
-    // optimistic local update so the table doesn't flicker while saving
+    // optimistic local update so the ladder doesn't flicker while saving
     setSubjects((prev) => prev.map((s) => (s.id === subjectId ? { ...s, levels } : s)))
     try {
       await updateDoc(doc(db, 'planning_subjects', subjectId), { levels })
@@ -96,7 +102,7 @@ export function PlanningPage() {
   return (
     <div>
       <h1 style={{ margin: '0 0 0.35rem' }}>🗂️ Planning</h1>
-      <p className="muted" style={{ marginBottom: '1.25rem' }}>
+      <p className="muted planning-intro">
         Define subjects and the levels students progress through — a name and the core outcome expected at each level.
       </p>
       {error ? <p className="error">{error}</p> : null}
@@ -113,7 +119,7 @@ export function PlanningPage() {
               <input placeholder="Subject name *" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} required autoFocus />
               <div className="row">
                 <button type="submit" className="btn small primary" disabled={saving}>Save</button>
-                <button type="button" className="btn small ghost" onClick={() => setAddingSubject(false)}>Cancel</button>
+                <button type="button" className="btn small secondary" onClick={() => setAddingSubject(false)}>Cancel</button>
               </div>
             </form>
           )}
@@ -127,16 +133,22 @@ export function PlanningPage() {
                     <span className="syllabus-item-title">{s.name}</span>
                     <span className="muted small syllabus-item-desc">{s.levels.length} level{s.levels.length === 1 ? '' : 's'}</span>
                   </button>
-                  <button
-                    type="button"
-                    className="syllabus-delete"
-                    onClick={() => void deleteSubject(s.id)}
-                    aria-label="Delete subject"
-                    title="Delete subject"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.6rem', fontSize: '1rem' }}
-                  >
-                    ✕
-                  </button>
+                  {confirmDeleteSubjectId === s.id ? (
+                    <span className="subject-delete-confirm">
+                      <button type="button" className="btn small primary" onClick={() => void deleteSubject(s.id)}>Delete</button>
+                      <button type="button" className="btn small secondary" onClick={() => setConfirmDeleteSubjectId(null)}>Cancel</button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="syllabus-delete level-icon-btn danger"
+                      onClick={() => setConfirmDeleteSubjectId(s.id)}
+                      aria-label={`Delete ${s.name}`}
+                      title="Delete subject"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </li>
               ))}
               {subjects.length === 0 ? <li className="muted small" style={{ padding: '0.5rem 0' }}>No subjects yet.</li> : null}
@@ -148,6 +160,7 @@ export function PlanningPage() {
         {selectedSubject ? (
           <div className="syllabus-col syllabus-col-wide">
             <SubjectLevelsPanel
+              key={selectedSubject.id}
               subject={selectedSubject}
               saving={saving}
               onSaveLevels={(levels) => void saveLevels(selectedSubject.id, levels)}
@@ -174,36 +187,70 @@ interface SubjectLevelsPanelProps {
 }
 
 function SubjectLevelsPanel({ subject, saving, onSaveLevels }: SubjectLevelsPanelProps) {
-  const [addingLevel, setAddingLevel] = useState(false)
-  const [levelName, setLevelName] = useState('')
-  const [levelOutcome, setLevelOutcome] = useState('')
+  const sortedLevels = [...subject.levels].sort((a, b) => a.level - b.level)
+
+  // editingId is a level id, or 'new' for the add-a-level editor, or null.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftName, setDraftName] = useState('')
+  const [draftOutcome, setDraftOutcome] = useState('')
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [showPaste, setShowPaste] = useState(false)
 
   const [pasteText, setPasteText] = useState('')
   const [parsedLevels, setParsedLevels] = useState<SubjectLevel[]>([])
   const [pasteError, setPasteError] = useState<string | null>(null)
 
-  const sortedLevels = [...subject.levels].sort((a, b) => a.level - b.level)
-
-  function openAddLevel() {
-    setLevelName(''); setLevelOutcome(''); setAddingLevel(true)
+  // Brief "Saved ✓" confirmation whenever a save finishes. savedTick bumps on
+  // each completed save so the flash element remounts and re-runs its CSS fade.
+  const [prevSaving, setPrevSaving] = useState(saving)
+  const [savedTick, setSavedTick] = useState(0)
+  if (prevSaving !== saving) {
+    setPrevSaving(saving)
+    if (prevSaving && !saving) setSavedTick((n) => n + 1)
   }
 
-  function addLevel(e: FormEvent) {
+  function startAdd() {
+    setConfirmDeleteId(null)
+    setDraftName(''); setDraftOutcome('')
+    setEditingId('new')
+  }
+  function startEdit(l: SubjectLevel) {
+    setConfirmDeleteId(null)
+    setDraftName(l.name); setDraftOutcome(l.coreOutcome)
+    setEditingId(l.id)
+  }
+  function cancelEdit() {
+    setEditingId(null); setDraftName(''); setDraftOutcome('')
+  }
+  function commitEdit(e: FormEvent) {
     e.preventDefault()
-    const name = levelName.trim()
+    const name = draftName.trim()
     if (!name) return
-    const next: SubjectLevel = { id: crypto.randomUUID(), level: nextLevelNumber(subject.levels), name, coreOutcome: levelOutcome.trim() }
-    onSaveLevels([...subject.levels, next])
-    setAddingLevel(false)
+    const coreOutcome = draftOutcome.trim()
+    if (editingId === 'new') {
+      const next: SubjectLevel = { id: crypto.randomUUID(), level: nextLevelNumber(subject.levels), name, coreOutcome }
+      onSaveLevels([...subject.levels, next])
+    } else {
+      onSaveLevels(subject.levels.map((l) => (l.id === editingId ? { ...l, name, coreOutcome } : l)))
+    }
+    cancelEdit()
   }
 
-  function updateLevel(id: string, patch: Partial<SubjectLevel>) {
-    onSaveLevels(subject.levels.map((l) => (l.id === id ? { ...l, ...patch } : l)))
+  function moveLevel(id: string, dir: 'up' | 'down') {
+    const sorted = [...subject.levels].sort((a, b) => a.level - b.level)
+    const i = sorted.findIndex((l) => l.id === id)
+    const j = dir === 'up' ? i - 1 : i + 1
+    if (i === -1 || j < 0 || j >= sorted.length) return
+    const a = sorted[i]!
+    const b = sorted[j]!
+    sorted[i] = b
+    sorted[j] = a
+    onSaveLevels(sorted.map((l, idx) => ({ ...l, level: idx + 1 })))
   }
 
   function deleteLevel(id: string) {
-    if (!window.confirm('Delete this level?')) return
-    onSaveLevels(subject.levels.filter((l) => l.id !== id))
+    onSaveLevels(renumber(subject.levels.filter((l) => l.id !== id)))
+    setConfirmDeleteId(null)
   }
 
   function handlePaste(text: string) {
@@ -227,122 +274,177 @@ function SubjectLevelsPanel({ subject, saving, onSaveLevels }: SubjectLevelsPane
   function importPasted() {
     if (parsedLevels.length === 0) return
     onSaveLevels([...subject.levels, ...parsedLevels])
-    setPasteText(''); setParsedLevels([]); setPasteError(null)
+    setPasteText(''); setParsedLevels([]); setPasteError(null); setShowPaste(false)
   }
 
   return (
     <div>
       <div className="syllabus-col-header">
         <h2>🎯 {subject.name}</h2>
-        <button type="button" className="btn small primary" onClick={openAddLevel}>+ Level</button>
+        <span className="row" style={{ gap: '0.6rem' }}>
+          {saving ? <span className="level-save-status">Saving…</span> : null}
+          {!saving && savedTick > 0 ? <span key={savedTick} className="level-save-status saved level-save-flash">Saved ✓</span> : null}
+          <span className="muted small">{sortedLevels.length} level{sortedLevels.length === 1 ? '' : 's'}</span>
+        </span>
       </div>
 
-      {addingLevel && (
-        <form onSubmit={addLevel} className="form syllabus-mini-form">
-          <div className="row" style={{ marginBottom: '0.4rem', alignItems: 'center' }}>
-            <span className="muted small" style={{ minWidth: '4rem' }}>Level {nextLevelNumber(subject.levels)}</span>
-            <input
-              placeholder="Level name * (e.g. Speak Clearly)"
-              value={levelName}
-              onChange={(e) => setLevelName(e.target.value)}
-              required
-              autoFocus
-              style={{ flex: 1 }}
-            />
-          </div>
-          <textarea
-            placeholder="Core outcome expected…"
-            value={levelOutcome}
-            onChange={(e) => setLevelOutcome(e.target.value)}
-            style={{ width: '100%', minHeight: 60, fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '0.5rem' }}
-          />
-          <div className="row">
-            <button type="submit" className="btn small primary" disabled={saving}>Save</button>
-            <button type="button" className="btn small ghost" onClick={() => setAddingLevel(false)}>Cancel</button>
-          </div>
-        </form>
-      )}
+      {sortedLevels.length === 0 && editingId !== 'new' ? (
+        <p className="muted small" style={{ padding: '0.5rem 0 1rem' }}>
+          No levels yet — add the first one below, or paste a batch from a spreadsheet.
+        </p>
+      ) : null}
 
-      {sortedLevels.length === 0 ? (
-        <p className="muted small" style={{ padding: '0.5rem 0' }}>No levels yet — add one above, or paste a batch below.</p>
-      ) : (
-        <div className="table-wrap" style={{ marginBottom: '1.5rem' }}>
-          <table className="table">
-            <thead>
-              <tr>
-                <th style={{ width: 70 }}>Level</th>
-                <th style={{ width: 200 }}>Name</th>
-                <th>Core Outcome</th>
-                <th style={{ width: 40 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {sortedLevels.map((l) => (
-                <LevelRow
-                  key={`${l.id}:${l.name}:${l.coreOutcome}`}
-                  level={l}
-                  onUpdate={(patch) => updateLevel(l.id, patch)}
-                  onDelete={() => deleteLevel(l.id)}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <ul className="level-ladder">
+        {sortedLevels.map((l, idx) => (
+          <li key={l.id}>
+            {editingId === l.id ? (
+              <LevelEditor
+                heading={`Edit level ${l.level}`}
+                name={draftName}
+                outcome={draftOutcome}
+                saving={saving}
+                onName={setDraftName}
+                onOutcome={setDraftOutcome}
+                onSubmit={commitEdit}
+                onCancel={cancelEdit}
+              />
+            ) : confirmDeleteId === l.id ? (
+              <div className="level-card" style={{ alignItems: 'center' }}>
+                <span className="level-badge">{l.level}</span>
+                <div className="level-inline-confirm">
+                  <span>Delete “{l.name}”?</span>
+                </div>
+                <div className="level-editor-row">
+                  <button type="button" className="btn small primary" onClick={() => deleteLevel(l.id)}>Delete</button>
+                  <button type="button" className="btn small secondary" onClick={() => setConfirmDeleteId(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div className="level-card">
+                <span className="level-badge">{l.level}</span>
+                <div className="level-card-body">
+                  <div className="level-card-name">{l.name}</div>
+                  <div className={`level-card-outcome${l.coreOutcome ? '' : ' empty'}`}>
+                    {l.coreOutcome || 'No core outcome yet'}
+                  </div>
+                </div>
+                <div className="level-card-actions">
+                  <button
+                    type="button"
+                    className="level-icon-btn"
+                    onClick={() => moveLevel(l.id, 'up')}
+                    disabled={idx === 0 || saving}
+                    aria-label="Move level up"
+                    title="Move up"
+                  >
+                    ▲
+                  </button>
+                  <button
+                    type="button"
+                    className="level-icon-btn"
+                    onClick={() => moveLevel(l.id, 'down')}
+                    disabled={idx === sortedLevels.length - 1 || saving}
+                    aria-label="Move level down"
+                    title="Move down"
+                  >
+                    ▼
+                  </button>
+                  <button
+                    type="button"
+                    className="level-icon-btn"
+                    onClick={() => startEdit(l)}
+                    aria-label={`Edit ${l.name}`}
+                    title="Edit"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    type="button"
+                    className="level-icon-btn danger"
+                    onClick={() => { setEditingId(null); setConfirmDeleteId(l.id) }}
+                    aria-label={`Delete ${l.name}`}
+                    title="Delete"
+                  >
+                    🗑
+                  </button>
+                </div>
+              </div>
+            )}
+          </li>
+        ))}
+
+        <li>
+          {editingId === 'new' ? (
+            <LevelEditor
+              heading={`New level ${nextLevelNumber(subject.levels)}`}
+              name={draftName}
+              outcome={draftOutcome}
+              saving={saving}
+              onName={setDraftName}
+              onOutcome={setDraftOutcome}
+              onSubmit={commitEdit}
+              onCancel={cancelEdit}
+            />
+          ) : (
+            <button type="button" className="level-add-card" onClick={startAdd}>
+              <span aria-hidden>＋</span> Add level
+            </button>
+          )}
+        </li>
+      </ul>
 
       {/* Paste to bulk-add */}
-      <div>
-        <div style={{ fontSize: '0.78rem', fontWeight: 600, color: '#6366f1', marginBottom: '0.4rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-          📋 Paste levels
-        </div>
-        <p className="muted small" style={{ marginBottom: '0.5rem' }}>
-          Copy cells from Excel or Google Sheets and paste below. First row must be column headers:&nbsp;
-          <code>Level · Name · Core Outcome</code> (Level column is optional — numbered automatically if omitted).
-        </p>
-        <textarea
-          style={{
-            width: '100%', minHeight: 100, fontFamily: 'monospace', fontSize: '0.8rem', padding: '0.5rem',
-            border: '1px solid var(--border)', borderRadius: 'var(--radius)', resize: 'vertical', boxSizing: 'border-box',
-          }}
-          placeholder={'Name\tCore Outcome\nSpeak Clearly\tStudent can construct basic sentences and speak with clear pronunciation\nWrite Well\tStudent can write structured, grammatically correct paragraphs'}
-          value={pasteText}
-          onPaste={(e) => { e.preventDefault(); handlePaste(e.clipboardData.getData('text/plain')) }}
-          onChange={(e) => handlePaste(e.target.value)}
-        />
-        {pasteError && (
-          <p className="error" style={{ marginTop: '0.5rem', marginBottom: 0 }}>⚠ {pasteError}</p>
-        )}
-        {parsedLevels.length > 0 && (
-          <div style={{ marginTop: '0.75rem' }}>
-            <p className="muted small" style={{ marginBottom: '0.4rem' }}>
-              <strong style={{ color: 'var(--text)' }}>Preview</strong> — {parsedLevels.length} level{parsedLevels.length !== 1 ? 's' : ''}
+      <div style={{ marginTop: '1.25rem' }}>
+        <button type="button" className="planning-paste-toggle" onClick={() => setShowPaste((v) => !v)}>
+          📋 {showPaste ? 'Hide spreadsheet paste' : 'Paste levels from a spreadsheet'}
+        </button>
+
+        {showPaste && (
+          <div className="planning-paste-box">
+            <p className="muted small" style={{ marginBottom: '0.5rem' }}>
+              Copy cells from Excel or Google Sheets and paste below. First row must be column headers:&nbsp;
+              <code>Level · Name · Core Outcome</code> (Level column is optional — numbered automatically if omitted).
             </p>
-            <div style={{ maxHeight: 'calc(6 * 36px)', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
-                <thead>
-                  <tr style={{ background: 'var(--surface-2, #f4f6fb)', position: 'sticky', top: 0 }}>
-                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', width: 60 }}>Level</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Name</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Core Outcome</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsedLevels.map((l) => (
-                    <tr key={l.id} style={{ height: 36, borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ padding: '4px 8px', color: 'var(--muted-2)' }}>{l.level}</td>
-                      <td style={{ padding: '4px 8px' }}>{l.name}</td>
-                      <td style={{ padding: '4px 8px' }}>{l.coreOutcome}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn small ghost" onClick={() => { setPasteText(''); setParsedLevels([]); setPasteError(null) }}>Clear</button>
-              <button type="button" className="btn small primary" disabled={saving} onClick={importPasted}>
-                {saving ? '⏳ Adding…' : `Add ${parsedLevels.length} level${parsedLevels.length !== 1 ? 's' : ''}`}
-              </button>
-            </div>
+            <textarea
+              placeholder={'Name\tCore Outcome\nSpeak Clearly\tStudent can construct basic sentences and speak with clear pronunciation\nWrite Well\tStudent can write structured, grammatically correct paragraphs'}
+              value={pasteText}
+              onPaste={(e) => { e.preventDefault(); handlePaste(e.clipboardData.getData('text/plain')) }}
+              onChange={(e) => handlePaste(e.target.value)}
+            />
+            {pasteError && <p className="error" style={{ marginTop: '0.5rem', marginBottom: 0 }}>⚠ {pasteError}</p>}
+            {parsedLevels.length > 0 && (
+              <div style={{ marginTop: '0.75rem' }}>
+                <p className="muted small" style={{ marginBottom: '0.4rem' }}>
+                  <strong style={{ color: 'var(--text)' }}>Preview</strong> — {parsedLevels.length} level{parsedLevels.length !== 1 ? 's' : ''}
+                </p>
+                <div className="table-wrap" style={{ maxHeight: 'calc(6 * 40px)', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 60 }}>Level</th>
+                        <th style={{ width: 180 }}>Name</th>
+                        <th>Core Outcome</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parsedLevels.map((l) => (
+                        <tr key={l.id}>
+                          <td style={{ color: 'var(--muted-2)' }}>{l.level}</td>
+                          <td>{l.name}</td>
+                          <td>{l.coreOutcome}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'flex-end' }}>
+                  <button type="button" className="btn small secondary" onClick={() => { setPasteText(''); setParsedLevels([]); setPasteError(null) }}>Clear</button>
+                  <button type="button" className="btn small primary" disabled={saving} onClick={importPasted}>
+                    {saving ? '⏳ Adding…' : `Add ${parsedLevels.length} level${parsedLevels.length !== 1 ? 's' : ''}`}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -350,51 +452,40 @@ function SubjectLevelsPanel({ subject, saving, onSaveLevels }: SubjectLevelsPane
   )
 }
 
-interface LevelRowProps {
-  level: SubjectLevel
-  onUpdate: (patch: Partial<SubjectLevel>) => void
-  onDelete: () => void
+// ─── Level editor ──────────────────────────────────────────────────────────────
+
+interface LevelEditorProps {
+  heading: string
+  name: string
+  outcome: string
+  saving: boolean
+  onName: (v: string) => void
+  onOutcome: (v: string) => void
+  onSubmit: (e: FormEvent) => void
+  onCancel: () => void
 }
 
-function LevelRow({ level, onUpdate, onDelete }: LevelRowProps) {
-  // Keyed by `${id}:${name}:${coreOutcome}` in the parent, so this remounts
-  // (and re-seeds local state) whenever the underlying level data changes
-  // externally, without resetting state on every local keystroke.
-  const [name, setName] = useState(level.name)
-  const [outcome, setOutcome] = useState(level.coreOutcome)
-
+function LevelEditor({ heading, name, outcome, saving, onName, onOutcome, onSubmit, onCancel }: LevelEditorProps) {
   return (
-    <tr style={{ verticalAlign: 'top' }}>
-      <td style={{ fontVariantNumeric: 'tabular-nums', color: 'var(--muted-2)' }}>{level.level}</td>
-      <td>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onBlur={() => { const trimmed = name.trim(); if (trimmed && trimmed !== level.name) onUpdate({ name: trimmed }) }}
-          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.4rem', font: 'inherit', boxSizing: 'border-box' }}
-        />
-      </td>
-      <td>
-        <textarea
-          value={outcome}
-          onChange={(e) => setOutcome(e.target.value)}
-          onBlur={() => { const trimmed = outcome.trim(); if (trimmed !== level.coreOutcome) onUpdate({ coreOutcome: trimmed }) }}
-          rows={1}
-          style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 6, padding: '0.3rem 0.4rem', font: 'inherit', resize: 'vertical', boxSizing: 'border-box' }}
-        />
-      </td>
-      <td style={{ textAlign: 'right' }}>
-        <button
-          type="button"
-          onClick={onDelete}
-          aria-label="Delete level"
-          title="Delete level"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', opacity: 0.45, fontSize: '1rem' }}
-        >
-          ✕
-        </button>
-      </td>
-    </tr>
+    <form className="level-editor" onSubmit={onSubmit}>
+      <span className="muted small" style={{ fontWeight: 700 }}>{heading}</span>
+      <input
+        placeholder="Level name * (e.g. Speak Clearly)"
+        value={name}
+        onChange={(e) => onName(e.target.value)}
+        required
+        autoFocus
+      />
+      <textarea
+        placeholder="Core outcome expected at this level…"
+        value={outcome}
+        onChange={(e) => onOutcome(e.target.value)}
+      />
+      <div className="level-editor-row">
+        <button type="submit" className="btn small primary" disabled={saving || !name.trim()}>Save</button>
+        <button type="button" className="btn small secondary" onClick={onCancel}>Cancel</button>
+      </div>
+    </form>
   )
 }
 

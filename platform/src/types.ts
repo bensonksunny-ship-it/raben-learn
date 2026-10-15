@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'mentor' | 'student'
+export type Role = 'admin' | 'mentor' | 'student' | 'manager'
 export type UserStatus = 'active' | 'disabled'
 
 export interface UserProfile {
@@ -10,6 +10,32 @@ export interface UserProfile {
   firstLogin: boolean
   createdAt: unknown
   courseIds?: string[]
+}
+
+/** Monday-first weekday key used by the class timetable and the admin diary's weekly grid. */
+export type Weekday = 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun'
+
+/** One mandatory ("locked") slot in the shared class timetable. Each period carries its
+ *  own start time, so periods may have gaps between them — picking a grid slot fixes
+ *  that period's start time independently of whatever else is scheduled that day. */
+export interface TimetablePeriod {
+  id: string
+  title: string
+  /** "HH:MM" — this period's own start time (not derived from any other period). */
+  startTime: string
+  durationMinutes: number
+}
+
+export interface TimetableDay {
+  periods: TimetablePeriod[]
+}
+
+/** The single shared, platform-wide weekly class timetable (`class_timetable/master`). */
+export interface ClassTimetable {
+  /** "HH:MM" grid display bounds — default school-day window is 10:00–18:00. */
+  windowStart: string
+  windowEnd: string
+  days: Record<Weekday, TimetableDay>
 }
 
 export interface Course {

@@ -10,6 +10,7 @@ export function normalizeRoles(data: Record<string, unknown>): Role[] {
 
 export function homePath(profile: UserProfile): string {
   if (profile.roles.includes('admin')) return '/admin'
+  if (profile.roles.includes('manager')) return '/users'
   if (profile.roles.includes('mentor')) return '/mentor'
   return '/student'
 }

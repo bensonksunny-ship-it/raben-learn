@@ -446,21 +446,44 @@ export function SyllabusPage() {
               <input placeholder="Description (optional)" value={newCourseDesc} onChange={(e) => setNewCourseDesc(e.target.value)} />
               <div className="row">
                 <button type="submit" className="btn small primary" disabled={saving}>Save</button>
-                <button type="button" className="btn small ghost" onClick={() => setAddingCourse(false)}>Cancel</button>
+                <button type="button" className="btn small secondary" onClick={() => setAddingCourse(false)}>Cancel</button>
               </div>
             </form>
           )}
-          <ul className="syllabus-list">
-            {courses.map((c, idx) => (
-              <li key={c.id} className={`syllabus-item${selectedCourseId === c.id ? ' active' : ''}`}>
-                <button type="button" className="syllabus-item-btn" onClick={() => setSelectedCourseId(c.id)}>
-                  <span className="syllabus-item-title">{idx + 1}. {c.title}</span>
-                  {c.description ? <span className="muted small syllabus-item-desc">{c.description}</span> : null}
-                </button>
-              </li>
-            ))}
-            {courses.length === 0 ? <li className="muted small" style={{ padding: '0.5rem 0' }}>No courses yet.</li> : null}
-          </ul>
+          <table className="course-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Course</th>
+              </tr>
+            </thead>
+            <tbody>
+              {courses.map((c, idx) => (
+                <tr
+                  key={c.id}
+                  className={selectedCourseId === c.id ? 'active' : ''}
+                  onClick={() => setSelectedCourseId(c.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCourseId(c.id) }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedCourseId === c.id}
+                >
+                  <td>{idx + 1}</td>
+                  <td>
+                    <div className="course-table-title">{c.title}</div>
+                    {c.description ? <div className="course-table-desc">{c.description}</div> : null}
+                  </td>
+                </tr>
+              ))}
+              {courses.length === 0 ? (
+                <tr className="course-table-empty">
+                  <td colSpan={2}>No courses yet.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
 
         {/* SESSIONS */}

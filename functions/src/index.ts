@@ -15,8 +15,9 @@ admin.initializeApp()
 const db = admin.firestore()
 const auth = admin.auth()
 
-const VALID_ROLES = ['admin', 'mentor', 'student'] as const
+const VALID_ROLES = ['admin', 'mentor', 'student', 'manager'] as const
 type Role = (typeof VALID_ROLES)[number]
+const ELEVATED_ROLES: Role[] = ['admin', 'manager']
 
 function isNonEmptyString(v: unknown, max = 500): v is string {
   return typeof v === 'string' && v.trim().length > 0 && v.length <= max
@@ -68,6 +69,44 @@ async function assertAdmin(uid: string) {
   }
   if (status !== 'active') {
     throw new HttpsError('permission-denied', `Admin only: status is "${status}" not "active"`)
+  }
+}
+
+/**
+ * Admin or manager may call the user-management callables. Manager is deliberately
+ * narrow — see `assertRolesAllowedForManager` / `assertTargetNotElevated` below, which
+ * every manager-reachable callable must also apply. Admin keeps full, unrestricted access.
+ */
+async function assertUserManagerAccess(uid: string): Promise<'admin' | 'manager'> {
+  const snap = await db.doc(`users/${uid}`).get()
+  const roles = coerceRoles(snap.data())
+  const status = snap.data()?.status
+  console.log(`[assertUserManagerAccess] uid=${uid}, exists=${snap.exists}, roles=${JSON.stringify(roles)}, status=${status}`)
+  if (!snap.exists) {
+    throw new HttpsError('permission-denied', 'Admin or manager only: user doc not found')
+  }
+  if (status !== 'active') {
+    throw new HttpsError('permission-denied', `Admin or manager only: status is "${status}" not "active"`)
+  }
+  if (roles.includes('admin')) return 'admin'
+  if (roles.includes('manager')) return 'manager'
+  throw new HttpsError('permission-denied', `Admin or manager only: missing role (has: ${roles.join(',')})`)
+}
+
+/** A manager can never grant admin/manager — only an admin can. */
+function assertRolesAllowedForManager(actorRole: 'admin' | 'manager', roles: Role[]) {
+  if (actorRole === 'manager' && roles.some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Managers cannot grant the admin or manager role')
+  }
+}
+
+/** A manager can never act on an existing admin/manager account — only an admin can. */
+async function assertTargetNotElevated(actorRole: 'admin' | 'manager', targetUid: string) {
+  if (actorRole !== 'manager') return
+  const snap = await db.doc(`users/${targetUid}`).get()
+  const roles = coerceRoles(snap.data())
+  if (roles.some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Managers cannot modify admin or manager accounts')
   }
 }
 
@@ -151,7 +190,7 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required')
   }
-  await assertAdmin(request.auth.uid)
+  const actorRole = await assertUserManagerAccess(request.auth.uid)
 
   const data = request.data as {
     name?: unknown
@@ -172,6 +211,7 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
   validateEmail(data.email.trim())
 
   const roles = validateRoles(data.roles)
+  assertRolesAllowedForManager(actorRole, roles)
   const centreIds = Array.isArray(data.centreIds)
     ? data.centreIds.filter((c): c is string => typeof c === 'string' && c.length > 0 && c.length < 200)
     : []
@@ -265,7 +305,7 @@ export const adminUpdateUser = onCall(callableOpts, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required')
   }
-  await assertAdmin(request.auth.uid)
+  const actorRole = await assertUserManagerAccess(request.auth.uid)
 
   const payload = request.data as {
     uid?: unknown
@@ -290,6 +330,12 @@ export const adminUpdateUser = onCall(callableOpts, async (request) => {
   }
 
   const prevRoles = coerceRoles(userSnap.data())
+  if (actorRole === 'manager' && prevRoles.some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Managers cannot modify admin or manager accounts')
+  }
+  if (payload.roles !== undefined) {
+    assertRolesAllowedForManager(actorRole, validateRoles(payload.roles))
+  }
 
   if (payload.email !== undefined) {
     if (!isNonEmptyString(payload.email, 320)) {
@@ -395,15 +441,17 @@ export const adminDisableUser = onCall(callableOpts, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required')
   }
-  await assertAdmin(request.auth.uid)
+  const actorRole = await assertUserManagerAccess(request.auth.uid)
 
   const { uid, disabled } = request.data as { uid?: unknown; disabled?: unknown }
   if (!isNonEmptyString(uid, 128) || typeof disabled !== 'boolean') {
     throw new HttpsError('invalid-argument', 'Invalid payload')
   }
+  const targetUid = uid.trim()
+  await assertTargetNotElevated(actorRole, targetUid)
 
-  await auth.updateUser(uid.trim(), { disabled })
-  await db.doc(`users/${uid.trim()}`).set({ status: disabled ? 'disabled' : 'active' }, { merge: true })
+  await auth.updateUser(targetUid, { disabled })
+  await db.doc(`users/${targetUid}`).set({ status: disabled ? 'disabled' : 'active' }, { merge: true })
 
   return { ok: true }
 })
@@ -449,7 +497,7 @@ export const adminResetPassword = onCall(callableOpts, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required')
   }
-  await assertAdmin(request.auth.uid)
+  const actorRole = await assertUserManagerAccess(request.auth.uid)
 
   const raw = request.data as { uid?: unknown }
   if (!isNonEmptyString(raw.uid, 128)) {
@@ -460,6 +508,9 @@ export const adminResetPassword = onCall(callableOpts, async (request) => {
   const userSnap = await db.doc(`users/${uid}`).get()
   if (!userSnap.exists) {
     throw new HttpsError('not-found', 'User not found')
+  }
+  if (actorRole === 'manager' && coerceRoles(userSnap.data()).some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Managers cannot reset an admin or manager account\'s password')
   }
 
   const password = randomNumericPassword()

@@ -34,7 +34,8 @@
       "Bash(nohup npm run dev)",
       "Bash(disown)",
       "Read(//tmp/**)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/)",
+      "Bash(firebase projects:list)"
     ]
   }
 }

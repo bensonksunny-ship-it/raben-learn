@@ -18,6 +18,7 @@ export function mapUserDoc(docSnap: QueryDocumentSnapshot<DocumentData>): UserPr
 
 export function avatarClass(roles: string[]): string {
   if (roles.includes('admin')) return 'user-avatar is-admin'
+  if (roles.includes('manager')) return 'user-avatar is-manager'
   if (roles.includes('mentor')) return 'user-avatar is-mentor'
   return 'user-avatar is-student'
 }

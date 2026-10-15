@@ -104,17 +104,18 @@ export function StudentDashboard() {
           {/* Stat cards */}
           <div className="dash-stat-grid" style={{ marginBottom: '1.75rem' }}>
             {([
-              { icon: '📚', value: courses.length, label: 'Courses', sub: 'enrolled', color: 'var(--primary)' },
-              { icon: '✅', value: `${todayDone}/${todayTotal}`, label: "Today's Plan", sub: todayTotal === 0 ? 'no plan yet' : `${todayTotal - todayDone} remaining`, color: '#059669' },
-              { icon: '📈', value: `${overallPct}%`, label: 'Overall Progress', sub: `${totalDone} completed`, color: '#7c3aed' },
-              { icon: '⏳', value: totalReview, label: 'Under Review', sub: 'pending mentor', color: totalReview > 0 ? '#d97706' : 'var(--muted-2)' },
+              { icon: '📚', value: courses.length, label: 'Courses', sub: 'enrolled', color: 'var(--primary)', to: '/student/courses' },
+              { icon: '✅', value: `${todayDone}/${todayTotal}`, label: "Today's Plan", sub: todayTotal === 0 ? 'no plan yet' : `${todayTotal - todayDone} remaining`, color: '#059669', to: '/student/planner' },
+              { icon: '📈', value: `${overallPct}%`, label: 'Overall Progress', sub: `${totalDone} completed`, color: '#7c3aed', to: '/student/history' },
+              { icon: '⏳', value: totalReview, label: 'Under Review', sub: 'pending mentor', color: totalReview > 0 ? '#d97706' : 'var(--muted-2)', to: '/student/history' },
             ] as const).map((s) => (
-              <div key={s.label} className="panel dash-stat-card">
+              <Link key={s.label} to={s.to} className="panel dash-stat-card">
                 <span className="dash-stat-icon">{s.icon}</span>
                 <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
                 <span className="dash-stat-label">{s.label}</span>
                 <span className="muted small">{s.sub}</span>
-              </div>
+                <span className="dash-stat-arrow" aria-hidden>→</span>
+              </Link>
             ))}
           </div>
 

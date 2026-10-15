@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
@@ -76,17 +77,18 @@ export default function AdminDashboard() {
       {stats && (
         <div className="dash-stat-grid">
           {([
-            { icon: '🎓', value: stats.students, label: 'Students', sub: `${stats.activeStudents} active`, color: 'var(--primary)' },
-            { icon: '👨‍🏫', value: stats.mentors, label: 'Mentors', sub: 'teaching staff', color: '#d97706' },
-            { icon: '📚', value: stats.courses, label: 'Courses', sub: 'available', color: '#7c3aed' },
-            { icon: '📄', value: stats.sessions, label: 'Sessions', sub: 'total lessons', color: '#059669' },
+            { icon: '🎓', value: stats.students, label: 'Students', sub: `${stats.activeStudents} active`, color: 'var(--primary)', to: '/admin/students' },
+            { icon: '👨‍🏫', value: stats.mentors, label: 'Mentors', sub: 'teaching staff', color: '#d97706', to: '/admin/users' },
+            { icon: '📚', value: stats.courses, label: 'Courses', sub: 'available', color: '#7c3aed', to: '/admin/syllabus' },
+            { icon: '📄', value: stats.sessions, label: 'Sessions', sub: 'total lessons', color: '#059669', to: '/admin/syllabus' },
           ] as const).map((s) => (
-            <div key={s.label} className="panel dash-stat-card">
+            <Link key={s.label} to={s.to} className="panel dash-stat-card">
               <span className="dash-stat-icon">{s.icon}</span>
               <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
               <span className="dash-stat-label">{s.label}</span>
               <span className="muted small">{s.sub}</span>
-            </div>
+              <span className="dash-stat-arrow" aria-hidden>→</span>
+            </Link>
           ))}
         </div>
       )}

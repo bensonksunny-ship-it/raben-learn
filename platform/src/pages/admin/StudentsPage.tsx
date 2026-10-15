@@ -11,6 +11,10 @@ import type { Course, Session, UserProfile } from '../../types'
 export function StudentsPage() {
   const { profile } = useAuth()
   const isAdmin = Boolean(profile?.roles.includes('admin'))
+  const isManager = Boolean(profile?.roles.includes('manager'))
+  // Create / edit courses / disable — same as admin. Delete stays admin-only (not part
+  // of the approved manager scope), so it's gated separately below with `isAdmin`.
+  const canManage = isAdmin || isManager
 
   const [students, setStudents] = useState<UserProfile[]>([])
   const [courses, setCourses] = useState<Course[]>([])
@@ -37,12 +41,18 @@ export function StudentsPage() {
   async function load() {
     setLoading(true)
     try {
+      // Unfiltered fetch + filter by the normalized role below — a Firestore `array-contains`
+      // query only matches when `roles` is literally an array, so it silently drops any legacy
+      // doc that stores a single string role instead (see StudentDiaryPage for the same fix).
       const [usersSnap, coursesSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('roles', 'array-contains', 'student'))),
+        getDocs(collection(db, 'users')),
         getDocs(query(collection(db, 'courses'), orderBy('title'))),
       ])
       const list: UserProfile[] = []
-      usersSnap.forEach((d) => list.push(mapUserDoc(d)))
+      usersSnap.forEach((d) => {
+        const profile = mapUserDoc(d)
+        if (profile.roles.includes('student')) list.push(profile)
+      })
       list.sort((a, b) => a.name.localeCompare(b.name))
       setStudents(list)
 
@@ -110,7 +120,7 @@ export function StudentsPage() {
 
   async function onCreate(e: FormEvent) {
     e.preventDefault()
-    if (!isAdmin) return
+    if (!canManage) return
     setError(''); setCreatedPw('')
     const pw = tempPassword.trim()
     if (pw.length > 0 && pw.length < 8) {
@@ -136,7 +146,7 @@ export function StudentsPage() {
   }
 
   async function toggleDisable(u: UserProfile) {
-    if (!isAdmin) return
+    if (!canManage) return
     const disabling = u.status === 'active'
     if (!window.confirm(disabling ? 'Disable this student?' : 'Re-enable this student?')) return
     setError('')
@@ -156,7 +166,7 @@ export function StudentsPage() {
   }
 
   async function saveCourses(u: UserProfile, nextCourseIds: string[]) {
-    if (!isAdmin) return
+    if (!canManage) return
     setError(''); setSaving(true)
     try {
       await callUpdateUser({ uid: u.id, courseIds: nextCourseIds, courseId: nextCourseIds[0] ?? null, centreIds: [], centreId: null })
@@ -183,7 +193,7 @@ export function StudentsPage() {
             <span className="muted small">Create and manage student accounts</span>
           </div>
         </div>
-        {isAdmin && (
+        {canManage && (
           <button className="btn primary" onClick={() => { setShowCreate((v) => !v); setError('') }}>
             {showCreate ? '✕ Cancel' : '+ New Student'}
           </button>
@@ -193,14 +203,14 @@ export function StudentsPage() {
       {error ? <p className="error" style={{ marginBottom: '1rem' }}>{error}</p> : null}
       {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Temporary password (copy now):</strong> {createdPw}</div> : null}
 
-      {!isAdmin && profile ? (
+      {!canManage && profile ? (
         <p className="notice" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e', marginBottom: '1rem' }}>
-          Signed in as <strong>{profile.roles.join(', ')}</strong>. Only <strong>admin</strong> accounts can create students.
+          Signed in as <strong>{profile.roles.join(', ')}</strong>. Only <strong>admin</strong> and <strong>manager</strong> accounts can create students.
         </p>
       ) : null}
 
       {/* Create student form */}
-      {isAdmin && showCreate && (
+      {canManage && showCreate && (
         <section className="panel" style={{ marginBottom: '1.5rem' }}>
           <h2 style={{ marginBottom: '1rem' }}>Add Student</h2>
           <form className="form grid" onSubmit={onCreate}>
@@ -272,7 +282,7 @@ export function StudentsPage() {
                 <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
                   {s.status}
                 </span>
-                {isAdmin && (
+                {canManage && (
                   <div className="topic-menu-wrap" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
@@ -290,13 +300,16 @@ export function StudentsPage() {
                         >
                           {s.status === 'active' ? 'Disable' : 'Enable'}
                         </button>
-                        <button
-                          type="button"
-                          className="topic-menu-item danger"
-                          onClick={() => { setOpenMenuId(null); void deleteStudent(s) }}
-                        >
-                          Delete
-                        </button>
+                        {/* Permanent delete stays admin-only — not part of the manager scope. */}
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="topic-menu-item danger"
+                            onClick={() => { setOpenMenuId(null); void deleteStudent(s) }}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -369,7 +382,7 @@ export function StudentsPage() {
             )
           }
 
-          {isAdmin && (() => {
+          {canManage && (() => {
             const unassigned = courses.filter((c) => !(selectedStudent.courseIds ?? []).includes(c.id))
             return (
               <div className="row" style={{ marginBottom: '1.25rem' }}>

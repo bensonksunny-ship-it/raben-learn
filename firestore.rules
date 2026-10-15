@@ -6,11 +6,22 @@ service cloud.firestore {
     function hasRole(role) { return isSignedIn() && role in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles; }
     function isAdminOrMentor() { return hasRole('admin') || hasRole('mentor'); }
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    function targetIsElevated(uid) {
+      let roles = get(/databases/$(database)/documents/users/$(uid)).data.roles;
+      return ('admin' in roles) || ('manager' in roles);
+    }
 
     match /users/{uid} {
       allow read: if isSignedIn();
       allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstLogin', 'name']);
       allow create, update, delete: if hasRole('admin');
+      // Manager: may edit a non-elevated user's course assignment directly from the client
+      // (StudentsPage's one direct Firestore write), but never roles/status, and never an
+      // admin/manager account. Everything else for a manager goes through the Cloud Functions,
+      // which run on the Admin SDK and aren't subject to these rules at all.
+      allow update: if hasRole('manager')
+        && !targetIsElevated(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['courseIds', 'courseId']);
     }
 
     match /courses/{id} {
@@ -42,6 +53,17 @@ service cloud.firestore {
 
     match /planning_levels/{id} {
       allow read, write: if hasRole('admin');
+    }
+
+    match /planning_subjects/{id} {
+      allow read, write: if hasRole('admin');
+    }
+
+    // Shared, platform-wide weekly class timetable — manager-authored, readable by
+    // everyone signed in so a later pass can surface it to students/mentors.
+    match /class_timetable/{id} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager');
     }
 
     // Legacy collections for Cloud Functions

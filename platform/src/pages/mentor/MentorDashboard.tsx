@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, getDocs, query, where } from 'firebase/firestore'
+import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { normalizeRoles } from '../../lib/roles'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
@@ -19,8 +19,11 @@ export function MentorDashboard() {
 
   async function load() {
     try {
+      // Unfiltered fetch + client-side `normalizeRoles()` below — a Firestore `array-contains`
+      // query only matches when `roles` is literally an array, so it silently drops any legacy
+      // doc that stores a single string role instead (see StudentDiaryPage for the same fix).
       const [usersSnap, coursesSnap, sessionsSnap, progSnap] = await Promise.all([
-        getDocs(query(collection(db, 'users'), where('roles', 'array-contains', 'student'))),
+        getDocs(collection(db, 'users')),
         getDocs(collection(db, 'courses')),
         getDocs(collection(db, 'sessions')),
         getDocs(collection(db, 'student_lesson_progress')),

@@ -7,12 +7,24 @@ import { db } from '../../firebase/config'
 import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import { mapUserDoc, avatarClass } from '../../lib/userUtils'
+import { useAuth } from '../../context/AuthContext'
 import type { Course, Role, UserProfile } from '../../types'
 
 const PAGE_SIZE = 20
-const ROLE_OPTIONS: Role[] = ['admin', 'mentor', 'student']
+const ELEVATED_ROLES: Role[] = ['admin', 'manager']
+
+/** A manager can't see, target, or grant admin/manager accounts — only admin can. */
+function isElevated(roles: Role[]): boolean {
+  return roles.some((r) => ELEVATED_ROLES.includes(r))
+}
 
 export function UserManagement() {
+  const { profile } = useAuth()
+  const isAdminActor = Boolean(profile?.roles.includes('admin'))
+  // A manager who is *also* admin keeps full admin power — only restrict a manager-only actor.
+  const isManagerOnly = !isAdminActor && Boolean(profile?.roles.includes('manager'))
+  const roleOptions: Role[] = isManagerOnly ? ['mentor', 'student'] : ['admin', 'mentor', 'student', 'manager']
+
   const [users, setUsers] = useState<UserProfile[]>([])
   const [courses, setCourses] = useState<Course[]>([])
   const [loading, setLoading] = useState(true)
@@ -74,8 +86,10 @@ export function UserManagement() {
 
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return users.filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-  }, [users, search])
+    return users
+      .filter((u) => !isManagerOnly || !isElevated(u.roles))
+      .filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+  }, [users, search, isManagerOnly])
 
   function toggleRole(roles: Role[], r: Role, setter: (v: Role[]) => void) {
     setter(roles.includes(r) ? roles.filter((x) => x !== r) : [...roles, r])
@@ -108,6 +122,9 @@ export function UserManagement() {
   }
 
   function startEdit(u: UserProfile) {
+    // Defense in depth — `displayed` already hides admin/manager rows from a
+    // manager-only actor, so this only matters if local state went stale.
+    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can edit this account.'); return }
     setEditId(u.id); setEditName(u.name); setEditEmail(u.email)
     setEditRoles(u.roles.length ? [...u.roles] : ['student'])
     setEditCourseIds(u.courseIds ?? [])
@@ -127,6 +144,7 @@ export function UserManagement() {
   }
 
   async function toggleDisable(u: UserProfile) {
+    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can disable this account.'); return }
     const disabling = u.status === 'active'
     if (!window.confirm(disabling ? 'Disable this user?' : 'Re-enable this user?')) return
     try { await callDisableUser(u.id, disabling); await fetchPage(null, 0) }
@@ -134,6 +152,7 @@ export function UserManagement() {
   }
 
   async function resetPassword(u: UserProfile) {
+    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can reset this account\'s password.'); return }
     if (!window.confirm(`Reset password for ${u.email}?`)) return
     setCreatedPw('')
     try { const res = await callResetPassword(u.id); setCreatedPw(res.temporaryPassword) }
@@ -198,7 +217,7 @@ export function UserManagement() {
             <div className="full">
               <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Roles</div>
               <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                {ROLE_OPTIONS.map((r) => (
+                {roleOptions.map((r) => (
                   <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.9rem' }}>
                     <input type="checkbox" checked={createRoles.includes(r)} onChange={() => toggleRole(createRoles, r, setCreateRoles)} />
                     {r.charAt(0).toUpperCase() + r.slice(1)}
@@ -230,7 +249,8 @@ export function UserManagement() {
         />
         <select value={roleFilter} onChange={(e) => setRoleFilter((e.target.value || '') as Role | '')}>
           <option value="">All roles</option>
-          <option value="admin">Admin</option>
+          {!isManagerOnly && <option value="admin">Admin</option>}
+          {!isManagerOnly && <option value="manager">Manager</option>}
           <option value="mentor">Mentor</option>
           <option value="student">Student</option>
         </select>
@@ -292,7 +312,7 @@ export function UserManagement() {
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Roles</div>
                 <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                  {ROLE_OPTIONS.map((r) => (
+                  {roleOptions.map((r) => (
                     <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.9rem' }}>
                       <input type="checkbox" checked={editRoles.includes(r)} onChange={() => toggleRole(editRoles, r, setEditRoles)} />
                       {r.charAt(0).toUpperCase() + r.slice(1)}

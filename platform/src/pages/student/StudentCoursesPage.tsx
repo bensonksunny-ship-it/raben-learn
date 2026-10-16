@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import { mapCourseDoc } from '../../lib/courses'
 import type { Course, ProgressEntry } from '../../types'
 
 export function StudentCoursesPage() {
@@ -24,9 +25,8 @@ export function StudentCoursesPage() {
 
       const courseList: Course[] = []
       coursesSnap.forEach((d) => {
-        const x = d.data()
         if (courseIds.length === 0 || courseIds.includes(d.id))
-          courseList.push({ id: d.id, title: (x.title as string) ?? '', description: (x.description as string) ?? '' })
+          courseList.push(mapCourseDoc(d))
       })
       courseList.sort((a, b) => a.title.localeCompare(b.title))
       setCourses(courseList)

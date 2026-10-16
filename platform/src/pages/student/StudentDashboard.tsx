@@ -1,14 +1,75 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
-import type { Course, DailyPlan, ProgressEntry } from '../../types'
-import { DashboardImageCard } from '../../components/DashboardImageCard'
+import { mapCourseDoc } from '../../lib/courses'
+import type { ClassTimetable, Course, ElectiveSchedule, ProgressEntry, Weekday } from '../../types'
+import { OwlMascot } from '../../components/manager/OwlMascot'
+import { NavCard } from '../../components/manager/NavCard'
+import { CoursesIcon, ScheduleIcon, SessionsIcon } from '../../components/manager/StatIcons'
+import {
+  timeStrToMinutes, todayStr,
+  createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
+} from '../../components/manager/schedulerShared'
+// Statically imported, not lazy — App.tsx already bundles both eagerly for their
+// own /student/courses and /student/planner routes, so a lazy() wrapper here would
+// just be dead weight (same JS, no later chunk fetch to defer).
+import { StudentCoursesPage } from './StudentCoursesPage'
+import { StudentDailyPlanner } from './StudentDailyPlanner'
 
-function todayStr() { return new Date().toISOString().slice(0, 10) }
+// This one genuinely isn't loaded anywhere else yet, so lazy-loading it here keeps
+// its (PriorityScheduler-pulling) chunk out of the main bundle until opened.
+const StudentTimetableView = lazy(() => import('./StudentTimetableView').then((m) => ({ default: m.StudentTimetableView })))
+
+type StudentView = 'timetable' | 'courses' | 'planner'
+
+function isStudentView(v: string | null): v is StudentView {
+  return v === 'timetable' || v === 'courses' || v === 'planner'
+}
+
 function formatDate(d: Date) {
   return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+}
+
+/** 12-hour clock label for an "HH:MM" string, e.g. "14:30" → "2:30 PM". */
+function formatClock(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  if (h == null || m == null) return hhmm
+  const period = h < 12 ? 'AM' : 'PM'
+  const display = h % 12 === 0 ? 12 : h % 12
+  return m === 0 ? `${display} ${period}` : `${display}:${String(m).padStart(2, '0')} ${period}`
+}
+
+const JS_DAY_TO_WEEKDAY: (Weekday | null)[] = [null, 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+interface NextClassInfo { title: string; startTime: string; mentorName: string | null; status: 'now' | 'next' }
+
+/** The next class today — a locked period or an elective, whichever starts soonest
+ *  from now (or is already running). Locked periods have no mentor field, so
+ *  `mentorName` is only ever populated for an elective. */
+function computeNextClass(timetable: ClassTimetable, electives: ElectiveSchedule): NextClassInfo | null {
+  const now = new Date()
+  const weekday = JS_DAY_TO_WEEKDAY[now.getDay()]
+  if (!weekday) return null
+  const nowMin = now.getHours() * 60 + now.getMinutes()
+
+  const items = [
+    ...(timetable.days[weekday]?.periods ?? []).map((p) => ({
+      title: p.title, startTime: p.startTime, mentorName: null as string | null,
+      startMin: timeStrToMinutes(p.startTime) ?? 0, durationMinutes: p.durationMinutes,
+    })),
+    ...(electives.days[weekday]?.sessions ?? []).map((s) => ({
+      title: s.title, startTime: s.startTime, mentorName: s.mentorName ?? null,
+      startMin: timeStrToMinutes(s.startTime) ?? 0, durationMinutes: s.durationMinutes,
+    })),
+  ].sort((a, b) => a.startMin - b.startMin)
+
+  const inProgress = items.find((i) => i.startMin <= nowMin && nowMin < i.startMin + i.durationMinutes)
+  if (inProgress) return { title: inProgress.title, startTime: inProgress.startTime, mentorName: inProgress.mentorName, status: 'now' }
+  const upcoming = items.find((i) => i.startMin >= nowMin)
+  if (upcoming) return { title: upcoming.title, startTime: upcoming.startTime, mentorName: upcoming.mentorName, status: 'next' }
+  return null
 }
 
 export function StudentDashboard() {
@@ -16,8 +77,17 @@ export function StudentDashboard() {
   const uid = firebaseUser?.uid
   const [courses, setCourses] = useState<Course[]>([])
   const [progress, setProgress] = useState<Record<string, { total: number; done: number; review: number }>>({})
-  const [plan, setPlan] = useState<DailyPlan | null>(null)
+  const [plan, setPlan] = useState<{ items: { id: string; done: boolean; activityTitle: string }[] } | null>(null)
   const [loading, setLoading] = useState(true)
+
+  const [nextClass, setNextClass] = useState<NextClassInfo | null>(null)
+  const [loadingSchedule, setLoadingSchedule] = useState(true)
+
+  const [searchParams] = useSearchParams()
+  const navigate = useNavigate()
+  const rawView = searchParams.get('view')
+  const view = isStudentView(rawView) ? rawView : null
+  function closeView() { navigate('/student') }
 
   const load = useCallback(async () => {
     if (!uid || !profile) return
@@ -32,9 +102,8 @@ export function StudentDashboard() {
 
       const courseList: Course[] = []
       coursesSnap.forEach((d) => {
-        const x = d.data()
         if (courseIds.length === 0 || courseIds.includes(d.id))
-          courseList.push({ id: d.id, title: (x.title as string) ?? '', description: (x.description as string) ?? '' })
+          courseList.push(mapCourseDoc(d))
       })
       courseList.sort((a, b) => a.title.localeCompare(b.title))
       setCourses(courseList)
@@ -68,7 +137,7 @@ export function StudentDashboard() {
 
       if (planSnap.exists()) {
         const d = planSnap.data()
-        setPlan({ id: planSnap.id, studentId: d.studentId as string, date: d.date as string, items: (d.items as DailyPlan['items']) ?? [] })
+        setPlan({ items: (d.items as { id: string; done: boolean; activityTitle: string }[]) ?? [] })
       }
     } catch (e) {
       console.error('StudentDashboard load failed', e)
@@ -76,6 +145,25 @@ export function StudentDashboard() {
   }, [uid, profile])
 
   useEffect(() => { if (uid && profile) void load() }, [uid, profile, load])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [timetableSnap, electivesSnap] = await Promise.all([
+          getDoc(doc(db, 'class_timetable', 'master')),
+          getDoc(doc(db, 'elective_sessions', 'master')),
+        ])
+        const timetable = normalizeTimetable(timetableSnap.exists() ? timetableSnap.data() : undefined)
+        const electives = normalizeElectives(electivesSnap.exists() ? electivesSnap.data() : undefined)
+        setNextClass(computeNextClass(timetable, electives))
+      } catch (e) {
+        console.error('StudentDashboard schedule load failed', e)
+        setNextClass(computeNextClass(createDefaultTimetable(), createDefaultElectives()))
+      } finally {
+        setLoadingSchedule(false)
+      }
+    })()
+  }, [])
 
   const todayDone = plan?.items.filter((i) => i.done).length ?? 0
   const todayTotal = plan?.items.length ?? 0
@@ -85,18 +173,63 @@ export function StudentDashboard() {
   const totalReview = Object.values(progress).reduce((s, p) => s + p.review, 0)
 
   const firstName = profile?.name?.split(' ')[0] ?? 'there'
-  const hour = new Date().getHours()
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.75rem' }}>
-        <div>
-          <h1 style={{ marginBottom: '0.2rem' }}>{greeting}, {firstName}!</h1>
-          <p className="muted" style={{ margin: 0 }}>Here's your learning overview</p>
+      {/* Hero */}
+      <div className="panel" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', borderRadius: 'calc(var(--radius) + 10px)' }}>
+        <OwlMascot size={108} />
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <h1 style={{ marginBottom: '0.2rem' }}>Welcome back, {firstName}! 🌟</h1>
+          <p className="muted" style={{ margin: 0 }}>{formatDate(new Date())} · Here's your learning overview</p>
         </div>
-        <span className="page-stat">{formatDate(new Date())}</span>
+      </div>
+
+      {/* Today's schedule — next class summary */}
+      <div className="panel" style={{ marginBottom: '1.75rem', borderRadius: 'calc(var(--radius) + 10px)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
+          <span aria-hidden style={{ fontSize: '1.2rem' }}>🗓️</span>
+          <h2 style={{ margin: 0, fontSize: '1rem' }}>Today's Schedule</h2>
+        </div>
+        {loadingSchedule ? (
+          <p className="muted small" style={{ margin: 0 }}>Loading…</p>
+        ) : !nextClass ? (
+          <p className="muted small" style={{ margin: 0 }}>No more classes scheduled for today.</p>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ background: nextClass.status === 'now' ? '#d0ebff' : 'var(--primary-soft)', color: nextClass.status === 'now' ? '#1971c2' : 'var(--primary)', borderRadius: 99, padding: '0.2rem 0.65rem', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              {nextClass.status === 'now' ? 'Happening now' : 'Next class'}
+            </span>
+            <strong style={{ fontSize: '0.98rem' }}>{nextClass.title}</strong>
+            <span className="muted small">at {formatClock(nextClass.startTime)}</span>
+            {nextClass.mentorName && <span className="muted small">· with {nextClass.mentorName}</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Student Action Grid */}
+      <div className="nav-card-grid student-action-grid" style={{ marginBottom: '1.75rem' }}>
+        <NavCard
+          icon={<ScheduleIcon color="#ffffff" />}
+          title="Today's Classes & Timetable"
+          subtitle="Full-screen daily schedule, 10 AM – 6 PM"
+          color="#8b5cf6"
+          to="/student?view=timetable"
+        />
+        <NavCard
+          icon={<CoursesIcon color="#ffffff" />}
+          title="My Subjects & Syllabus"
+          subtitle="Courses, progress, and upcoming lessons"
+          color="#3b82f6"
+          to="/student?view=courses"
+        />
+        <NavCard
+          icon={<SessionsIcon color="#ffffff" />}
+          title="Student Diary / Notes"
+          subtitle="Daily reflections and planned tasks"
+          color="#059669"
+          to="/student?view=planner"
+        />
       </div>
 
       {loading ? <p className="muted">Loading…</p> : (
@@ -223,7 +356,42 @@ export function StudentDashboard() {
         </>
       )}
 
-      <DashboardImageCard />
+      {/* Action-grid popups — same `?view=` overlay pattern as ManagerDashboard. */}
+      {view && (() => {
+        const isFullscreen = view === 'timetable'
+        return (
+          <div
+            className={`modal-backdrop${isFullscreen ? ' modal-backdrop-fullscreen' : ''}`}
+            onClick={closeView}
+          >
+            <div
+              className={`modal manager-view-modal${isFullscreen ? ' manager-view-modal-fullscreen' : ''}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                aria-label="Close"
+                className={`btn small ghost manager-view-close${isFullscreen ? ' manager-view-close-fullscreen' : ''}`}
+                onClick={closeView}
+              >
+                {isFullscreen ? '✕' : '✕ Close'}
+              </button>
+              {isFullscreen ? (
+                <div className="manager-view-fullscreen-body">
+                  <Suspense fallback={<p className="muted">Loading…</p>}>
+                    <StudentTimetableView />
+                  </Suspense>
+                </div>
+              ) : (
+                <>
+                  {view === 'courses' && <StudentCoursesPage />}
+                  {view === 'planner' && <StudentDailyPlanner />}
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })()}
     </div>
   )
 }

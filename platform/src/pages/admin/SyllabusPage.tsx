@@ -5,6 +5,7 @@ import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, up
 import { db } from '../../firebase/config'
 import { normalizeTopicType, type Course, type Session, type Topic, type TopicType } from '../../types'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { mapCourseDoc } from '../../lib/courses'
 import ExamManager from './ExamManager'
 import { useAuth } from '../../context/AuthContext'
 
@@ -66,10 +67,7 @@ export function SyllabusPage() {
   async function loadCourses() {
     const snap = await getDocs(collection(db, 'courses'))
     const list: Course[] = []
-    snap.forEach((d) => {
-      const x = d.data()
-      list.push({ id: d.id, title: (x.title as string) ?? '', description: (x.description as string) ?? '' })
-    })
+    snap.forEach((d) => list.push(mapCourseDoc(d)))
     list.sort((a, b) => a.title.localeCompare(b.title))
     setCourses(list)
   }
@@ -420,7 +418,7 @@ export function SyllabusPage() {
 
   return (
     <div>
-      <h1>Syllabus Builder</h1>
+      <h1>📚 Syllabus Builder</h1>
       <p className="muted">Design your curriculum: Courses → Sessions → Activities.</p>
       <p className="notice" style={{ marginBottom: '0.75rem' }}>
         The <strong>ROL-style syllabus</strong> (modules list + item detail with attempts &amp; notes) is on the{' '}
@@ -435,10 +433,10 @@ export function SyllabusPage() {
 
       <div className="syllabus-columns">
         {/* COURSES */}
-        <div className="syllabus-col">
+        <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
           <div className="syllabus-col-header">
-            <h2>📘 Courses</h2>
-            <button type="button" className="btn small primary" onClick={() => setAddingCourse((v) => !v)}>+ Course</button>
+            <h2>📖 Courses</h2>
+            <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>➕ Add Course</button>
           </div>
           {addingCourse && (
             <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
@@ -450,40 +448,24 @@ export function SyllabusPage() {
               </div>
             </form>
           )}
-          <table className="course-table">
-            <thead>
-              <tr>
-                <th>#</th>
-                <th>Course</th>
-              </tr>
-            </thead>
-            <tbody>
-              {courses.map((c, idx) => (
-                <tr
-                  key={c.id}
-                  className={selectedCourseId === c.id ? 'active' : ''}
-                  onClick={() => setSelectedCourseId(c.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCourseId(c.id) }
-                  }}
-                  role="button"
-                  tabIndex={0}
-                  aria-pressed={selectedCourseId === c.id}
-                >
-                  <td>{idx + 1}</td>
-                  <td>
-                    <div className="course-table-title">{c.title}</div>
-                    {c.description ? <div className="course-table-desc">{c.description}</div> : null}
-                  </td>
-                </tr>
-              ))}
-              {courses.length === 0 ? (
-                <tr className="course-table-empty">
-                  <td colSpan={2}>No courses yet.</td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
+          <div className="course-card-list">
+            {courses.map((c, idx) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`course-row-card${selectedCourseId === c.id ? ' active' : ''}`}
+                onClick={() => setSelectedCourseId(c.id)}
+                aria-pressed={selectedCourseId === c.id}
+              >
+                <span className="course-row-index">{idx + 1}</span>
+                <span className="course-row-body">
+                  <span className="course-row-title">{c.title}</span>
+                  {c.description ? <span className="course-row-tag">{c.description}</span> : null}
+                </span>
+              </button>
+            ))}
+            {courses.length === 0 ? <p className="muted small course-row-empty">No courses yet.</p> : null}
+          </div>
         </div>
 
         {/* SESSIONS */}
@@ -505,7 +487,7 @@ export function SyllabusPage() {
                   <input ref={xlsxInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
                     onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImportCourse(f) }} />
                 </label>
-                <button type="button" className="btn small primary" onClick={openNewSessionForm}>+ Session</button>
+                <button type="button" className="btn small primary" onClick={openNewSessionForm}>➕ Add Session</button>
               </div>
             </div>
             <p className="muted small syllabus-breadcrumb">in {selectedCourse?.title}</p>

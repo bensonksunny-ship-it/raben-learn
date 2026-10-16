@@ -4,6 +4,7 @@ import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { Course, ProgressEntry } from '../../types'
 import { normalizeRoles } from '../../lib/roles'
+import { mapCourseDoc } from '../../lib/courses'
 
 function formatTime(ms: number) {
   const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
@@ -36,7 +37,7 @@ export function ReportsPage() {
       ])
 
       const courseList: Course[] = []
-      coursesSnap.forEach((d) => { const x = d.data(); courseList.push({ id: d.id, title: (x.title as string) ?? '' }) })
+      coursesSnap.forEach((d) => courseList.push(mapCourseDoc(d)))
       courseList.sort((a, b) => a.title.localeCompare(b.title))
       setCourses(courseList)
 

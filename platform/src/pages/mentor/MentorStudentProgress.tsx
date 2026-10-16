@@ -4,6 +4,7 @@ import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, setDo
 import { db } from '../../firebase/config'
 import { stripUndefinedDeep } from '../../lib/firestoreSanitize'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { mapCourseDoc } from '../../lib/courses'
 import type { Course, DailyPlan, DailyPlanItem, ItemStatus, LessonItemType, ProgressEntry, Session } from '../../types'
 
 const MAX_ATTEMPTS = 5
@@ -51,7 +52,7 @@ export function MentorStudentProgress() {
         getDocs(query(collection(db, 'student_lesson_progress'), where('studentId', '==', studentId))),
       ])
       const courseList: Course[] = []
-      coursesSnap.forEach((d) => { const x = d.data(); courseList.push({ id: d.id, title: (x.title as string) ?? '', description: (x.description as string) ?? '' }) })
+      coursesSnap.forEach((d) => courseList.push(mapCourseDoc(d)))
       courseList.sort((a, b) => a.title.localeCompare(b.title))
       setCourses(courseList)
 

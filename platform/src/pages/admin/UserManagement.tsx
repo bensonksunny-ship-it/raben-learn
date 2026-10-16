@@ -1,14 +1,16 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   collection, getDocs, limit, orderBy, query, startAfter, where,
   type QueryConstraint, type QueryDocumentSnapshot, type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { callCreateUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
+import { callCreateUser, callDeleteUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import { mapUserDoc, avatarClass } from '../../lib/userUtils'
+import { mapCourseDoc } from '../../lib/courses'
 import { useAuth } from '../../context/AuthContext'
 import type { Course, Role, UserProfile } from '../../types'
+import { EmptyState } from '../../components/EmptyState'
 
 const PAGE_SIZE = 20
 const ELEVATED_ROLES: Role[] = ['admin', 'manager']
@@ -53,10 +55,24 @@ export function UserManagement() {
   const [editCourseIds, setEditCourseIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const openMenuRef = useRef<HTMLDivElement | null>(null)
+
+  // Close the "⋮" menu on an outside click — see the matching effect in StudentsPage.tsx
+  // for why this is a document listener rather than a full-screen overlay div.
+  useEffect(() => {
+    if (!openMenuId) return
+    function onDocPointerDown(e: MouseEvent) {
+      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) setOpenMenuId(null)
+    }
+    document.addEventListener('mousedown', onDocPointerDown)
+    return () => document.removeEventListener('mousedown', onDocPointerDown)
+  }, [openMenuId])
+
   useEffect(() => {
     void getDocs(collection(db, 'courses')).then((snap) => {
       const list: Course[] = []
-      snap.forEach((d) => { const x = d.data(); list.push({ id: d.id, title: (x.title as string) ?? '' }) })
+      snap.forEach((d) => list.push(mapCourseDoc(d)))
       list.sort((a, b) => a.title.localeCompare(b.title))
       setCourses(list)
     })
@@ -147,8 +163,22 @@ export function UserManagement() {
     if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can disable this account.'); return }
     const disabling = u.status === 'active'
     if (!window.confirm(disabling ? 'Disable this user?' : 'Re-enable this user?')) return
-    try { await callDisableUser(u.id, disabling); await fetchPage(null, 0) }
-    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
+    setError('')
+    try {
+      await callDisableUser(u.id, disabling)
+      const nextStatus: UserProfile['status'] = disabling ? 'disabled' : 'active'
+      setUsers((prev) => prev.map((x) => (x.id === u.id ? { ...x, status: nextStatus } : x)))
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
+  }
+
+  async function deleteUser(u: UserProfile) {
+    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can delete this account.'); return }
+    if (!window.confirm(`Permanently delete ${u.name || u.email}? This cannot be undone.`)) return
+    setError('')
+    try {
+      await callDeleteUser(u.id)
+      setUsers((prev) => prev.filter((x) => x.id !== u.id))
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Delete failed')) }
   }
 
   async function resetPassword(u: UserProfile) {
@@ -268,7 +298,7 @@ export function UserManagement() {
       {/* User card grid */}
       <div className="user-grid">
         {displayed.map((u) => (
-          <div key={u.id} className="user-card">
+          <div key={u.id} className="user-card" style={{ overflow: 'visible' }}>
             <div className="user-card-body">
               <div className="user-card-top">
                 <div className={avatarClass(u.roles)}>{(u.name || u.email).charAt(0).toUpperCase()}</div>
@@ -290,14 +320,38 @@ export function UserManagement() {
             <div className="user-card-footer">
               <button type="button" className="btn small secondary" onClick={() => startEdit(u)}>Edit</button>
               <button type="button" className="btn small secondary" onClick={() => void resetPassword(u)}>Reset PW</button>
-              <button type="button" className="btn small secondary" onClick={() => void toggleDisable(u)}>
-                {u.status === 'active' ? 'Disable' : 'Enable'}
-              </button>
+              <div className="topic-menu-wrap" ref={openMenuId === u.id ? openMenuRef : undefined} style={{ marginLeft: 'auto' }}>
+                <button
+                  type="button"
+                  className="topic-menu-btn"
+                  onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === u.id ? null : u.id) }}
+                >
+                  ⋮
+                </button>
+                {openMenuId === u.id && (
+                  <div className="topic-menu-dropdown" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="topic-menu-item"
+                      onClick={() => { setOpenMenuId(null); void toggleDisable(u) }}
+                    >
+                      {u.status === 'active' ? 'Disable' : 'Enable'}
+                    </button>
+                    <button
+                      type="button"
+                      className="topic-menu-item danger"
+                      onClick={() => { setOpenMenuId(null); void deleteUser(u) }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
         {displayed.length === 0 && !loading && (
-          <p className="muted" style={{ gridColumn: '1/-1', padding: '2rem 0' }}>No users found.</p>
+          <div style={{ gridColumn: '1/-1' }}><EmptyState title="No users found" subtitle="Add a user or adjust your search." /></div>
         )}
       </div>
 

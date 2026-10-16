@@ -4,8 +4,10 @@ import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { normalizeRoles } from '../../lib/roles'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { mapCourseDoc } from '../../lib/courses'
 import type { Course, ProgressEntry, Session } from '../../types'
-import { DashboardImageCard } from '../../components/DashboardImageCard'
+import { WelcomeBanner } from '../../components/WelcomeBanner'
+import { EmptyState } from '../../components/EmptyState'
 
 interface StudentSummary { id: string; name: string; email: string; courseIds: string[]; pct: number; reviewCount: number }
 
@@ -30,7 +32,7 @@ export function MentorDashboard() {
       ])
 
       const courseList: Course[] = []
-      coursesSnap.forEach((d) => { const x = d.data(); courseList.push({ id: d.id, title: (x.title as string) ?? '' }) })
+      coursesSnap.forEach((d) => courseList.push(mapCourseDoc(d)))
       courseList.sort((a, b) => a.title.localeCompare(b.title))
       setCourses(courseList)
 
@@ -83,6 +85,8 @@ export function MentorDashboard() {
       <h1>Mentor Dashboard</h1>
       <p className="muted">Review student progress and approve completed activities.</p>
 
+      <WelcomeBanner title="Hoo's helping today?" subtitle="Review your students' progress and jump in where they need you." />
+
       <div className="row" style={{ marginBottom: '1rem', gap: '0.75rem' }}>
         <label>Course <select value={filterCourseId} onChange={(e) => setFilterCourseId(e.target.value)}>
           <option value="__all__">All</option>{courses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
@@ -109,10 +113,8 @@ export function MentorDashboard() {
             {s.reviewCount > 0 && <span className="review-badge">{s.reviewCount} to review</span>}
           </Link>
         ))}
-        {filtered.length === 0 && !loading && <p className="muted">No students found.</p>}
       </div>
-
-      <DashboardImageCard />
+      {filtered.length === 0 && !loading && <EmptyState title="No students found" subtitle="Try a different course filter." />}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase
 import { db } from '../../firebase/config'
 import { stripUndefinedDeep } from '../../lib/firestoreSanitize'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { isLevelId } from '../../lib/levels'
 import { useAuth } from '../../context/AuthContext'
 import type { Course, ItemStatus, ProgressEntry, Session, TopicType } from '../../types'
 
@@ -58,7 +59,13 @@ export function StudentCourseView() {
       ])
       if (courseSnap.exists()) {
         const x = courseSnap.data()
-        setCourse({ id: courseSnap.id, title: (x.title as string) ?? '', description: (x.description as string) ?? '' })
+        setCourse({
+          id: courseSnap.id,
+          title: (x.title as string) ?? '',
+          description: (x.description as string) ?? '',
+          levelId: isLevelId(x.levelId) ? x.levelId : null,
+          coreOutcome: (x.coreOutcome as string) ?? '',
+        })
       }
       const sess: Session[] = []
       sessionsSnap.forEach((d) => {

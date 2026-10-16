@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { callCreateUser, callDeleteUser, callDisableUser, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import { mapUserDoc, avatarClass } from '../../lib/userUtils'
+import { mapCourseDoc } from '../../lib/courses'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { useAuth } from '../../context/AuthContext'
 import type { Course, Session, UserProfile } from '../../types'
+import { EmptyState } from '../../components/EmptyState'
 
 export function StudentsPage() {
   const { profile } = useAuth()
@@ -30,6 +32,7 @@ export function StudentsPage() {
   const [addCourseId, setAddCourseId] = useState('')
 
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+  const openMenuRef = useRef<HTMLDivElement | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
@@ -57,10 +60,7 @@ export function StudentsPage() {
       setStudents(list)
 
       const cl: Course[] = []
-      coursesSnap.forEach((d) => {
-        const x = d.data()
-        cl.push({ id: d.id, title: (x.title as string) ?? '' })
-      })
+      coursesSnap.forEach((d) => cl.push(mapCourseDoc(d)))
       setCourses(cl)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed')
@@ -70,6 +70,22 @@ export function StudentsPage() {
   }
 
   useEffect(() => { void load() }, [])
+
+  // Close the "⋮" menu on an outside click. Done via a document listener rather than
+  // an invisible full-screen overlay div — that overlay used to sit at a fixed
+  // z-index that could out-rank the dropdown once `.user-card:hover`'s `transform`
+  // gave the card its own stacking context (any transform does, even unpositioned),
+  // trapping the dropdown's z-index inside it. The overlay then caught the click
+  // meant for a menu item and just closed the menu — Enable/Disable/Delete looked
+  // wired up but silently did nothing. A listener has no element to lose that fight.
+  useEffect(() => {
+    if (!openMenuId) return
+    function onDocPointerDown(e: MouseEvent) {
+      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) setOpenMenuId(null)
+    }
+    document.addEventListener('mousedown', onDocPointerDown)
+    return () => document.removeEventListener('mousedown', onDocPointerDown)
+  }, [openMenuId])
 
   useEffect(() => {
     if (!selectedStudent) return
@@ -150,8 +166,11 @@ export function StudentsPage() {
     const disabling = u.status === 'active'
     if (!window.confirm(disabling ? 'Disable this student?' : 'Re-enable this student?')) return
     setError('')
-    try { await callDisableUser(u.id, disabling); await load() }
-    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
+    try {
+      await callDisableUser(u.id, disabling)
+      const nextStatus: UserProfile['status'] = disabling ? 'disabled' : 'active'
+      setStudents((prev) => prev.map((x) => (x.id === u.id ? { ...x, status: nextStatus } : x)))
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
   }
 
   async function deleteStudent(u: UserProfile) {
@@ -160,8 +179,8 @@ export function StudentsPage() {
     setError('')
     try {
       await callDeleteUser(u.id)
+      setStudents((prev) => prev.filter((x) => x.id !== u.id))
       if (selectedStudent?.id === u.id) setSelectedStudent(null)
-      await load()
     } catch (err: unknown) { setError(formatFirebaseError(err, 'Delete failed')) }
   }
 
@@ -261,9 +280,6 @@ export function StudentsPage() {
       {loading ? <p className="muted">Loading…</p> : null}
 
       {/* Student card grid */}
-      {openMenuId && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setOpenMenuId(null)} />
-      )}
       <div className="user-grid">
         {filtered.map((s) => (
           <div
@@ -283,7 +299,11 @@ export function StudentsPage() {
                   {s.status}
                 </span>
                 {canManage && (
-                  <div className="topic-menu-wrap" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="topic-menu-wrap"
+                    ref={openMenuId === s.id ? openMenuRef : undefined}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <button
                       type="button"
                       className="topic-menu-btn"
@@ -323,7 +343,7 @@ export function StudentsPage() {
           </div>
         ))}
         {filtered.length === 0 && !loading && (
-          <p className="muted" style={{ gridColumn: '1/-1', padding: '2rem 0' }}>No students found.</p>
+          <div style={{ gridColumn: '1/-1' }}><EmptyState title="No students found" subtitle="Add a student or adjust your search." /></div>
         )}
       </div>
 

@@ -4,8 +4,10 @@ import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { normalizeRoles } from '../../lib/roles'
+import { mapCourseDoc } from '../../lib/courses'
 import type { Course } from '../../types'
-import { DashboardImageCard } from '../../components/DashboardImageCard'
+import { WelcomeBanner } from '../../components/WelcomeBanner'
+import { StudentsIcon, MentorsIcon, CoursesIcon, SessionsIcon } from '../../components/manager/StatIcons'
 
 interface DashStats {
   students: number
@@ -48,7 +50,7 @@ export default function AdminDashboard() {
 
       // Courses
       const courseList: Course[] = []
-      coursesSnap.forEach((d) => { const x = d.data(); courseList.push({ id: d.id, title: (x.title as string) ?? '' }) })
+      coursesSnap.forEach((d) => courseList.push(mapCourseDoc(d)))
 
       setStats({ students: studentCount, activeStudents, mentors: mentorCount, courses: courseList.length, sessions: sessionsSnap.size })
     } catch (e) {
@@ -71,17 +73,19 @@ export default function AdminDashboard() {
         <span className="page-stat">{formatDate(new Date())}</span>
       </div>
 
+      <WelcomeBanner title="Everything for the learning journey" subtitle="Courses, daily plans, and progress — all in one place." />
+
       {loading ? <p className="muted">Loading…</p> : null}
 
       {/* Stat cards */}
       {stats && (
         <div className="dash-stat-grid">
-          {([
-            { icon: '🎓', value: stats.students, label: 'Students', sub: `${stats.activeStudents} active`, color: 'var(--primary)', to: '/admin/students' },
-            { icon: '👨‍🏫', value: stats.mentors, label: 'Mentors', sub: 'teaching staff', color: '#d97706', to: '/admin/users' },
-            { icon: '📚', value: stats.courses, label: 'Courses', sub: 'available', color: '#7c3aed', to: '/admin/syllabus' },
-            { icon: '📄', value: stats.sessions, label: 'Sessions', sub: 'total lessons', color: '#059669', to: '/admin/syllabus' },
-          ] as const).map((s) => (
+          {[
+            { icon: <StudentsIcon color="var(--primary)" />, value: stats.students, label: 'Students', sub: `${stats.activeStudents} active`, color: 'var(--primary)', to: '/admin/students' },
+            { icon: <MentorsIcon color="#d97706" />, value: stats.mentors, label: 'Mentors', sub: 'teaching staff', color: '#d97706', to: '/admin/users' },
+            { icon: <CoursesIcon color="#7c3aed" />, value: stats.courses, label: 'Courses', sub: 'available', color: '#7c3aed', to: '/admin/syllabus' },
+            { icon: <SessionsIcon color="#059669" />, value: stats.sessions, label: 'Sessions', sub: 'total lessons', color: '#059669', to: '/admin/syllabus' },
+          ].map((s) => (
             <Link key={s.label} to={s.to} className="panel dash-stat-card">
               <span className="dash-stat-icon">{s.icon}</span>
               <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
@@ -92,8 +96,6 @@ export default function AdminDashboard() {
           ))}
         </div>
       )}
-
-      <DashboardImageCard />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { collection, doc, getDoc, getDocs, query, setDoc, where } from 'firebase
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { mapCourseDoc } from '../../lib/courses'
 import type { Course, DailyPlan, DailyPlanItem, LessonItemType, ProgressEntry, Session, TopicType } from '../../types'
 
 function todayStr() { return new Date().toISOString().slice(0, 10) }
@@ -173,7 +174,7 @@ export function StudentDailyPlanner() {
   async function loadCourses() {
     const snap = await getDocs(collection(db, 'courses'))
     const list: Course[] = []
-    snap.forEach((d) => { const x = d.data(); list.push({ id: d.id, title: (x.title as string) ?? '' }) })
+    snap.forEach((d) => list.push(mapCourseDoc(d)))
     list.sort((a, b) => a.title.localeCompare(b.title))
     setCourses(list)
   }

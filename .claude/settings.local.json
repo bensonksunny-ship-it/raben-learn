@@ -41,7 +41,8 @@
       "Bash(curl -s http://localhost:5173/src/App.tsx)",
       "Bash(grep -v \"PriorityScheduler.tsx$\")",
       "Bash(grep -v \"NavigationSidebar.tsx$\")",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://raben-learn.web.app/)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://raben-learn.web.app/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/ --max-time 3)"
     ]
   }
 }

@@ -39,6 +39,30 @@ export function ScheduleIcon({ size = 28, color = '#7c3aed' }: { size?: number; 
   )
 }
 
+export function CoursesIcon({ size = 28, color = '#7c3aed' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <rect x="8" y="9" width="32" height="30" rx="5" fill={color} opacity="0.3" />
+      <path d="M8 13a5 5 0 0 1 5-5h11v30H13a5 5 0 0 1-5-5Z" fill={color} />
+      <rect x="27" y="16" width="9" height="2.4" rx="1.2" fill={color} />
+      <rect x="27" y="22" width="9" height="2.4" rx="1.2" fill={color} />
+    </svg>
+  )
+}
+
+export function SessionsIcon({ size = 28, color = '#059669' }: { size?: number; color?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+      <rect x="9" y="7" width="30" height="34" rx="5" fill={color} opacity="0.3" />
+      <rect x="14" y="13" width="20" height="4" rx="2" fill={color} />
+      <circle cx="17" cy="25" r="2.2" fill={color} />
+      <rect x="22" y="23" width="12" height="3.6" rx="1.8" fill={color} />
+      <circle cx="17" cy="33" r="2.2" fill={color} />
+      <rect x="22" y="31" width="12" height="3.6" rx="1.8" fill={color} />
+    </svg>
+  )
+}
+
 /** Small lock badge for Priority-1 (manager-locked) schedule periods. */
 export function LockIcon({ size = 12, color = '#087f5b' }: { size?: number; color?: string }) {
   return (

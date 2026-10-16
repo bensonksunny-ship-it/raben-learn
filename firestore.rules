@@ -60,17 +60,20 @@ service cloud.firestore {
     }
 
     // Shared, platform-wide weekly class timetable — manager-authored, readable by
-    // everyone signed in so a later pass can surface it to students/mentors.
+    // everyone signed in so a later pass can surface it to students/mentors. Admin
+    // can write too: rbac.ts's `manageTimetable` capability already lets admin reach
+    // /schedule in the UI, and in practice admin is the only account most people have.
     match /class_timetable/{id} {
       allow read: if isSignedIn();
-      allow write: if hasRole('manager');
+      allow write: if hasRole('manager') || hasRole('admin');
     }
 
     // Priority-2 elective-session board, layered over class_timetable on the same
-    // scheduler grid — same access pattern as the locked timetable above.
+    // scheduler grid — same access pattern (and same admin exception) as the locked
+    // timetable above.
     match /elective_sessions/{id} {
       allow read: if isSignedIn();
-      allow write: if hasRole('manager');
+      allow write: if hasRole('manager') || hasRole('admin');
     }
 
     // Legacy collections for Cloud Functions

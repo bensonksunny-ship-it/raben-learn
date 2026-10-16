@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react'
-import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
+import { mapCourseDoc } from '../../lib/courses'
+import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
-import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, formatTime } from '../../components/manager/schedulerShared'
+import {
+  DAY_COLORS, formatTime,
+  todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
+  createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
+} from '../../components/manager/schedulerShared'
 import type {
-  ClassTimetable, DailyPlan, DailyPlanItem, ElectiveSchedule,
-  TimetableDay, TimetablePeriod, UserProfile, Weekday,
+  ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, Session, Topic, UserProfile, Weekday,
 } from '../../types'
 
 /**
@@ -18,107 +23,6 @@ import type {
  */
 function studentLabel(s: UserProfile): string {
   return s.name || s.email || s.id
-}
-
-function todayStr() { return new Date().toISOString().slice(0, 10) }
-
-// ─── Week date helpers (UTC-anchored so day math never drifts with local TZ) ──
-
-function parseDateStr(s: string): Date {
-  const [y, mo, d] = s.split('-').map(Number)
-  return new Date(Date.UTC(y!, (mo ?? 1) - 1, d ?? 1))
-}
-function formatDateStr(d: Date): string { return d.toISOString().slice(0, 10) }
-function addDays(s: string, days: number): string {
-  const d = parseDateStr(s)
-  d.setUTCDate(d.getUTCDate() + days)
-  return formatDateStr(d)
-}
-/** Monday of the week containing `s`. */
-function mondayOf(s: string): string {
-  const d = parseDateStr(s)
-  const dow = d.getUTCDay() // 0=Sun..6=Sat
-  d.setUTCDate(d.getUTCDate() + (dow === 0 ? -6 : 1 - dow))
-  return formatDateStr(d)
-}
-function formatDayName(s: string): string {
-  return parseDateStr(s).toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' })
-}
-function formatDayFullName(s: string): string {
-  return parseDateStr(s).toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
-}
-function formatDayDate(s: string): string {
-  return parseDateStr(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' })
-}
-/** Label covers Mon–Sat only — the grid doesn't show Sunday. */
-function formatWeekRangeLabel(monday: string): string {
-  const saturday = addDays(monday, 5)
-  return `${formatDayDate(monday)} – ${formatDayDate(saturday)}, ${parseDateStr(saturday).getUTCFullYear()}`
-}
-
-// ─── Shared class timetable (Priority 1) ───────────────────────────────────────
-
-function createDefaultTimetable(): ClassTimetable {
-  const days = {} as Record<Weekday, TimetableDay>
-  for (const d of WEEKDAYS) days[d] = { periods: [] }
-  return { windowStart: '10:00', windowEnd: '18:00', days }
-}
-
-/** Defensive merge so a partially-shaped (or missing) Firestore doc never crashes the UI. */
-function normalizeTimetable(data: Record<string, unknown> | undefined): ClassTimetable {
-  const fallback = createDefaultTimetable()
-  if (!data) return fallback
-  const rawDays = (data.days as Record<string, unknown>) ?? {}
-  const days = {} as Record<Weekday, TimetableDay>
-  for (const d of WEEKDAYS) {
-    const rd = rawDays[d] as Record<string, unknown> | undefined
-    const rawPeriods = Array.isArray(rd?.periods) ? (rd!.periods as Record<string, unknown>[]) : []
-    const periods: TimetablePeriod[] = rawPeriods
-      .map((p) => ({
-        id: typeof p.id === 'string' ? p.id : crypto.randomUUID(),
-        title: typeof p.title === 'string' ? p.title : '',
-        startTime: typeof p.startTime === 'string' ? p.startTime : '',
-        durationMinutes: Number(p.durationMinutes ?? 0),
-      }))
-      .filter((p) => p.title && timeStrToMinutes(p.startTime) != null && p.durationMinutes > 0)
-    days[d] = { periods }
-  }
-  return {
-    windowStart: (data.windowStart as string) ?? fallback.windowStart,
-    windowEnd: (data.windowEnd as string) ?? fallback.windowEnd,
-    days,
-  }
-}
-
-// ─── Elective-session board (Priority 2) ───────────────────────────────────────
-
-function createDefaultElectives(): ElectiveSchedule {
-  const days = {} as ElectiveSchedule['days']
-  for (const d of WEEKDAYS) days[d] = { sessions: [] }
-  return { days }
-}
-
-/** Same defensive-merge treatment as `normalizeTimetable`, for the sibling collection. */
-function normalizeElectives(data: Record<string, unknown> | undefined): ElectiveSchedule {
-  const fallback = createDefaultElectives()
-  if (!data) return fallback
-  const rawDays = (data.days as Record<string, unknown>) ?? {}
-  const days = {} as ElectiveSchedule['days']
-  for (const d of WEEKDAYS) {
-    const rd = rawDays[d] as Record<string, unknown> | undefined
-    const rawSessions = Array.isArray(rd?.sessions) ? (rd!.sessions as Record<string, unknown>[]) : []
-    const sessions = rawSessions
-      .map((s) => ({
-        id: typeof s.id === 'string' ? s.id : crypto.randomUUID(),
-        title: typeof s.title === 'string' ? s.title : '',
-        startTime: typeof s.startTime === 'string' ? s.startTime : '',
-        durationMinutes: Number(s.durationMinutes ?? 0),
-        mentorName: typeof s.mentorName === 'string' ? s.mentorName : null,
-      }))
-      .filter((s) => s.title && timeStrToMinutes(s.startTime) != null && s.durationMinutes > 0)
-    days[d] = { sessions }
-  }
-  return { days }
 }
 
 /**
@@ -149,6 +53,11 @@ export function SchedulePage() {
   const [saving, setSaving] = useState(false)
 
   const [error, setError] = useState('')
+
+  // Syllabus data (Priority 2's "Add elective" title autocomplete draws suggestions
+  // from here) — loaded once, independent of the student/week selection above.
+  const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
+  const [syllabusSessions, setSyllabusSessions] = useState<Session[]>([])
 
   const weekStart = mondayOf(date)
   // Mon–Sat only — no Sunday column. Index-aligned with WEEKDAYS (both start Monday),
@@ -206,6 +115,45 @@ export function SchedulePage() {
       }
     })()
   }, [])
+
+  async function loadSyllabus() {
+    try {
+      const [coursesSnap, sessionsSnap] = await Promise.all([
+        getDocs(collection(db, 'courses')),
+        getDocs(collection(db, 'sessions')),
+      ])
+      setSyllabusCourses(coursesSnap.docs.map(mapCourseDoc))
+      const sl: Session[] = []
+      sessionsSnap.forEach((d) => {
+        const x = d.data()
+        sl.push({
+          id: d.id,
+          title: (x.title as string) ?? '',
+          subtitle: (x.subtitle as string) ?? '',
+          courseId: (x.courseId as string) ?? null,
+          courseName: (x.courseName as string) ?? '',
+          order: Number(x.order ?? 0),
+          activities: readTopicsFromSessionDoc(x.activities),
+        })
+      })
+      setSyllabusSessions(sl)
+    } catch {
+      // Non-critical — the "Add elective" title field just falls back to free text.
+    }
+  }
+
+  useEffect(() => { void loadSyllabus() }, [])
+
+  /** Appends one topic to a syllabus session's activity list — used by the "+ Add
+   *  activity" quick action inside the "Add elective" modal's title autocomplete,
+   *  same write `<SyllabusPage>` itself makes when adding a topic to a session. */
+  async function addSyllabusActivity(sessionId: string, topic: Topic) {
+    const session = syllabusSessions.find((s) => s.id === sessionId)
+    if (!session) return
+    const next = [...session.activities, topic]
+    await updateDoc(doc(db, 'sessions', sessionId), { activities: next, updatedAt: serverTimestamp() })
+    setSyllabusSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, activities: next } : s)))
+  }
 
   useEffect(() => {
     if (!selectedStudentId) { setWeekPlans({}); return }
@@ -296,20 +244,21 @@ export function SchedulePage() {
   })
 
   return (
-    <div className="kid-theme">
+    <div className="schedule-page">
       <div className="diary-toolbar">
         <h1 style={{ margin: 0 }}>🗓️ Schedule</h1>
         <div className="diary-toolbar-controls">
           <StudentSelect students={studentOptions} value={selectedStudentId} onChange={setSelectedStudentId} loading={loadingStudents} />
-          {!editingAllowed && <>
-            <div className="diary-week-nav">
-              <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, -7))} aria-label="Previous week">‹</button>
-              <span className="muted small diary-week-label">{formatWeekRangeLabel(weekStart)}</span>
-              <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, 7))} aria-label="Next week">›</button>
-            </div>
-            <WeekDaySelect options={dayOptions} value={date} onChange={setDate} />
-            <input type="date" className="date-picker" value={date} onChange={(e) => setDate(e.target.value)} aria-label="Jump to date" />
-          </>}
+          {/* Always visible, not just once a student is picked — the shared schedule
+              is the same every week, but staff still want day/date context on screen
+              (e.g. to know what "today" is) while authoring it, not just while viewing
+              a student's diary. */}
+          <div className="diary-week-nav">
+            <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, -7))} aria-label="Previous week">‹</button>
+            <span className="muted small diary-week-label">{formatWeekRangeLabel(weekStart)}</span>
+            <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, 7))} aria-label="Next week">›</button>
+          </div>
+          <WeekDaySelect options={dayOptions} value={date} onChange={setDate} />
         </div>
       </div>
 
@@ -317,14 +266,13 @@ export function SchedulePage() {
         <div className="panel" style={{ marginBottom: '1.25rem' }}>
           <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
             <strong style={{ fontSize: '0.88rem' }}>Grid time range</strong>
-            <span className="muted small">(default view only — periods and electives can be any time, the grid expands to fit)</span>
             <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               Start
-              <input type="time" className="date-picker" value={timetable.windowStart} onChange={(e) => updateWindow({ windowStart: e.target.value })} />
+              <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowStart} onChange={(e) => updateWindow({ windowStart: e.target.value })} />
             </label>
             <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
               End
-              <input type="time" className="date-picker" value={timetable.windowEnd} onChange={(e) => updateWindow({ windowEnd: e.target.value })} />
+              <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowEnd} onChange={(e) => updateWindow({ windowEnd: e.target.value })} />
             </label>
           </div>
         </div>
@@ -342,13 +290,11 @@ export function SchedulePage() {
         </div>
       )}
 
-      <p className="muted" style={{ marginBottom: '0.75rem' }}>
-        {editingAllowed
-          ? 'Green, locked blocks are mandatory school periods — add one with the button below. The lighter, open slots are free: click one to book an elective session there, with an end time calculated for you. Pick a student above to see their actual logged activities on top of this schedule.'
-          : !loadingPlans && !hasAnyEntry
-            ? `No entries logged this week for ${selectedStudent?.name ?? 'this student'}.`
-            : `Showing ${selectedStudent?.name ?? 'this student'}'s logged activities (bright cards) over the shared schedule (faded, read-only here).`}
-      </p>
+      {!editingAllowed && !loadingPlans && !hasAnyEntry && (
+        <p className="muted" style={{ marginBottom: '0.75rem' }}>
+          No entries logged this week for {selectedStudent?.name ?? 'this student'}.
+        </p>
+      )}
       {!editingAllowed && noStartTimeDays.length > 0 && (
         <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
           ⚠ No start time logged: {noStartTimeDays.map(formatDayDate).join(', ')}.
@@ -364,6 +310,9 @@ export function SchedulePage() {
         onSaveElectives={saveElectives}
         weekDates={weekDates}
         weekPlans={weekPlans}
+        syllabusCourses={syllabusCourses}
+        syllabusSessions={syllabusSessions}
+        onAddSyllabusActivity={addSyllabusActivity}
       />
     </div>
   )

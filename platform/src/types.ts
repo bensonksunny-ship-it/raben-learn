@@ -39,17 +39,6 @@ export interface ClassTimetable {
 }
 
 /**
- * Who's responsible for filling in an elective session's real content.
- *  - 'manager': the manager already specified the title when creating it (the
- *    original, still-default behavior).
- *  - 'student' / 'mentor': the manager deliberately left it as a placeholder for
- *    that role to claim — it renders on the grid as an open/pending slot (dashed
- *    border, "Pending Student Input" / "Open Mentor Spot" badge, no real title
- *    yet) until someone with that role fills it in.
- */
-export type SlotFillMode = 'manager' | 'student' | 'mentor'
-
-/**
  * One Priority-2 ("flexible") booking into an otherwise-open slot on the scheduler
  * grid — e.g. an elective a mentor is running. Unlike a `TimetablePeriod` it's never
  * mandatory: it layers on top of the locked timetable rather than replacing it, and
@@ -57,20 +46,19 @@ export type SlotFillMode = 'manager' | 'student' | 'mentor'
  */
 export interface ElectiveSession {
   id: string
-  /** Blank only while `fillMode` isn't 'manager' and `claimed` is false — an
-   *  open placeholder waiting for a student or mentor to fill it in. */
+  /** Blank only while `claimed` is false — an open slot waiting for a student or
+   *  mentor to claim and fill it in from their own view. There's no separate "who
+   *  it's for" field: any open slot is available to either role. */
   title: string
   /** "HH:MM" — this session's own start time. */
   startTime: string
   durationMinutes: number
   /** Optional — who's running it, free text (no mentor directory lookup). */
   mentorName?: string | null
-  /** Who was meant to fill this slot in. Defaults to 'manager' for any session that
-   *  doesn't carry the field (i.e. every session created before this existed). */
-  fillMode?: SlotFillMode
-  /** True once real content exists — either the manager supplied it at creation
-   *  ('manager' fillMode, always true), or a student/mentor has since claimed an
-   *  open placeholder by filling in a title. */
+  /** True once real content exists — either the manager supplied a title at
+   *  creation, or a student/mentor has since claimed an open slot by filling one
+   *  in. Defaults to true for any session that doesn't carry the field (every
+   *  session created before this existed always had a title). */
   claimed?: boolean
 }
 

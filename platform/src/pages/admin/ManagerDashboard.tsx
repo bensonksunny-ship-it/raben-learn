@@ -45,7 +45,7 @@ export function ManagerDashboard() {
   function closeView() { navigate('/manager') }
 
   return (
-    <div className="kid-theme manager-layout">
+    <div className="manager-layout">
       <NavigationSidebar />
 
       <div className="manager-main">
@@ -84,15 +84,20 @@ export function ManagerDashboard() {
           />
         </div>
 
+        {/* All three popups go full-screen now — Students/Users joined Schedule here so
+            every "sub-view" opened from the dashboard shares one uniform canvas and the
+            same top-right close control, per the design-system standardization pass. */}
         {view && (
-          <div className="modal-backdrop" onClick={closeView}>
-            <div className="modal manager-view-modal" onClick={(e) => e.stopPropagation()}>
-              <button type="button" className="btn small ghost manager-view-close" onClick={closeView}>✕ Close</button>
-              <Suspense fallback={<p className="muted">Loading…</p>}>
-                {view === 'students' && <StudentsPage />}
-                {view === 'users' && <UserManagement />}
-                {view === 'schedule' && <SchedulePage />}
-              </Suspense>
+          <div className="modal-backdrop modal-backdrop-fullscreen" onClick={closeView}>
+            <div className="modal manager-view-modal manager-view-modal-fullscreen" onClick={(e) => e.stopPropagation()}>
+              <button type="button" aria-label="Close" className="btn small ghost manager-view-close manager-view-close-fullscreen" onClick={closeView}>✕</button>
+              <div className="manager-view-fullscreen-body">
+                <Suspense fallback={<p className="muted">Loading…</p>}>
+                  {view === 'students' && <StudentsPage />}
+                  {view === 'users' && <UserManagement />}
+                  {view === 'schedule' && <SchedulePage />}
+                </Suspense>
+              </div>
             </div>
           </div>
         )}

@@ -1,5 +1,6 @@
 import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { AppIcon } from './AppIcon'
 
 export default function AppShell() {
   const { firebaseUser, profile, loading, logout } = useAuth()
@@ -33,7 +34,10 @@ export default function AppShell() {
     <div className="shell">
       {/* Sidebar — desktop */}
       <aside className="sidebar">
-        <div className="brand">Raben Learn</div>
+        <div className="sidebar-brand">
+          <AppIcon className="sidebar-brand-icon" />
+          <span className="sidebar-brand-text">Raben Learn</span>
+        </div>
         <nav className="nav-list">
           {isAdmin && <>
             <NavLink to="/admin" end className={nl}>🏠 Dashboard</NavLink>
@@ -72,7 +76,13 @@ export default function AppShell() {
         <div className="muted small" style={{ textAlign: 'center', padding: '0.25rem', opacity: 0.4 }}>v3</div>
       </aside>
 
-      <main className="main"><Outlet /></main>
+      {/* .kid-theme here (not on individual pages) re-themes every view in one place —
+          pastel background, rounded corners, playful fonts — via the shared CSS custom
+          properties almost every existing class (.panel, .btn, .modal, .tag, inputs…)
+          already reads off. Pages that still declare their own `kid-theme` wrapper
+          (Schedule, Syllabus, Manager Dashboard) just redeclare the same variables —
+          harmless, not worth churning those files to remove now. */}
+      <main className="main"><div className="kid-theme"><Outlet /></div></main>
 
       {/* Bottom nav — mobile only (shown via CSS at ≤600px) */}
       <nav className="bottom-nav">

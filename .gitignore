@@ -13,3 +13,6 @@ functions/lib/
 .env
 .env.local
 **/.env.local
+
+# Subagent-driven-development scratch workspace
+.superpowers/

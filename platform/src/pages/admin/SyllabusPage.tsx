@@ -3,7 +3,8 @@ import { Link } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { normalizeTopicType, type Course, type Session, type Topic, type TopicType } from '../../types'
+import { normalizeTopicType, type Course, type LevelId, type Session, type Topic, type TopicType } from '../../types'
+import { LEVELS, levelName } from '../../lib/levels'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { mapCourseDoc } from '../../lib/courses'
 import ExamManager from './ExamManager'
@@ -24,6 +25,8 @@ function topicTypeColor(t: TopicType): { bg: string; text: string } {
 export function SyllabusPage() {
   const [courses, setCourses] = useState<Course[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
+  type LevelFilter = LevelId | 'unassigned'
+  const [selectedLevel, setSelectedLevel] = useState<LevelFilter>(1)
   const [newCourseTitle, setNewCourseTitle] = useState('')
   const [newCourseDesc, setNewCourseDesc] = useState('')
   const [addingCourse, setAddingCourse] = useState(false)
@@ -48,6 +51,10 @@ export function SyllabusPage() {
   const xlsxInputRef = useRef<HTMLInputElement>(null)
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null
+
+  const visibleCourses = courses.filter((c) =>
+    selectedLevel === 'unassigned' ? c.levelId === null : c.levelId === selectedLevel,
+  )
 
   const [addTopicSessionId, setAddTopicSessionId] = useState<string | null>(null)
   const [addTopicTitle, setAddTopicTitle] = useState('')
@@ -102,12 +109,19 @@ export function SyllabusPage() {
     setRightTab('sessions')
   }, [selectedCourseId])
 
+  useEffect(() => { setSelectedCourseId(null) }, [selectedLevel])
+
   async function createCourse(e: FormEvent) {
     e.preventDefault()
     if (!newCourseTitle.trim()) return
     setSaving(true)
     try {
-      await addDoc(collection(db, 'courses'), { title: newCourseTitle.trim(), description: newCourseDesc.trim(), createdAt: serverTimestamp() })
+      await addDoc(collection(db, 'courses'), {
+        title: newCourseTitle.trim(),
+        description: newCourseDesc.trim(),
+        levelId: selectedLevel === 'unassigned' ? null : selectedLevel,
+        createdAt: serverTimestamp(),
+      })
       setNewCourseTitle(''); setNewCourseDesc(''); setAddingCourse(false)
       await loadCourses()
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
@@ -431,6 +445,17 @@ export function SyllabusPage() {
       </p>
       {error ? <p className="error">{error}</p> : null}
 
+      <div className="course-tabs" style={{ marginBottom: '0.85rem' }}>
+        {LEVELS.map((lvl) => (
+          <button key={lvl} type="button" className={`course-tab${selectedLevel === lvl ? ' active' : ''}`} onClick={() => setSelectedLevel(lvl)}>
+            {levelName(lvl)}
+          </button>
+        ))}
+        <button type="button" className={`course-tab${selectedLevel === 'unassigned' ? ' active' : ''}`} onClick={() => setSelectedLevel('unassigned')}>
+          Unassigned
+        </button>
+      </div>
+
       <div className="syllabus-columns">
         {/* COURSES */}
         <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
@@ -449,7 +474,7 @@ export function SyllabusPage() {
             </form>
           )}
           <div className="course-card-list">
-            {courses.map((c, idx) => (
+            {visibleCourses.map((c, idx) => (
               <button
                 key={c.id}
                 type="button"
@@ -464,7 +489,7 @@ export function SyllabusPage() {
                 </span>
               </button>
             ))}
-            {courses.length === 0 ? <p className="muted small course-row-empty">No courses yet.</p> : null}
+            {visibleCourses.length === 0 ? <p className="muted small course-row-empty">No courses at this level yet.</p> : null}
           </div>
         </div>
 

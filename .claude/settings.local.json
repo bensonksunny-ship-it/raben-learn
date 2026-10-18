@@ -43,7 +43,9 @@
       "Bash(grep -v \"NavigationSidebar.tsx$\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://raben-learn.web.app/)",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/ --max-time 3)",
-      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/ --max-time 5)"
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:5173/ --max-time 5)",
+      "Bash(curl -s \"http://localhost:5173/src/pages/admin/StudentsPage.tsx\")",
+      "Bash(curl -s \"http://localhost:5173/src/pages/admin/SchedulePage.tsx\")"
     ]
   }
 }

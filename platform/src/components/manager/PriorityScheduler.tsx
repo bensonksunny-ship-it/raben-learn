@@ -196,6 +196,9 @@ export interface PrioritySchedulerProps {
   /** View-mode overlay — a selected student's logged activities for the shown week. */
   weekDates: string[]
   weekPlans: Record<string, DailyPlan | null>
+  /** Restricts the grid to just this one weekday's row (used by the student-view
+   *  "Today" toggle in SchedulePage) — omitted/null shows the full week, same as before. */
+  focusDay?: Weekday | null
   /** Set only on a student's/mentor's own read-only view (never alongside
    *  `editingAllowed`). Any open, unclaimed slot becomes clickable for the viewer
    *  to claim — slots aren't targeted at one role or the other, so a student view
@@ -232,7 +235,7 @@ export interface PrioritySchedulerProps {
 export function PriorityScheduler({
   timetable, electives, editingAllowed, saving,
   onSaveTimetable, onSaveElectives, weekDates, weekPlans,
-  claimRole, claimerName,
+  claimRole, claimerName, focusDay = null,
   syllabusCourses = [], syllabusSessions = [], onAddSyllabusActivity,
 }: PrioritySchedulerProps) {
   const [modal, setModal] = useState<ModalState | null>(null)
@@ -412,6 +415,16 @@ export function PriorityScheduler({
     }
   }
 
+  // `focusDay` collapses the grid to just that one weekday's row — WEEKDAYS and
+  // weekDates stay index-aligned (both Mon–Sat), so the same index picks the matching
+  // real date out of weekDates for the student-item overlay below. Guarded against
+  // a `focusDay` the grid has no row for (e.g. a caller passing "Sun" — there's no
+  // Sunday column) by falling back to the full week rather than crashing on an
+  // undefined `lockedByDay`/`electiveByDay` lookup.
+  const validFocusDay = focusDay && WEEKDAYS.includes(focusDay) ? focusDay : null
+  const rowDays = validFocusDay ? [validFocusDay] : WEEKDAYS
+  const rowDates = validFocusDay ? [weekDates[WEEKDAYS.indexOf(validFocusDay)] ?? weekDates[0]] : weekDates
+
   const minHour = GRID_START_MIN / 60
   const maxHour = GRID_END_MIN / 60 - 1
   const hours = Array.from({ length: maxHour - minHour + 1 }, (_, i) => minHour + i)
@@ -446,11 +459,11 @@ export function PriorityScheduler({
           className="timetable-grid transposed"
           style={{
             gridTemplateColumns: `${DAY_LABEL_COL_PX}px repeat(${totalSlots}, minmax(${SLOT_PX}px, 1fr))`,
-            gridTemplateRows: `auto repeat(${WEEKDAYS.length}, minmax(${DAY_ROW_PX}px, 1fr))`,
+            gridTemplateRows: `auto repeat(${rowDays.length}, minmax(${DAY_ROW_PX}px, 1fr))`,
           }}
         >
           <div className="timetable-grid-corner" style={{ gridColumn: 1, gridRow: 1 }} />
-          {WEEKDAYS.map((d, di) => {
+          {rowDays.map((d, di) => {
             const colors = DAY_COLORS[d]
             return (
               <div key={d} className="timetable-grid-day-header" style={{ gridColumn: 1, gridRow: di + 2, background: colors.bg, color: colors.text }}>
@@ -468,7 +481,7 @@ export function PriorityScheduler({
           {/* Priority 2, open slots — one button per gap (not per hour), sized to the
               gap's real span. Clicking it hands the modal the gap's exact start and a
               duration that fills the whole gap, ready to book an elective there. */}
-          {editingAllowed && WEEKDAYS.map((d, di) =>
+          {editingAllowed && rowDays.map((d, di) =>
             gapsByDay[d].map((g) => {
               const startSlot = Math.round((g.startMin - gridTopMin) / slotMin)
               const span = Math.max(1, Math.round((g.endMin - g.startMin) / slotMin))
@@ -490,7 +503,7 @@ export function PriorityScheduler({
           )}
 
           {/* Priority 1 — locked school periods. */}
-          {WEEKDAYS.map((d, di) =>
+          {rowDays.map((d, di) =>
             lockedByDay[d].map(({ period, startMin, endMin }) => {
               const startSlot = Math.round((startMin - gridTopMin) / slotMin)
               const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
@@ -520,7 +533,7 @@ export function PriorityScheduler({
               edit) or for any viewer with a `claimRole` (student or mentor own-view, the
               minimal claim form) — open slots aren't targeted at one role or the other,
               so either can claim it; otherwise it's just a plain status badge. */}
-          {WEEKDAYS.map((d, di) =>
+          {rowDays.map((d, di) =>
             electiveByDay[d].map(({ session, startMin, endMin }) => {
               const startSlot = Math.round((startMin - gridTopMin) / slotMin)
               const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
@@ -582,7 +595,7 @@ export function PriorityScheduler({
           )}
 
           {/* Student's logged activities — view mode only, layered on top of everything above. */}
-          {!editingAllowed && weekDates.map((d, di) =>
+          {!editingAllowed && rowDates.map((d, di) =>
             (timedByDate[d] ?? []).map(({ item, startMin, endMin }) => {
               const colors = itemTypeColors(item.activityType)
               const overTime = item.timeSpentMs > item.plannedMinutes * 60000

@@ -14,7 +14,6 @@ import { ReportsPage } from './pages/admin/ReportsPage'
 import { MentorDashboard } from './pages/mentor/MentorDashboard'
 import { MentorStudentProgress } from './pages/mentor/MentorStudentProgress'
 import { StudentDashboard } from './pages/student/StudentDashboard'
-import { StudentCourseView } from './pages/student/StudentCourseView'
 import { StudentDailyPlanner } from './pages/student/StudentDailyPlanner'
 import { StudentHistory } from './pages/student/StudentHistory'
 
@@ -99,10 +98,11 @@ export default function App() {
           {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
           <Route path="timetable" element={<Navigate to="/schedule" replace />} />
           <Route path="admin/diary" element={<Navigate to="/schedule" replace />} />
-          {/* Retired — the standalone "all courses" list was redundant with the
-              dashboard's own "My Courses" section (no separate course view vs
-              dashboard view anymore). The per-course detail route stays. */}
-          <Route path="student/courses" element={<Navigate to="/student#my-courses" replace />} />
+          {/* Retired — "Course View" (browsing into a course's lessons/syllabus) is
+              gone entirely for students, list page and per-course detail page alike.
+              Redirects so old bookmarks/links still land somewhere valid. */}
+          <Route path="student/courses" element={<Navigate to="/student" replace />} />
+          <Route path="student/courses/:courseId" element={<Navigate to="/student" replace />} />
           {/* Retired — Syllabus Builder now edits a course's title/description/core
               outcome directly, so the separate Planning page (the same `courses`
               collection, outcome-only) was redundant with it. */}
@@ -137,7 +137,6 @@ export default function App() {
           </Route>
           <Route path="student" element={<RequireCapability cap="studentArea"><Outlet /></RequireCapability>}>
             <Route index element={<StudentDashboard />} />
-            <Route path="courses/:courseId" element={<StudentCourseView />} />
             <Route path="planner" element={<StudentDailyPlanner />} />
             <Route path="history" element={<StudentHistory />} />
           </Route>

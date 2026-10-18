@@ -8,7 +8,7 @@ import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import {
-  DAY_COLORS, formatTime,
+  WEEKDAYS, DAY_COLORS, formatTime,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
 } from '../../components/manager/schedulerShared'
@@ -23,6 +23,13 @@ import type {
  */
 function studentLabel(s: UserProfile): string {
   return s.name || s.email || s.id
+}
+
+/** The grid is Mon–Sat only — no Sunday column — so `formatDayName()`'s own output
+ *  ("Sun" included) can't be trusted as a `Weekday` outright. Returns null on a
+ *  Sunday date instead of a value the grid has no row for. */
+function toWeekday(name: string): Weekday | null {
+  return (WEEKDAYS as string[]).includes(name) ? (name as Weekday) : null
 }
 
 /**
@@ -42,6 +49,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   const [students, setStudents] = useState<UserProfile[]>([])
   const [loadingStudents, setLoadingStudents] = useState(true)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId)
+  // Student-view only (see `editingAllowed` below) — defaults to "Today", a single
+  // day's row on the grid, rather than the full week. The manager's own edit mode
+  // always shows the full week (it's one shared schedule, not a per-day thing), so
+  // this toggle only ever renders once a student is selected.
+  const [weekView, setWeekView] = useState(false)
   const [date, setDate] = useState(todayStr())
   const [weekPlans, setWeekPlans] = useState<Record<string, DailyPlan | null>>({})
   const [loadingPlans, setLoadingPlans] = useState(false)
@@ -231,14 +243,24 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     isToday: d === today,
   }))
 
-  const allItems = editingAllowed ? [] : weekDates.flatMap((d) => weekPlans[d]?.items ?? [])
+  // Student-view day/week toggle — "Today" (the default) narrows every stat and the
+  // grid itself down to just `date`; "Full Week" is the original, unfiltered range.
+  const showingSingleDay = !editingAllowed && !weekView
+  const focusDay = showingSingleDay ? toWeekday(formatDayName(date)) : null
+  // Sunday has no column on the grid at all — nothing to narrow down to, so the
+  // day view has nothing to render until the student/staff member picks a real
+  // school day (or switches to Full Week).
+  const noScheduleToday = showingSingleDay && focusDay === null
+  const itemDates = showingSingleDay ? [date] : weekDates
+
+  const allItems = editingAllowed ? [] : itemDates.flatMap((d) => weekPlans[d]?.items ?? [])
   const totalItems = allItems.length
   const doneItems = allItems.filter((i) => i.done).length
   const pct = totalItems === 0 ? 0 : Math.round((doneItems / totalItems) * 100)
   const totalPlannedMin = allItems.reduce((s, i) => s + i.plannedMinutes, 0)
   const totalSpentMs = allItems.reduce((s, i) => s + i.timeSpentMs, 0)
-  const hasAnyEntry = weekDates.some((d) => weekPlans[d] != null)
-  const noStartTimeDays = weekDates.filter((d) => {
+  const hasAnyEntry = itemDates.some((d) => weekPlans[d] != null)
+  const noStartTimeDays = itemDates.filter((d) => {
     const p = weekPlans[d]
     return !!p && p.items.length > 0 && !p.startTime
   })
@@ -259,6 +281,24 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
             <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, 7))} aria-label="Next week">›</button>
           </div>
           <WeekDaySelect options={dayOptions} value={date} onChange={setDate} />
+          {!editingAllowed && (
+            <div className="row" style={{ gap: '0.4rem' }}>
+              <button
+                type="button"
+                className={`btn small ${showingSingleDay ? 'primary' : 'secondary'}`}
+                onClick={() => { setWeekView(false); setDate(todayStr()) }}
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                className={`btn small ${showingSingleDay ? 'secondary' : 'primary'}`}
+                onClick={() => setWeekView(true)}
+              >
+                Full Week
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -292,7 +332,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
 
       {!editingAllowed && !loadingPlans && !hasAnyEntry && (
         <p className="muted" style={{ marginBottom: '0.75rem' }}>
-          No entries logged this week for {selectedStudent?.name ?? 'this student'}.
+          No entries logged {showingSingleDay ? 'today' : 'this week'} for {selectedStudent?.name ?? 'this student'}.
         </p>
       )}
       {!editingAllowed && noStartTimeDays.length > 0 && (
@@ -301,19 +341,26 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         </p>
       )}
 
-      <PriorityScheduler
-        timetable={timetable}
-        electives={electives}
-        editingAllowed={editingAllowed}
-        saving={saving}
-        onSaveTimetable={saveTimetable}
-        onSaveElectives={saveElectives}
-        weekDates={weekDates}
-        weekPlans={weekPlans}
-        syllabusCourses={syllabusCourses}
-        syllabusSessions={syllabusSessions}
-        onAddSyllabusActivity={addSyllabusActivity}
-      />
+      {noScheduleToday ? (
+        <p className="muted" style={{ marginBottom: '0.75rem' }}>
+          No school day scheduled for Sunday — switch to <strong>Full Week</strong> or pick another day above.
+        </p>
+      ) : (
+        <PriorityScheduler
+          timetable={timetable}
+          electives={electives}
+          editingAllowed={editingAllowed}
+          saving={saving}
+          onSaveTimetable={saveTimetable}
+          onSaveElectives={saveElectives}
+          weekDates={weekDates}
+          weekPlans={weekPlans}
+          focusDay={focusDay}
+          syllabusCourses={syllabusCourses}
+          syllabusSessions={syllabusSessions}
+          onAddSyllabusActivity={addSyllabusActivity}
+        />
+      )}
     </div>
   )
 }

@@ -205,22 +205,28 @@ export function StudentDashboard() {
 
       {loading ? <p className="muted">Loading…</p> : (
         <>
-          {/* Stat cards */}
+          {/* Stat cards — "Courses" is informational only (enrolled count), since
+              there's no more course-browsing view to link it to. */}
           <div className="dash-stat-grid" style={{ marginBottom: '1.75rem' }}>
             {([
-              { icon: '📚', value: courses.length, label: 'Courses', sub: 'enrolled', color: 'var(--primary)', to: '/student/courses' },
+              { icon: '📚', value: courses.length, label: 'Courses', sub: 'enrolled', color: 'var(--primary)', to: null },
               { icon: '✅', value: `${todayDone}/${todayTotal}`, label: "Today's Plan", sub: todayTotal === 0 ? 'no plan yet' : `${todayTotal - todayDone} remaining`, color: '#059669', to: '/student/planner' },
               { icon: '📈', value: `${overallPct}%`, label: 'Overall Progress', sub: `${totalDone} completed`, color: '#7c3aed', to: '/student/history' },
               { icon: '⏳', value: totalReview, label: 'Under Review', sub: 'pending mentor', color: totalReview > 0 ? '#d97706' : 'var(--muted-2)', to: '/student/history' },
-            ] as const).map((s) => (
-              <Link key={s.label} to={s.to} className="panel dash-stat-card">
-                <span className="dash-stat-icon">{s.icon}</span>
-                <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
-                <span className="dash-stat-label">{s.label}</span>
-                <span className="muted small">{s.sub}</span>
-                <span className="dash-stat-arrow" aria-hidden>→</span>
-              </Link>
-            ))}
+            ] as const).map((s) => {
+              const body = (
+                <>
+                  <span className="dash-stat-icon">{s.icon}</span>
+                  <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
+                  <span className="dash-stat-label">{s.label}</span>
+                  <span className="muted small">{s.sub}</span>
+                  {s.to && <span className="dash-stat-arrow" aria-hidden>→</span>}
+                </>
+              )
+              return s.to
+                ? <Link key={s.label} to={s.to} className="panel dash-stat-card">{body}</Link>
+                : <div key={s.label} className="panel dash-stat-card">{body}</div>
+            })}
           </div>
 
           <div className="dash-two-col">
@@ -231,7 +237,6 @@ export function StudentDashboard() {
                 {[
                   { to: '/student/planner', icon: '📅', label: "Today's Plan", desc: 'View and complete your daily tasks' },
                   { to: '/student/history', icon: '🏆', label: 'History', desc: 'Your completed sessions and progress' },
-                  { to: '/student/courses', icon: '📖', label: 'My Courses', desc: 'Browse all enrolled courses' },
                 ].map((a) => (
                   <Link key={a.to} to={a.to} className="dash-action-link">
                     <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{a.icon}</span>

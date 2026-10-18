@@ -59,6 +59,15 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 
 .sidebar-brand { display: flex; align-items: center; justify-content: center; }
 .sidebar-brand-icon { width: 34px; height: 34px; flex-shrink: 0; }
+.sidebar-rail-links { display: flex; flex-direction: column; gap: 0.5rem; }
+.sidebar-rail-link {
+  width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(255,255,255,0.65); font-size: 1.2rem; text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+.sidebar-rail-link:hover { background: rgba(255,255,255,0.08); color: #fff; text-decoration: none; }
+.sidebar-rail-link.active { background: var(--amber-soft); color: #f5c97a; }
 .sidebar-rail-action {
   margin-top: auto; width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;

@@ -20,6 +20,7 @@ export default function AppShell() {
   const isManager = profile.roles.includes('manager')
 
   const bnl = ({ isActive }: { isActive: boolean }) => `bottom-nav-link${isActive ? ' active' : ''}`
+  const srl = ({ isActive }: { isActive: boolean }) => `sidebar-rail-link${isActive ? ' active' : ''}`
 
   // Manager's Users/Students/Schedule links point at /manager?view=... (they open as a
   // popup over the dashboard, not a real navigation — see ManagerDashboard), so NavLink's
@@ -34,6 +35,9 @@ export default function AppShell() {
 
   // Mirrors the per-role nav/bottom-nav lists below one-for-one — same routes,
   // same labels — so the launcher is just another way to reach the same places.
+  // Manager/Preview Student View are deliberately left out: they live as icon-only
+  // links in the sidebar rail instead (see below), not as launcher tiles — the
+  // launcher is for actionable modules/apps, not these two view-switching links.
   const launcherItems: LauncherItem[] = [
     ...(isAdmin ? [
       { to: '/admin', label: 'Dashboard', icon: '🏠' },
@@ -41,8 +45,6 @@ export default function AppShell() {
       { to: '/admin/users', label: 'Users', icon: '👤' },
       { to: '/admin/syllabus', label: 'Syllabus', icon: '📚' },
       { to: '/schedule', label: 'Schedule', icon: '🗓️' },
-      { to: '/manager', label: 'Manager', icon: '🧑‍💼' },
-      { to: '/manager/student-preview', label: 'Preview Student View', icon: '👁️' },
       { to: '/admin/reports', label: 'Reports', icon: '📊' },
     ] : []),
     ...(isMentor ? [
@@ -60,7 +62,6 @@ export default function AppShell() {
       { to: '/manager?view=users', label: 'Users', icon: '👤' },
       { to: '/manager?view=students', label: 'Students', icon: '🎓' },
       { to: '/manager?view=schedule', label: 'Schedule', icon: '🗓️' },
-      { to: '/manager/student-preview', label: 'Preview Student View', icon: '👁️' },
     ] : []),
     { to: '/profile', label: 'You', icon: '👤' },
   ]
@@ -74,6 +75,12 @@ export default function AppShell() {
         <div className="sidebar-brand">
           <AppIcon className="sidebar-brand-icon" />
         </div>
+        {(isAdmin || isManager) && (
+          <div className="sidebar-rail-links">
+            <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager">🧑‍💼</NavLink>
+            <NavLink to="/manager/student-preview" className={srl} title="Preview Student View" aria-label="Preview Student View">👁️</NavLink>
+          </div>
+        )}
         <button type="button" className="sidebar-rail-action" onClick={handleLogout} title="Sign out" aria-label="Sign out">
           🚪
         </button>

@@ -1,10 +1,13 @@
+import { useState } from 'react'
 import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { AppIcon } from './AppIcon'
+import { ModuleLauncher, type LauncherItem } from './ModuleLauncher'
 
 export default function AppShell() {
   const { firebaseUser, profile, loading, logout } = useAuth()
   const location = useLocation()
+  const [launcherOpen, setLauncherOpen] = useState(false)
 
   if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
   if (!firebaseUser) return <Navigate to="/login" replace />
@@ -30,6 +33,39 @@ export default function AppShell() {
     if (window.confirm('Are you sure you want to sign out?')) void logout()
   }
 
+  // Mirrors the per-role nav/bottom-nav lists below one-for-one — same routes,
+  // same labels — so the launcher is just another way to reach the same places.
+  const launcherItems: LauncherItem[] = [
+    ...(isAdmin ? [
+      { to: '/admin', label: 'Dashboard', icon: '🏠' },
+      { to: '/admin/students', label: 'Students', icon: '🎓' },
+      { to: '/admin/users', label: 'Users', icon: '👤' },
+      { to: '/admin/syllabus', label: 'Syllabus', icon: '📚' },
+      { to: '/schedule', label: 'Schedule', icon: '🗓️' },
+      { to: '/manager', label: 'Manager', icon: '🧑‍💼' },
+      { to: '/manager/student-preview', label: 'Preview Student View', icon: '👁️' },
+      { to: '/admin/reports', label: 'Reports', icon: '📊' },
+    ] : []),
+    ...(isMentor ? [
+      { to: '/mentor', label: 'Dashboard', icon: '🏠' },
+      { to: '/mentor/syllabus', label: 'Syllabus', icon: '📚' },
+      { to: '/mentor/reports', label: 'Reports', icon: '📊' },
+    ] : []),
+    ...(isStudent ? [
+      { to: '/student', label: 'Dashboard', icon: '🏠' },
+      { to: '/student/planner', label: "Today's Plan", icon: '📅' },
+      { to: '/student/history', label: 'History', icon: '🏆' },
+    ] : []),
+    ...(isManager ? [
+      { to: '/manager', label: 'Dashboard', icon: '🏠' },
+      { to: '/manager?view=users', label: 'Users', icon: '👤' },
+      { to: '/manager?view=students', label: 'Students', icon: '🎓' },
+      { to: '/manager?view=schedule', label: 'Schedule', icon: '🗓️' },
+      { to: '/manager/student-preview', label: 'Preview Student View', icon: '👁️' },
+    ] : []),
+    { to: '/profile', label: 'You', icon: '👤' },
+  ]
+
   return (
     <div className="shell">
       {/* Sidebar — desktop */}
@@ -38,6 +74,9 @@ export default function AppShell() {
           <AppIcon className="sidebar-brand-icon" />
           <span className="sidebar-brand-text">Raben Learn</span>
         </div>
+        <button type="button" className="launcher-trigger" onClick={() => setLauncherOpen(true)}>
+          <span className="launcher-trigger-icon" aria-hidden>🏠</span> Home
+        </button>
         <nav className="nav-list">
           {isAdmin && <>
             <NavLink to="/admin" end className={nl}>🏠 Dashboard</NavLink>
@@ -87,6 +126,14 @@ export default function AppShell() {
       {/* Bottom nav — mobile only (shown via CSS at ≤600px) */}
       <nav className="bottom-nav">
         <div className="bottom-nav-inner">
+          <button
+            type="button"
+            className="bottom-nav-link"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
+            onClick={() => setLauncherOpen(true)}
+          >
+            <span className="bn-icon" aria-hidden>🏠</span><span className="bn-label">Apps</span>
+          </button>
           {isAdmin && <>
             <NavLink to="/admin" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
             <NavLink to="/admin/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
@@ -116,6 +163,8 @@ export default function AppShell() {
           <NavLink to="/profile" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">You</span></NavLink>
         </div>
       </nav>
+
+      <ModuleLauncher items={launcherItems} open={launcherOpen} onClose={() => setLauncherOpen(false)} />
     </div>
   )
 }

@@ -675,6 +675,9 @@ a.dash-stat-card:hover .dash-stat-arrow { opacity: 1; transform: translateX(0); 
 }
 .nav-card:hover { transform: translateY(-3px); box-shadow: 0 14px 32px rgba(0,0,0,0.2); filter: brightness(1.06); text-decoration: none; }
 .nav-card:focus-visible { outline: 3px solid rgba(255,255,255,0.85); outline-offset: 2px; }
+/* NavCard renders as a <button> (not a <Link>) when it opens something in place
+   instead of navigating — same look, just reset out the browser's own button chrome. */
+button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cursor: pointer; }
 .nav-card-icon {
   width: 42px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,0.22); border-radius: 12px; margin-bottom: 0.5rem;

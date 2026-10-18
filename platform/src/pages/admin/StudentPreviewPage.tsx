@@ -13,7 +13,7 @@ import type { ClassTimetable, ElectiveSchedule, Weekday } from '../../types'
 
 // Lazy — same reasoning as StudentsPage's own Timetable popup: most visits to this
 // preview tool never open it.
-const SchedulePage = lazy(() => import('./SchedulePage').then((m) => ({ default: m.SchedulePage })))
+const StudentTimetableView = lazy(() => import('../student/StudentTimetableView').then((m) => ({ default: m.StudentTimetableView })))
 
 /**
  * A manager/admin-only, read-only view of a real student's dashboard — pick any
@@ -67,13 +67,10 @@ function computeNextClass(timetable: ClassTimetable, electives: ElectiveSchedule
 export function StudentPreviewPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedStudentId = searchParams.get('student')
-  const showTimetable = searchParams.get('view') === 'timetable'
-
-  function closeTimetable() {
-    const next = new URLSearchParams(searchParams)
-    next.delete('view')
-    setSearchParams(next)
-  }
+  // Local state, not a `?view=` query param — this opens in place as a popup, it
+  // doesn't navigate anywhere.
+  const [showTimetable, setShowTimetable] = useState(false)
+  function closeTimetable() { setShowTimetable(false) }
 
   const [students, setStudents] = useState<StudentOption[]>([])
   const [studentsLoading, setStudentsLoading] = useState(true)
@@ -193,7 +190,7 @@ export function StudentPreviewPage() {
           </div>
 
           <div className="nav-card-grid student-action-grid" style={{ marginBottom: '1.75rem' }}>
-            <NavCard title="Timetable" color="#8b5cf6" to={`/manager/student-preview?student=${selectedStudentId}&view=timetable`} minimal compact />
+            <NavCard title="Timetable" color="#8b5cf6" onClick={() => setShowTimetable(true)} minimal compact />
             <NavCard title="Notes" color="#059669" to={`/manager/student-preview?student=${selectedStudentId}`} minimal compact />
           </div>
         </div>
@@ -212,7 +209,7 @@ export function StudentPreviewPage() {
             </button>
             <div className="manager-view-fullscreen-body">
               <Suspense fallback={<p className="muted">Loading…</p>}>
-                <SchedulePage initialStudentId={selectedStudentId} />
+                <StudentTimetableView studentId={selectedStudentId} />
               </Suspense>
             </div>
           </div>

@@ -10,9 +10,9 @@ import { useAuth } from '../../context/AuthContext'
 import type { Course, Session, UserProfile } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
 
-// Lazy — SchedulePage pulls in the whole PriorityScheduler grid, which most visits to
-// the Students page never need.
-const SchedulePage = lazy(() => import('./SchedulePage').then((m) => ({ default: m.SchedulePage })))
+// Lazy — pulls in the whole PriorityScheduler grid, which most visits to the
+// Students page never need.
+const StudentTimetableView = lazy(() => import('../student/StudentTimetableView').then((m) => ({ default: m.StudentTimetableView })))
 
 export function StudentsPage() {
   const { profile } = useAuth()
@@ -508,7 +508,7 @@ export function StudentsPage() {
             </button>
             <div className="manager-view-fullscreen-body">
               <Suspense fallback={<p className="muted">Loading…</p>}>
-                <SchedulePage initialStudentId={timetableStudentId} />
+                <StudentTimetableView studentId={timetableStudentId} />
               </Suspense>
             </div>
           </div>

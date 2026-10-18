@@ -23,6 +23,10 @@ export interface UseLandscapeFullscreenResult {
   enterLandscape: () => void
   /** "Stay in Portrait" — just dismiss, no API calls. */
   dismissPrompt: () => void
+  /** The floating "Exit Landscape" button's handler — the only way out while
+   *  locked: unlocks orientation and exits fullscreen (best-effort, same as
+   *  `enterLandscape`'s own feature checks). */
+  exitLandscape: () => void
 }
 
 /**
@@ -91,5 +95,26 @@ export function useLandscapeFullscreen(): UseLandscapeFullscreenResult {
 
   const dismissPrompt = useCallback(() => setDismissed(true), [])
 
-  return { promptVisible, isLandscapeFullscreen, enterLandscape, dismissPrompt }
+  const exitLandscape = useCallback(() => {
+    void (async () => {
+      try {
+        // Unlock before exiting fullscreen — some browsers refuse an unlock call
+        // once fullscreen is already gone.
+        const orientation = screen.orientation as ScreenOrientation & { unlock?: () => void }
+        if (typeof orientation.unlock === 'function') orientation.unlock()
+      } catch {
+        // Not supported — nothing to undo.
+      }
+      try {
+        if (document.fullscreenElement && document.exitFullscreen) {
+          await document.exitFullscreen()
+        }
+      } catch {
+        // Already out of fullscreen, or the browser refused — the CSS layout
+        // still falls back to portrait correctly on the next real rotation.
+      }
+    })()
+  }, [])
+
+  return { promptVisible, isLandscapeFullscreen, enterLandscape, dismissPrompt, exitLandscape }
 }

@@ -1,12 +1,11 @@
 import { useState } from 'react'
-import { Link, NavLink, Navigate, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { AppIcon } from './AppIcon'
 import { ModuleLauncher, type LauncherItem } from './ModuleLauncher'
 
 export default function AppShell() {
   const { firebaseUser, profile, loading, logout } = useAuth()
-  const location = useLocation()
   const [launcherOpen, setLauncherOpen] = useState(false)
 
   if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
@@ -19,23 +18,15 @@ export default function AppShell() {
   const isStudent = profile.roles.includes('student')
   const isManager = profile.roles.includes('manager')
 
-  const bnl = ({ isActive }: { isActive: boolean }) => `bottom-nav-link${isActive ? ' active' : ''}`
   const srl = ({ isActive }: { isActive: boolean }) => `sidebar-rail-link${isActive ? ' active' : ''}`
-
-  // Manager's Users/Students/Schedule links point at /manager?view=... (they open as a
-  // popup over the dashboard, not a real navigation — see ManagerDashboard), so NavLink's
-  // own pathname-only matching can't tell them apart. Compute "active" from the ?view=
-  // param ourselves instead; `managerView` of '' means the plain Dashboard link.
-  const managerView = isManager && location.pathname === '/manager' ? (new URLSearchParams(location.search).get('view') ?? '') : null
-  function managerLinkClass(base: string, view: string) { return `${base}${managerView === view ? ' active' : ''}` }
 
   function handleLogout() {
     if (window.confirm('Are you sure you want to sign out?')) void logout()
   }
 
-  // Mirrors the per-role nav/bottom-nav lists below one-for-one — same routes,
-  // same labels — so the launcher is just another way to reach the same places.
-  // Manager/Preview Student View are deliberately left out: they live as icon-only
+  // The one place every role's pages are listed, on every screen size — reached via
+  // the 🏠 launcher-fab button below. Manager/Preview Student View are deliberately
+  // left out: they live as icon-only
   // links in the sidebar rail instead (see below), not as launcher tiles — the
   // launcher is for actionable modules/apps, not these two view-switching links.
   const launcherItems: LauncherItem[] = [
@@ -94,41 +85,11 @@ export default function AppShell() {
           harmless, not worth churning those files to remove now. */}
       <main className="main"><div className="kid-theme"><Outlet /></div></main>
 
-      {/* Bottom nav — mobile only (shown via CSS at ≤600px) */}
-      <nav className="bottom-nav">
-        <div className="bottom-nav-inner">
-          {isAdmin && <>
-            <NavLink to="/admin" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
-            <NavLink to="/admin/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
-            <NavLink to="/admin/syllabus" className={bnl}><span className="bn-icon">📚</span><span className="bn-label">Syllabus</span></NavLink>
-            <NavLink to="/schedule" className={bnl}><span className="bn-icon">🗓️</span><span className="bn-label">Schedule</span></NavLink>
-            <NavLink to="/manager" className={bnl}><span className="bn-icon">🧑‍💼</span><span className="bn-label">Manager</span></NavLink>
-            <NavLink to="/manager/student-preview" className={bnl}><span className="bn-icon">👁️</span><span className="bn-label">Preview</span></NavLink>
-            <NavLink to="/admin/reports" className={bnl}><span className="bn-icon">📊</span><span className="bn-label">Reports</span></NavLink>
-          </>}
-          {isMentor && <>
-            <NavLink to="/mentor" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
-            <NavLink to="/mentor/syllabus" className={bnl}><span className="bn-icon">📚</span><span className="bn-label">Syllabus</span></NavLink>
-            <NavLink to="/mentor/reports" className={bnl}><span className="bn-icon">📊</span><span className="bn-label">Reports</span></NavLink>
-          </>}
-          {isStudent && <>
-            <NavLink to="/student" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
-            <NavLink to="/student/planner" className={bnl}><span className="bn-icon">📅</span><span className="bn-label">Planner</span></NavLink>
-            <NavLink to="/student/history" className={bnl}><span className="bn-icon">🏆</span><span className="bn-label">History</span></NavLink>
-          </>}
-          {isManager && <>
-            <Link to="/manager" className={managerLinkClass('bottom-nav-link', '')}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></Link>
-            <Link to="/manager?view=users" className={managerLinkClass('bottom-nav-link', 'users')}><span className="bn-icon">👤</span><span className="bn-label">Users</span></Link>
-            <Link to="/manager?view=students" className={managerLinkClass('bottom-nav-link', 'students')}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></Link>
-            <Link to="/manager?view=schedule" className={managerLinkClass('bottom-nav-link', 'schedule')}><span className="bn-icon">🗓️</span><span className="bn-label">Schedule</span></Link>
-            <NavLink to="/manager/student-preview" className={bnl}><span className="bn-icon">👁️</span><span className="bn-label">Preview</span></NavLink>
-          </>}
-          <NavLink to="/profile" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">You</span></NavLink>
-        </div>
-      </nav>
-
-      {/* Floating launcher trigger — deliberately its own thing, not part of either
-          nav bar, so it reads as "open everything" rather than another nav item. */}
+      {/* No separate mobile bottom nav — the launcher below (reachable from the same
+          🏠 button on every screen size) already lists every page and menu, and the
+          sidebar rail (kept visible on mobile too, see index.css) covers Manager/
+          Preview/Sign out. A second, always-visible nav bar duplicating the same
+          links was redundant with it. */}
       <button type="button" className="launcher-fab" aria-label="Open app launcher" onClick={() => setLauncherOpen(true)}>
         🏠
       </button>

@@ -7,6 +7,7 @@ import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
 import { LandscapePrompt } from '../../components/LandscapePrompt'
+import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import {
@@ -48,7 +49,7 @@ function toWeekday(name: string): Weekday | null {
  * original Timetable Planner spec this merges with the former StudentDiaryPage.
  */
 export function SchedulePage({ initialStudentId = null }: { initialStudentId?: string | null } = {}) {
-  const { promptVisible, enterLandscape, dismissPrompt } = useLandscapeFullscreen()
+  const { promptVisible, isLandscapeFullscreen, enterLandscape, dismissPrompt, exitLandscape } = useLandscapeFullscreen()
   const [students, setStudents] = useState<UserProfile[]>([])
   const [loadingStudents, setLoadingStudents] = useState(true)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId)
@@ -271,6 +272,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   return (
     <div className="schedule-page">
       {promptVisible && <LandscapePrompt onSwitch={enterLandscape} onStay={dismissPrompt} />}
+      {isLandscapeFullscreen && <LandscapeExitButton onExit={exitLandscape} />}
       <div className="diary-toolbar">
         <h1 style={{ margin: 0 }}>🗓️ Schedule</h1>
         <div className="diary-toolbar-controls">

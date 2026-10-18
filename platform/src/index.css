@@ -109,16 +109,21 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .modal { background: var(--surface); border-radius: calc(var(--radius) + 4px); padding: 1.75rem; width: 100%; max-width: 580px; box-shadow: 0 24px 60px rgba(10,18,40,0.2); max-height: 90vh; overflow-y: auto; }
 
 /* ─── Module launcher — frosted-glass app grid, reachable from anywhere ────── */
-.launcher-trigger {
-  display: flex; align-items: center; justify-content: center; gap: 0.4rem;
-  width: 100%; margin: 0 0 0.6rem; padding: 0.55rem 0.75rem;
-  background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); border-radius: 10px;
-  color: #fff; font-size: 0.85rem; font-weight: 600; cursor: pointer;
-  font-family: var(--font-body); transition: background 0.15s, border-color 0.15s, transform 0.12s;
+/* A floating button, not part of either nav bar — bottom-center, sitting above
+   page content; shifts up on mobile so it clears the fixed bottom-nav bar. */
+.launcher-fab {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  z-index: 210; width: 56px; height: 56px; border-radius: 50%; border: none;
+  display: flex; align-items: center; justify-content: center; font-size: 1.6rem;
+  background: linear-gradient(145deg, #818cf8, #4f46e5);
+  box-shadow: 0 10px 24px rgba(79,70,229,0.4), inset 0 1px 0 rgba(255,255,255,0.35);
+  cursor: pointer; transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.3, 1.4), box-shadow 0.18s ease;
 }
-.launcher-trigger:hover { background: rgba(255,255,255,0.14); border-color: rgba(255,255,255,0.24); }
-.launcher-trigger:active { transform: scale(0.97); }
-.launcher-trigger-icon { font-size: 1.05rem; line-height: 1; }
+.launcher-fab:hover { transform: translateX(-50%) scale(1.1) translateY(-2px); box-shadow: 0 16px 32px rgba(79,70,229,0.5), inset 0 1px 0 rgba(255,255,255,0.4); }
+.launcher-fab:active { transform: translateX(-50%) scale(0.95); }
+@media (max-width: 600px) {
+  .launcher-fab { bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 14px); }
+}
 
 .launcher-backdrop {
   position: fixed; inset: 0; z-index: 300;
@@ -202,6 +207,25 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
    messages take what they need — see `.schedule-page .timetable-grid-wrap` below. */
 .schedule-page { display: flex; flex-direction: column; }
 .schedule-page .timetable-grid-wrap { flex: 1; min-height: 320px; overflow-y: auto; }
+
+/* ─── Mobile landscape prompt + fullscreen grid — see useLandscapeFullscreen() ── */
+.landscape-prompt {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap;
+  background: var(--primary-soft); border: 1px solid var(--primary); border-radius: var(--radius);
+  padding: 0.6rem 0.9rem; margin-bottom: 1rem; font-size: 0.85rem;
+}
+.landscape-prompt-text { font-weight: 600; color: var(--text); }
+.landscape-prompt-actions { display: flex; gap: 0.5rem; flex-shrink: 0; }
+/* Toggled on <body> (not a wrapper div) so it reaches the sidebar/bottom-nav and
+   .main regardless of how deep the grid is nested — a plain /schedule page vs.
+   any of the Timetable popups (which already fill the viewport via their own
+   .modal-backdrop-fullscreen, so this mostly matters for the bare /schedule route). */
+body.landscape-fullscreen .sidebar,
+body.landscape-fullscreen .bottom-nav { display: none !important; }
+body.landscape-fullscreen .main { max-width: none; margin: 0; padding: 0; width: 100vw; height: 100dvh; }
+body.landscape-fullscreen .main > .kid-theme { height: 100%; }
+body.landscape-fullscreen .schedule-page { height: 100%; padding: 0.5rem; box-sizing: border-box; }
+body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
 .schedule-page .timetable-grid { height: 100%; }
 .manager-view-close-fullscreen {
   position: fixed;

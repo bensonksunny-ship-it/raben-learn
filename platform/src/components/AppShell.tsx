@@ -74,9 +74,6 @@ export default function AppShell() {
           <AppIcon className="sidebar-brand-icon" />
           <span className="sidebar-brand-text">Raben Learn</span>
         </div>
-        <button type="button" className="launcher-trigger" onClick={() => setLauncherOpen(true)}>
-          <span className="launcher-trigger-icon" aria-hidden>🏠</span> Home
-        </button>
         <nav className="nav-list">
           {isAdmin && <>
             <NavLink to="/admin" end className={nl}>🏠 Dashboard</NavLink>
@@ -126,14 +123,6 @@ export default function AppShell() {
       {/* Bottom nav — mobile only (shown via CSS at ≤600px) */}
       <nav className="bottom-nav">
         <div className="bottom-nav-inner">
-          <button
-            type="button"
-            className="bottom-nav-link"
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }}
-            onClick={() => setLauncherOpen(true)}
-          >
-            <span className="bn-icon" aria-hidden>🏠</span><span className="bn-label">Apps</span>
-          </button>
           {isAdmin && <>
             <NavLink to="/admin" end className={bnl}><span className="bn-icon">🏠</span><span className="bn-label">Home</span></NavLink>
             <NavLink to="/admin/students" className={bnl}><span className="bn-icon">🎓</span><span className="bn-label">Students</span></NavLink>
@@ -163,6 +152,12 @@ export default function AppShell() {
           <NavLink to="/profile" className={bnl}><span className="bn-icon">👤</span><span className="bn-label">You</span></NavLink>
         </div>
       </nav>
+
+      {/* Floating launcher trigger — deliberately its own thing, not part of either
+          nav bar, so it reads as "open everything" rather than another nav item. */}
+      <button type="button" className="launcher-fab" aria-label="Open app launcher" onClick={() => setLauncherOpen(true)}>
+        🏠
+      </button>
 
       <ModuleLauncher items={launcherItems} open={launcherOpen} onClose={() => setLauncherOpen(false)} />
     </div>

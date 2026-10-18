@@ -6,6 +6,8 @@ import { mapCourseDoc } from '../../lib/courses'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
+import { LandscapePrompt } from '../../components/LandscapePrompt'
+import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import {
   WEEKDAYS, DAY_COLORS, formatTime,

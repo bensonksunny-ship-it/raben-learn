@@ -61,9 +61,9 @@ export function useLandscapeFullscreen(): UseLandscapeFullscreenResult {
     return () => { document.body.classList.remove('landscape-fullscreen') }
   }, [isLandscapeFullscreen])
 
-  // Once landscape is reached — by any means — there's nothing left to prompt for.
-  useEffect(() => { if (isLandscape) setDismissed(true) }, [isLandscape])
-
+  // `!isLandscape` alone already hides the prompt once landscape is reached by any
+  // means (our own lock call, or a plain physical rotation) — `dismissed` only
+  // needs to track an explicit "Stay in Portrait".
   const promptVisible = isMobile && !isLandscape && !dismissed
 
   const enterLandscape = useCallback(() => {

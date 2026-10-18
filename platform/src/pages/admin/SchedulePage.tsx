@@ -48,6 +48,7 @@ function toWeekday(name: string): Weekday | null {
  * original Timetable Planner spec this merges with the former StudentDiaryPage.
  */
 export function SchedulePage({ initialStudentId = null }: { initialStudentId?: string | null } = {}) {
+  const { promptVisible, enterLandscape, dismissPrompt } = useLandscapeFullscreen()
   const [students, setStudents] = useState<UserProfile[]>([])
   const [loadingStudents, setLoadingStudents] = useState(true)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId)
@@ -269,6 +270,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
 
   return (
     <div className="schedule-page">
+      {promptVisible && <LandscapePrompt onSwitch={enterLandscape} onStay={dismissPrompt} />}
       <div className="diary-toolbar">
         <h1 style={{ margin: 0 }}>🗓️ Schedule</h1>
         <div className="diary-toolbar-controls">

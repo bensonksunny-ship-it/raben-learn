@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import { LandscapePrompt } from '../../components/LandscapePrompt'
+import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import {
   todayStr, addDays, mondayOf,
@@ -28,6 +30,7 @@ export interface StudentTimetableViewProps {
  * own Timetable popup and by the manager's Student Preview tool (via `studentId`).
  */
 export function StudentTimetableView({ studentId }: StudentTimetableViewProps = {}) {
+  const { promptVisible, enterLandscape, dismissPrompt } = useLandscapeFullscreen()
   const { firebaseUser } = useAuth()
   const uid = studentId ?? firebaseUser?.uid
 
@@ -113,6 +116,7 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
 
   return (
     <div className="schedule-page">
+      {promptVisible && <LandscapePrompt onSwitch={enterLandscape} onStay={dismissPrompt} />}
       {error ? <p className="error">{error}</p> : null}
 
       <div className="row" style={{ marginBottom: '1rem' }}>

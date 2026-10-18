@@ -19,7 +19,6 @@ export default function AppShell() {
   const isStudent = profile.roles.includes('student')
   const isManager = profile.roles.includes('manager')
 
-  const nl = ({ isActive }: { isActive: boolean }) => `nav-link${isActive ? ' active' : ''}`
   const bnl = ({ isActive }: { isActive: boolean }) => `bottom-nav-link${isActive ? ' active' : ''}`
 
   // Manager's Users/Students/Schedule links point at /manager?view=... (they open as a
@@ -68,48 +67,16 @@ export default function AppShell() {
 
   return (
     <div className="shell">
-      {/* Sidebar — desktop */}
+      {/* Sidebar — desktop. An ultra-minimal icon rail, not a nav list — every
+          route it used to link to lives in the launcher grid now (see
+          `launcherItems` above), so this is just the brand mark and sign out. */}
       <aside className="sidebar">
         <div className="sidebar-brand">
           <AppIcon className="sidebar-brand-icon" />
-          <span className="sidebar-brand-text">Raben Learn</span>
         </div>
-        <nav className="nav-list">
-          {isAdmin && <>
-            <NavLink to="/admin" end className={nl}>🏠 Dashboard</NavLink>
-            <NavLink to="/admin/students" className={nl}>🎓 Students</NavLink>
-            <NavLink to="/admin/users" className={nl}>👤 Users</NavLink>
-            <NavLink to="/admin/syllabus" className={nl}>📚 Syllabus</NavLink>
-            <NavLink to="/schedule" className={nl}>🗓️ Schedule</NavLink>
-            <NavLink to="/manager" className={nl}>🧑‍💼 Manager</NavLink>
-            <NavLink to="/manager/student-preview" className={nl}>👁️ Preview Student View</NavLink>
-            <NavLink to="/admin/reports" className={nl}>📊 Reports</NavLink>
-          </>}
-          {isMentor && <>
-            <NavLink to="/mentor" end className={nl}>🏠 Dashboard</NavLink>
-            <NavLink to="/mentor" className={nl}>🎓 Students</NavLink>
-            <NavLink to="/mentor/syllabus" className={nl}>📚 Syllabus</NavLink>
-            <NavLink to="/mentor/reports" className={nl}>📊 Reports</NavLink>
-          </>}
-          {isStudent && <>
-            <NavLink to="/student" end className={nl}>🏠 Dashboard</NavLink>
-            <NavLink to="/student/planner" className={nl}>📅 Today's Plan</NavLink>
-            <NavLink to="/student/history" className={nl}>🏆 History</NavLink>
-          </>}
-          {isManager && <>
-            <Link to="/manager" className={managerLinkClass('nav-link', '')}>🏠 Dashboard</Link>
-            <Link to="/manager?view=users" className={managerLinkClass('nav-link', 'users')}>👤 Users</Link>
-            <Link to="/manager?view=students" className={managerLinkClass('nav-link', 'students')}>🎓 Students</Link>
-            <Link to="/manager?view=schedule" className={managerLinkClass('nav-link', 'schedule')}>🗓️ Schedule</Link>
-            <NavLink to="/manager/student-preview" className={nl}>👁️ Preview Student View</NavLink>
-          </>}
-        </nav>
-        <div className="user-meta">
-          <span className="user-meta-name">{profile.name}</span>
-          <span className="muted small">{profile.roles.join(' · ')}</span>
-          <button type="button" className="btn ghost small" onClick={handleLogout}>Sign out</button>
-        </div>
-        <div className="muted small" style={{ textAlign: 'center', padding: '0.25rem', opacity: 0.4 }}>v3</div>
+        <button type="button" className="sidebar-rail-action" onClick={handleLogout} title="Sign out" aria-label="Sign out">
+          🚪
+        </button>
       </aside>
 
       {/* .kid-theme here (not on individual pages) re-themes every view in one place —

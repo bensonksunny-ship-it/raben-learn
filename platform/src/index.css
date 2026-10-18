@@ -86,6 +86,8 @@ button { touch-action: manipulation; font-family: var(--font-body); }
 .btn.secondary { background: var(--surface-soft); border-color: var(--border); color: var(--text); }
 .btn.secondary:hover { background: #e8ecf5; border-color: rgba(18,25,46,0.18); opacity: 1; }
 .btn.small { padding: 0.28rem 0.7rem; font-size: 0.78rem; border-radius: 6px; }
+.btn.danger { background: #dc2626; color: #fff; border-color: #dc2626; }
+.btn.danger:hover { opacity: 1; filter: brightness(1.08); }
 .btn:disabled { opacity: 0.42; cursor: not-allowed; }
 
 .error  { color: var(--danger); background: #fdf2f2; border: 1px solid #f5c6c6; padding: 0.65rem 0.9rem; border-radius: 9px; font-size: 0.88rem; }
@@ -172,7 +174,15 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .syllabus-col-wide { flex: 1 1 520px; min-width: 420px; }
 .syllabus-col-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
 .syllabus-col-header h2 { margin: 0; }
-.syllabus-breadcrumb { margin: -0.25rem 0 0.75rem; }
+/* The active Syllabus panel's header — the selected course's own name standing in
+   for a generic "Syllabus" label, roughly Tailwind's text-3xl, with a quiet inline
+   rename control (invisible until hovered/focused) rather than a separate button. */
+.syllabus-active-title { display: flex; align-items: center; gap: 0.5rem; margin: 0; font-size: 1.85rem; line-height: 1.2; }
+.syllabus-title-edit-btn {
+  background: none; border: none; cursor: pointer; font-size: 1.05rem; line-height: 1;
+  opacity: 0.4; padding: 0.2rem 0.4rem; border-radius: 8px; transition: opacity 0.15s, background 0.15s;
+}
+.syllabus-title-edit-btn:hover, .syllabus-title-edit-btn:focus-visible { opacity: 1; background: var(--surface-soft); }
 .syllabus-mini-form { margin-bottom: 0.75rem; background: var(--surface-soft); border: 1px solid var(--border); border-radius: 10px; padding: 0.75rem; }
 .syllabus-mini-form input { margin-bottom: 0.4rem; }
 .syllabus-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.25rem; }
@@ -194,7 +204,7 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .syllabus-session-actions .btn.ghost { border-color: rgba(216,228,255,0.8); color: var(--muted); }
 
 /* ─── Syllabus: courses as a Bento card grid (one rounded row-card per course) ── */
-.course-add-btn { border-radius: 999px; font-weight: 700; box-shadow: var(--shadow); }
+.course-add-btn { border-radius: 999px; font-weight: 700; box-shadow: var(--shadow); width: 50%; max-width: 20rem; padding: 0.85rem 1.5rem; font-size: 1rem; }
 .course-card-list { display: flex; flex-direction: column; gap: 0.65rem; }
 .course-row-card {
   display: flex; align-items: flex-start; gap: 0.75rem; width: 100%; text-align: left;
@@ -226,15 +236,32 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .level-save-status { font-size: 0.8rem; font-weight: 700; color: var(--muted); }
 .level-save-status.saved { color: var(--green); }
 
-.topic-timeline { list-style: none; margin: 0.35rem 0 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; position: relative; }
-.topic-timeline::before { content: ''; position: absolute; left: 0.875rem; top: 0.5rem; bottom: 0.5rem; width: 1px; background: var(--border); }
-.topic-timeline-row { display: grid; grid-template-columns: 1.75rem 1.5rem auto 1fr auto; align-items: center; gap: 0.65rem; padding: 0.45rem 0.5rem 0.45rem 0; font-size: 1rem; border-radius: 9px; position: relative; }
-.topic-timeline-row.topic-done { background: #f0fdf8; }
-.topic-timeline-row:hover { background: var(--surface-soft); }
-.topic-timeline-index { text-align: center; font-variant-numeric: tabular-nums; z-index: 1; background: var(--surface-soft); width: 1.75rem; height: 1.75rem; line-height: 1.75rem; border-radius: 999px; border: 1px solid var(--border); font-size: 0.75rem; }
-.topic-timeline-row:hover .topic-timeline-index { background: var(--surface); }
-.topic-timeline-badge { font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.16rem 0.6rem; border-radius: 999px; white-space: nowrap; }
-.topic-timeline-title { min-width: 0; color: var(--text); }
+/* Sessions view — a plain two-column table (SL No., Title) for maximum clarity; the
+   complete-toggle and "⋮" menu live in a trailing, unlabeled actions cell rather than
+   a third named column, so the table still reads as just those two at a glance. */
+.session-topics-table { width: 100%; border-collapse: collapse; margin: 0.35rem 0 0; font-size: 0.92rem; }
+.session-topics-table th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-2); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
+.session-topics-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.session-topics-table tbody tr:last-child td { border-bottom: none; }
+.session-topics-table tbody tr:hover { background: var(--surface-soft); }
+.session-topics-table tr.topic-done { background: #f0fdf8; }
+
+/* Read-only "Save Syllabus" view — spacious rows, no hover affordance (nothing in
+   this table is clickable), subtle dividers only. */
+.session-topics-table.readonly th { padding: 0.6rem 0.75rem; }
+.session-topics-table.readonly td { padding: 1rem 0.75rem; font-size: 0.98rem; }
+.session-topics-table.readonly tbody tr:hover { background: none; }
+.session-topics-table.readonly .session-topics-title { line-height: 1.5; }
+.session-topics-index { width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
+.session-topics-title { color: var(--text); }
+.session-topics-actions { width: 1%; white-space: nowrap; }
+.session-topics-actions-inner { display: flex; align-items: center; gap: 0.35rem; justify-content: flex-end; }
+/* Flush, spreadsheet-like cell editing — no border/padding until the cell is
+   actively focused, so the grid reads as a real editable table rather than a
+   form stacked inside one. */
+.syllabus-grid-input { border: 1.5px solid transparent; border-radius: 6px; padding: 0.3rem 0.4rem; background: transparent; }
+.syllabus-grid-input:hover { border-color: var(--border); }
+.syllabus-grid-input:focus { border-color: var(--focus); background: var(--surface); box-shadow: 0 0 0 2px color-mix(in srgb, var(--focus) 15%, transparent); }
 .topic-complete-btn { width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 2px solid var(--border); background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: transparent; transition: border-color 0.15s, background 0.15s, color 0.15s; flex-shrink: 0; padding: 0; }
 .topic-complete-btn:hover { border-color: var(--green); color: var(--green); }
 .topic-complete-btn.done { background: var(--green); border-color: var(--green); color: #fff; }
@@ -287,12 +314,6 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
   .topic-editor-row > :nth-child(3) { grid-area: title; }
   .topic-editor-row > :nth-child(4) { grid-area: remark; }
   .topic-editor-row > :nth-child(5) { grid-area: actions; }
-  .topic-timeline-row { grid-template-columns: 1.75rem 1.5rem auto 1fr; grid-template-areas: 'idx check badge title' '. . actions actions'; gap: 0.35rem 0.65rem; }
-  .topic-timeline-row > :nth-child(1) { grid-area: idx; }
-  .topic-timeline-row > :nth-child(2) { grid-area: check; }
-  .topic-timeline-row > :nth-child(3) { grid-area: badge; }
-  .topic-timeline-row > :nth-child(4) { grid-area: title; white-space: normal; }
-  .topic-timeline-row > :nth-child(5) { grid-area: actions; justify-self: end; }
 }
 
 .student-hero { padding: 1.5rem; background: var(--surface); border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 1.5rem; box-shadow: var(--shadow); }
@@ -744,6 +765,17 @@ a.dash-stat-card:hover .dash-stat-arrow { opacity: 1; transform: translateX(0); 
    .nav-card default so it reads distinctly playful without changing Manager's. */
 .student-action-grid .nav-card { border-radius: 24px; }
 .student-action-grid .nav-card-icon { border-radius: 16px; }
+
+/* Minimal NavCard — just the bold title, centered, with generous padding instead
+   of an icon/subtitle/arrow filling the space. */
+.nav-card-minimal { align-items: center; justify-content: center; text-align: center; padding: 2.5rem 1.5rem; min-height: 132px; gap: 0; }
+.nav-card-minimal .nav-card-title { font-size: 1.45rem; }
+
+/* Compact override — dense layouts (Student Preview) where the card should stay
+   small instead of filling space. Combined selector so it always wins over the
+   roomier .nav-card-minimal sizing above, regardless of source order. */
+.nav-card-minimal.nav-card-compact { padding: 0.65rem 0.9rem; min-height: 0; }
+.nav-card-minimal.nav-card-compact .nav-card-title { font-size: 0.92rem; }
 
 /* Manager Dashboard's own in-theme navigation rail, alongside its content — distinct
    from AppShell's shared navy `.sidebar`, which still wraps the whole app outside this

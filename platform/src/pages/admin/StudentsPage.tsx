@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
 import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { callCreateUser, callDeleteUser, callDisableUser, callUpdateUser } from '../../lib/adminGcfCallables'
@@ -9,6 +9,10 @@ import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { useAuth } from '../../context/AuthContext'
 import type { Course, Session, UserProfile } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
+
+// Lazy — SchedulePage pulls in the whole PriorityScheduler grid, which most visits to
+// the Students page never need.
+const SchedulePage = lazy(() => import('./SchedulePage').then((m) => ({ default: m.SchedulePage })))
 
 export function StudentsPage() {
   const { profile } = useAuth()
@@ -24,15 +28,14 @@ export function StudentsPage() {
   const [error, setError] = useState('')
   const [createdPw, setCreatedPw] = useState('')
 
-  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive'>('active')
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null)
+  const [timetableStudentId, setTimetableStudentId] = useState<string | null>(null)
   const [selectedCourseForSyllabus, setSelectedCourseForSyllabus] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [syllabusLoading, setSyllabusLoading] = useState(false)
   const [addCourseId, setAddCourseId] = useState('')
-
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const openMenuRef = useRef<HTMLDivElement | null>(null)
 
   const [showCreate, setShowCreate] = useState(false)
   const [name, setName] = useState('')
@@ -70,22 +73,6 @@ export function StudentsPage() {
   }
 
   useEffect(() => { void load() }, [])
-
-  // Close the "⋮" menu on an outside click. Done via a document listener rather than
-  // an invisible full-screen overlay div — that overlay used to sit at a fixed
-  // z-index that could out-rank the dropdown once `.user-card:hover`'s `transform`
-  // gave the card its own stacking context (any transform does, even unpositioned),
-  // trapping the dropdown's z-index inside it. The overlay then caught the click
-  // meant for a menu item and just closed the menu — Enable/Disable/Delete looked
-  // wired up but silently did nothing. A listener has no element to lose that fight.
-  useEffect(() => {
-    if (!openMenuId) return
-    function onDocPointerDown(e: MouseEvent) {
-      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) setOpenMenuId(null)
-    }
-    document.addEventListener('mousedown', onDocPointerDown)
-    return () => document.removeEventListener('mousedown', onDocPointerDown)
-  }, [openMenuId])
 
   useEffect(() => {
     if (!selectedStudent) return
@@ -125,11 +112,6 @@ export function StudentsPage() {
     }
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return students.filter((s) => !q || s.name.toLowerCase().includes(q) || s.email.toLowerCase().includes(q))
-  }, [students, search])
-
   function toggleCourse(cid: string) {
     setCourseIds((prev) => (prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]))
   }
@@ -164,7 +146,7 @@ export function StudentsPage() {
   async function toggleDisable(u: UserProfile) {
     if (!canManage) return
     const disabling = u.status === 'active'
-    if (!window.confirm(disabling ? 'Disable this student?' : 'Re-enable this student?')) return
+    if (!window.confirm(disabling ? 'Mark this student as inactive?' : 'Mark this student as active again?')) return
     setError('')
     try {
       await callDisableUser(u.id, disabling)
@@ -184,6 +166,11 @@ export function StudentsPage() {
     } catch (err: unknown) { setError(formatFirebaseError(err, 'Delete failed')) }
   }
 
+  /** Display label only — the stored `UserStatus` value is still 'active'/'disabled'. */
+  function statusLabel(status: UserProfile['status']): string {
+    return status === 'active' ? 'active' : 'inactive'
+  }
+
   async function saveCourses(u: UserProfile, nextCourseIds: string[]) {
     if (!canManage) return
     setError(''); setSaving(true)
@@ -201,16 +188,16 @@ export function StudentsPage() {
   const courseLabel = (cids: string[]) =>
     cids.map((cid) => courses.find((c) => c.id === cid)?.title).filter(Boolean).join(', ')
 
+  const activeStudents = students.filter((s) => s.status === 'active')
+  const inactiveStudents = students.filter((s) => s.status !== 'active')
+  const visibleStudents = statusFilter === 'active' ? activeStudents : inactiveStudents
+
   return (
     <div>
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
           <h1 style={{ marginBottom: '0.25rem' }}>Students</h1>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="page-stat">{students.length} students</span>
-            <span className="muted small">Create and manage student accounts</span>
-          </div>
         </div>
         {canManage && (
           <button className="btn primary" onClick={() => { setShowCreate((v) => !v); setError('') }}>
@@ -268,20 +255,32 @@ export function StudentsPage() {
         </section>
       )}
 
-      {/* Search */}
-      <div className="filter-bar">
-        <input
-          placeholder="Search name or email…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
-      </div>
-
       {loading ? <p className="muted">Loading…</p> : null}
 
+      {/* Active / Inactive filter */}
+      <div className="row" style={{ marginBottom: '1rem' }}>
+        <button
+          type="button"
+          className={`btn small ${statusFilter === 'active' ? 'primary' : 'secondary'}`}
+          onClick={() => setStatusFilter('active')}
+        >
+          Active Students ({activeStudents.length})
+        </button>
+        <button
+          type="button"
+          className={`btn small ${statusFilter === 'inactive' ? 'primary' : 'secondary'}`}
+          onClick={() => setStatusFilter('inactive')}
+        >
+          Inactive Students ({inactiveStudents.length})
+        </button>
+      </div>
+
       {/* Student card grid */}
+      {openMenuId && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setOpenMenuId(null)} />
+      )}
       <div className="user-grid">
-        {filtered.map((s) => (
+        {visibleStudents.map((s) => (
           <div
             key={s.id}
             className={`user-card${selectedStudent?.id === s.id ? ' selected' : ''}`}
@@ -296,14 +295,10 @@ export function StudentsPage() {
                   <div className="user-card-email">{s.email}</div>
                 </div>
                 <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
-                  {s.status}
+                  {statusLabel(s.status)}
                 </span>
                 {canManage && (
-                  <div
-                    className="topic-menu-wrap"
-                    ref={openMenuId === s.id ? openMenuRef : undefined}
-                    onClick={(e) => e.stopPropagation()}
-                  >
+                  <div className="topic-menu-wrap" onClick={(e) => e.stopPropagation()}>
                     <button
                       type="button"
                       className="topic-menu-btn"
@@ -313,22 +308,35 @@ export function StudentsPage() {
                     </button>
                     {openMenuId === s.id && (
                       <div className="topic-menu-dropdown">
-                        <button
-                          type="button"
-                          className="topic-menu-item"
-                          onClick={() => { setOpenMenuId(null); void toggleDisable(s) }}
-                        >
-                          {s.status === 'active' ? 'Disable' : 'Enable'}
-                        </button>
-                        {/* Permanent delete stays admin-only — not part of the manager scope. */}
-                        {isAdmin && (
+                        {s.status === 'active' ? (
                           <button
                             type="button"
-                            className="topic-menu-item danger"
-                            onClick={() => { setOpenMenuId(null); void deleteStudent(s) }}
+                            className="topic-menu-item"
+                            onClick={() => { setOpenMenuId(null); void toggleDisable(s) }}
                           >
-                            Delete
+                            Mark Inactive
                           </button>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className="topic-menu-item"
+                              onClick={() => { setOpenMenuId(null); void toggleDisable(s) }}
+                            >
+                              Mark Active
+                            </button>
+                            {/* Delete only ever shows for an already-inactive student, and
+                                stays admin-only — not part of the manager scope. */}
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                className="topic-menu-item danger"
+                                onClick={() => { setOpenMenuId(null); void deleteStudent(s) }}
+                              >
+                                Delete
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     )}
@@ -342,8 +350,13 @@ export function StudentsPage() {
             </div>
           </div>
         ))}
-        {filtered.length === 0 && !loading && (
-          <div style={{ gridColumn: '1/-1' }}><EmptyState title="No students found" subtitle="Add a student or adjust your search." /></div>
+        {visibleStudents.length === 0 && !loading && (
+          <div style={{ gridColumn: '1/-1' }}>
+            <EmptyState
+              title={statusFilter === 'active' ? 'No active students found' : 'No inactive students'}
+              subtitle={statusFilter === 'active' ? 'Add a student to get started.' : 'Students marked inactive will show up here.'}
+            />
+          </div>
         )}
       </div>
 
@@ -359,11 +372,16 @@ export function StudentsPage() {
                 <h2 style={{ margin: '0 0 0.15rem' }}>{selectedStudent.name}</h2>
                 <div className="muted small">{selectedStudent.email}</div>
                 <span className={`tag ${selectedStudent.status === 'active' ? '' : 'danger'}`} style={{ marginTop: '0.3rem', display: 'inline-block' }}>
-                  {selectedStudent.status}
+                  {statusLabel(selectedStudent.status)}
                 </span>
               </div>
             </div>
-            <button type="button" className="btn small secondary" onClick={() => setSelectedStudent(null)}>✕ Close</button>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button type="button" className="btn small secondary" onClick={() => setTimetableStudentId(selectedStudent.id)}>
+                🗓️ Timetable
+              </button>
+              <button type="button" className="btn small secondary" onClick={() => setSelectedStudent(null)}>✕ Close</button>
+            </div>
           </div>
 
           <h3 style={{ marginBottom: '0.75rem' }}>Courses</h3>
@@ -475,6 +493,26 @@ export function StudentsPage() {
             </div>
           )}
         </section>
+      )}
+
+      {timetableStudentId && (
+        <div className="modal-backdrop modal-backdrop-fullscreen" onClick={() => setTimetableStudentId(null)}>
+          <div className="modal manager-view-modal manager-view-modal-fullscreen" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              aria-label="Close"
+              className="btn small ghost manager-view-close manager-view-close-fullscreen"
+              onClick={() => setTimetableStudentId(null)}
+            >
+              ✕
+            </button>
+            <div className="manager-view-fullscreen-body">
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <SchedulePage initialStudentId={timetableStudentId} />
+              </Suspense>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

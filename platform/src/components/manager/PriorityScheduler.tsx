@@ -142,13 +142,23 @@ interface SyllabusSuggestion {
   sessionId: string | null
 }
 
+/**
+ * Only courses actually placed under a Syllabus level feed the autocomplete — a
+ * `levelId` of null means the course sits in the Syllabus Builder's "Unassigned"
+ * bucket (never properly leveled: leftover test rows, mock seed data, etc.), and
+ * those shouldn't surface as elective title suggestions. Sessions/topics inherit
+ * the restriction from their parent course.
+ */
 function buildSyllabusSuggestions(courses: Course[], sessions: Session[]): SyllabusSuggestion[] {
+  const leveledCourseIds = new Set(courses.filter((c) => c.levelId !== null).map((c) => c.id))
   const out: SyllabusSuggestion[] = []
   for (const c of courses) {
+    if (c.levelId === null) continue
     if (!c.title.trim()) continue
     out.push({ key: `course_${c.id}`, title: c.title, kind: 'course', detail: 'Course', sessionId: null })
   }
   for (const s of sessions) {
+    if (!s.courseId || !leveledCourseIds.has(s.courseId)) continue
     if (s.title.trim()) {
       out.push({
         key: `session_${s.id}`, title: s.title, kind: 'session',

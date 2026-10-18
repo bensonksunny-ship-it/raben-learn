@@ -38,10 +38,10 @@ function studentLabel(s: UserProfile): string {
  * See docs/superpowers/specs/2026-10-15-timetable-planner-design.md for the
  * original Timetable Planner spec this merges with the former StudentDiaryPage.
  */
-export function SchedulePage() {
+export function SchedulePage({ initialStudentId = null }: { initialStudentId?: string | null } = {}) {
   const [students, setStudents] = useState<UserProfile[]>([])
   const [loadingStudents, setLoadingStudents] = useState(true)
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null)
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId)
   const [date, setDate] = useState(todayStr())
   const [weekPlans, setWeekPlans] = useState<Record<string, DailyPlan | null>>({})
   const [loadingPlans, setLoadingPlans] = useState(false)

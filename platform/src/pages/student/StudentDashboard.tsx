@@ -7,29 +7,26 @@ import { mapCourseDoc } from '../../lib/courses'
 import type { ClassTimetable, Course, ElectiveSchedule, ProgressEntry, Weekday } from '../../types'
 import { OwlMascot } from '../../components/manager/OwlMascot'
 import { NavCard } from '../../components/manager/NavCard'
-import { CoursesIcon, ScheduleIcon, SessionsIcon } from '../../components/manager/StatIcons'
 import {
   timeStrToMinutes, todayStr,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
 } from '../../components/manager/schedulerShared'
-// Statically imported, not lazy — App.tsx already bundles both eagerly for their
-// own /student/courses and /student/planner routes, so a lazy() wrapper here would
-// just be dead weight (same JS, no later chunk fetch to defer).
-import { StudentCoursesPage } from './StudentCoursesPage'
+// Statically imported, not lazy — App.tsx already bundles it eagerly for its own
+// /student/planner route, so a lazy() wrapper here would just be dead weight
+// (same JS, no later chunk fetch to defer).
 import { StudentDailyPlanner } from './StudentDailyPlanner'
 
 // This one genuinely isn't loaded anywhere else yet, so lazy-loading it here keeps
 // its (PriorityScheduler-pulling) chunk out of the main bundle until opened.
 const StudentTimetableView = lazy(() => import('./StudentTimetableView').then((m) => ({ default: m.StudentTimetableView })))
 
-type StudentView = 'timetable' | 'courses' | 'planner'
+// No separate "courses" view — the dashboard's own "My Courses" section below is
+// the one place a student browses their enrolled courses. A popup duplicating
+// that list (the old `?view=courses`) was redundant with it.
+type StudentView = 'timetable' | 'planner'
 
 function isStudentView(v: string | null): v is StudentView {
-  return v === 'timetable' || v === 'courses' || v === 'planner'
-}
-
-function formatDate(d: Date) {
-  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  return v === 'timetable' || v === 'planner'
 }
 
 /** 12-hour clock label for an "HH:MM" string, e.g. "14:30" → "2:30 PM". */
@@ -176,60 +173,34 @@ export function StudentDashboard() {
 
   return (
     <div>
-      {/* Hero */}
+      {/* Hero — just the mascot (kept for the same illustrated identity every
+          dashboard uses) and a plain title. No date, no tagline, no emoji. */}
       <div className="panel" style={{ display: 'flex', alignItems: 'center', gap: '1.5rem', marginBottom: '1.5rem', flexWrap: 'wrap', borderRadius: 'calc(var(--radius) + 10px)' }}>
         <OwlMascot size={108} />
-        <div style={{ flex: 1, minWidth: 200 }}>
-          <h1 style={{ marginBottom: '0.2rem' }}>Welcome back, {firstName}! 🌟</h1>
-          <p className="muted" style={{ margin: 0 }}>{formatDate(new Date())} · Here's your learning overview</p>
-        </div>
+        <h1 style={{ margin: 0 }}>Welcome back, {firstName}</h1>
       </div>
 
-      {/* Today's schedule — next class summary */}
+      {/* Today's schedule — next class summary, plain text only (no status pill,
+          no mentor name) so it reads as one simple line. */}
       <div className="panel" style={{ marginBottom: '1.75rem', borderRadius: 'calc(var(--radius) + 10px)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.6rem' }}>
-          <span aria-hidden style={{ fontSize: '1.2rem' }}>🗓️</span>
-          <h2 style={{ margin: 0, fontSize: '1rem' }}>Today's Schedule</h2>
-        </div>
+        <h2 style={{ margin: '0 0 0.6rem', fontSize: '1rem' }}>Today's Schedule</h2>
         {loadingSchedule ? (
           <p className="muted small" style={{ margin: 0 }}>Loading…</p>
         ) : !nextClass ? (
           <p className="muted small" style={{ margin: 0 }}>No more classes scheduled for today.</p>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
-            <span style={{ background: nextClass.status === 'now' ? '#d0ebff' : 'var(--primary-soft)', color: nextClass.status === 'now' ? '#1971c2' : 'var(--primary)', borderRadius: 99, padding: '0.2rem 0.65rem', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em' }}>
-              {nextClass.status === 'now' ? 'Happening now' : 'Next class'}
-            </span>
-            <strong style={{ fontSize: '0.98rem' }}>{nextClass.title}</strong>
-            <span className="muted small">at {formatClock(nextClass.startTime)}</span>
-            {nextClass.mentorName && <span className="muted small">· with {nextClass.mentorName}</span>}
-          </div>
+          <p style={{ margin: 0, fontSize: '0.98rem' }}>
+            {nextClass.status === 'now' ? 'Now' : 'Next'}: {nextClass.title} at {formatClock(nextClass.startTime)}
+          </p>
         )}
       </div>
 
-      {/* Student Action Grid */}
+      {/* Student Action Grid — minimal cards: bold title only, no icon/subtitle/arrow.
+          Just Timetable and Notes — courses live in the "My Courses" section below,
+          not a separate card/view. */}
       <div className="nav-card-grid student-action-grid" style={{ marginBottom: '1.75rem' }}>
-        <NavCard
-          icon={<ScheduleIcon color="#ffffff" />}
-          title="Today's Classes & Timetable"
-          subtitle="Full-screen daily schedule, 10 AM – 6 PM"
-          color="#8b5cf6"
-          to="/student?view=timetable"
-        />
-        <NavCard
-          icon={<CoursesIcon color="#ffffff" />}
-          title="My Subjects & Syllabus"
-          subtitle="Courses, progress, and upcoming lessons"
-          color="#3b82f6"
-          to="/student?view=courses"
-        />
-        <NavCard
-          icon={<SessionsIcon color="#ffffff" />}
-          title="Student Diary / Notes"
-          subtitle="Daily reflections and planned tasks"
-          color="#059669"
-          to="/student?view=planner"
-        />
+        <NavCard title="Timetable" color="#8b5cf6" to="/student?view=timetable" minimal />
+        <NavCard title="Notes" color="#059669" to="/student?view=planner" minimal />
       </div>
 
       {loading ? <p className="muted">Loading…</p> : (
@@ -260,7 +231,7 @@ export function StudentDashboard() {
                 {[
                   { to: '/student/planner', icon: '📅', label: "Today's Plan", desc: 'View and complete your daily tasks' },
                   { to: '/student/history', icon: '🏆', label: 'History', desc: 'Your completed sessions and progress' },
-                  { to: '/student', icon: '📖', label: 'My Courses', desc: 'Browse all enrolled courses' },
+                  { to: '/student/courses', icon: '📖', label: 'My Courses', desc: 'Browse all enrolled courses' },
                 ].map((a) => (
                   <Link key={a.to} to={a.to} className="dash-action-link">
                     <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{a.icon}</span>
@@ -313,46 +284,6 @@ export function StudentDashboard() {
               )}
             </section>
           </div>
-
-          {/* Course progress */}
-          <section className="panel">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
-              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>My Courses</h2>
-              <Link to="/student/courses" className="btn small secondary">All Courses →</Link>
-            </div>
-
-            {courses.length === 0 ? (
-              <p className="muted">No courses assigned yet. Ask your mentor to enroll you.</p>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
-                {courses.map((c) => {
-                  const p = progress[c.id] ?? { total: 0, done: 0, review: 0 }
-                  const pct = p.total === 0 ? 0 : Math.round((p.done / p.total) * 100)
-                  return (
-                    <Link key={c.id} to={`/student/courses/${c.id}`} style={{ textDecoration: 'none', color: 'inherit', display: 'block' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
-                          <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{c.title}</span>
-                          <span className="muted small">{p.done} of {p.total} done</span>
-                          {p.review > 0 && (
-                            <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>
-                              ⏳ {p.review} under review
-                            </span>
-                          )}
-                        </div>
-                        <span style={{ fontWeight: 700, fontSize: '0.92rem', color: pct === 100 ? '#059669' : 'var(--primary)', flexShrink: 0 }}>
-                          {pct}%
-                        </span>
-                      </div>
-                      <div className="dash-progress-bar">
-                        <div className="dash-progress-fill" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : 'var(--primary)' }} />
-                      </div>
-                    </Link>
-                  )
-                })}
-              </div>
-            )}
-          </section>
         </>
       )}
 
@@ -383,10 +314,7 @@ export function StudentDashboard() {
                   </Suspense>
                 </div>
               ) : (
-                <>
-                  {view === 'courses' && <StudentCoursesPage />}
-                  {view === 'planner' && <StudentDailyPlanner />}
-                </>
+                view === 'planner' && <StudentDailyPlanner />
               )}
             </div>
           </div>

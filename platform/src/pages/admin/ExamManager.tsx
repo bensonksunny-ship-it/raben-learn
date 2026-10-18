@@ -9,7 +9,7 @@ import type { ExamAttempt, ExamConfig, ExamQuestion, UserProfile } from '../../t
 
 interface Props { courseId: string }
 
-type MgrTab = 'bank' | 'settings' | 'results'
+type MgrTab = 'main' | 'results'
 type Difficulty = 'easy' | 'medium' | 'hard'
 
 interface QForm {
@@ -33,7 +33,8 @@ const DIFF_COLORS: Record<Difficulty, { bg: string; text: string }> = {
 }
 
 export default function ExamManager({ courseId }: Props) {
-  const [tab, setTab] = useState<MgrTab>('bank')
+  const [tab, setTab] = useState<MgrTab>('main')
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [questions, setQuestions] = useState<ExamQuestion[]>([])
   const [config, setConfig] = useState<ExamConfig | null>(null)
   const [attempts, setAttempts] = useState<ExamAttempt[]>([])
@@ -200,36 +201,70 @@ export default function ExamManager({ courseId }: Props) {
 
   return (
     <div>
-      {/* Tab bar */}
-      <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '1rem', borderBottom: '2px solid var(--border)', paddingBottom: '0' }}>
-        {([['bank', '📋 Question Bank'], ['settings', '⚙️ Settings'], ['results', '📊 Results']] as const).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => setTab(key)}
-            style={{
-              padding: '0.45rem 0.9rem',
-              border: 'none',
-              borderBottom: tab === key ? '2px solid var(--primary)' : '2px solid transparent',
-              background: 'none',
-              color: tab === key ? 'var(--primary)' : 'var(--muted-2)',
-              fontWeight: tab === key ? 700 : 400,
-              cursor: 'pointer',
-              fontSize: '0.88rem',
-              marginBottom: '-2px',
-            }}
-          >
-            {label}
-          </button>
-        ))}
+      {/* No tab bar — Question Bank and Settings are one combined view below.
+          Results is a lightweight toggle link, not a tab. */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
+        <button
+          type="button"
+          className="btn small ghost"
+          onClick={() => setTab(tab === 'results' ? 'main' : 'results')}
+        >
+          {tab === 'results' ? '← Back to Questions' : '📊 View Results'}
+        </button>
       </div>
 
       {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
       {success && <p className="notice" style={{ marginBottom: '0.75rem' }}>{success}</p>}
 
-      {/* ── Question Bank ── */}
-      {tab === 'bank' && (
+      {/* ── Question Bank + Settings, one combined view (no sub-tabs) ── */}
+      {tab === 'main' && (
         <div>
+          <div className="panel" style={{ marginBottom: '1rem', padding: '0.6rem 1rem' }}>
+            <button
+              type="button"
+              className="btn small ghost"
+              style={{ padding: '0.2rem 0' }}
+              onClick={() => setSettingsOpen((v) => !v)}
+            >
+              {settingsOpen ? '▾' : '▸'} ⚙️ Exam Settings{!config ? ' (not configured yet)' : ''}
+            </button>
+            {settingsOpen && (
+              <div style={{ marginTop: '0.75rem' }}>
+                {!config && (
+                  <p className="notice" style={{ marginBottom: '0.75rem' }}>No exam configured yet. Save settings to create the exam for this course.</p>
+                )}
+                <form onSubmit={(e) => void saveConfig(e)} className="form" style={{ maxWidth: 400 }}>
+                  <label>
+                    Duration (minutes)
+                    <input type="number" min={5} max={180} value={cfgForm.duration} onChange={(e) => setCfgForm((f) => ({ ...f, duration: Number(e.target.value) }))} required />
+                  </label>
+                  <label>
+                    Questions per exam
+                    <input type="number" min={1} value={cfgForm.questionsPerExam} onChange={(e) => setCfgForm((f) => ({ ...f, questionsPerExam: Number(e.target.value) }))} required />
+                    <span className="muted small">Bank has {questions.length} question{questions.length !== 1 ? 's' : ''}.</span>
+                  </label>
+                  <label>
+                    Total marks
+                    <input type="number" min={1} value={cfgForm.totalMarks} onChange={(e) => setCfgForm((f) => ({ ...f, totalMarks: Number(e.target.value) }))} required />
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={cfgForm.isActive}
+                      onChange={(e) => setCfgForm((f) => ({ ...f, isActive: e.target.checked }))}
+                      style={{ width: 16, height: 16 }}
+                    />
+                    <span>Exam active — students can see and start this exam</span>
+                  </label>
+                  {cfgForm.isActive && questions.length < cfgForm.questionsPerExam && (
+                    <p className="error">⚠️ Question bank ({questions.length}) has fewer questions than the exam requires ({cfgForm.questionsPerExam}). Add more questions before activating.</p>
+                  )}
+                  <button type="submit" className="btn primary" disabled={saving || (cfgForm.isActive && questions.length < cfgForm.questionsPerExam)}>{saving ? 'Saving…' : 'Save Settings'}</button>
+                </form>
+              </div>
+            )}
+          </div>
+
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
             <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <select value={filterTopic} onChange={(e) => setFilterTopic(e.target.value)} style={{ fontSize: '0.85rem' }}>
@@ -332,43 +367,6 @@ export default function ExamManager({ courseId }: Props) {
               })}
             </div>
           )}
-        </div>
-      )}
-
-      {/* ── Settings ── */}
-      {tab === 'settings' && (
-        <div>
-          {!config && (
-            <p className="notice" style={{ marginBottom: '0.75rem' }}>No exam configured yet. Save settings to create the exam for this course.</p>
-          )}
-          <form onSubmit={(e) => void saveConfig(e)} className="form" style={{ maxWidth: 400 }}>
-            <label>
-              Duration (minutes)
-              <input type="number" min={5} max={180} value={cfgForm.duration} onChange={(e) => setCfgForm((f) => ({ ...f, duration: Number(e.target.value) }))} required />
-            </label>
-            <label>
-              Questions per exam
-              <input type="number" min={1} value={cfgForm.questionsPerExam} onChange={(e) => setCfgForm((f) => ({ ...f, questionsPerExam: Number(e.target.value) }))} required />
-              <span className="muted small">Bank has {questions.length} question{questions.length !== 1 ? 's' : ''}.</span>
-            </label>
-            <label>
-              Total marks
-              <input type="number" min={1} value={cfgForm.totalMarks} onChange={(e) => setCfgForm((f) => ({ ...f, totalMarks: Number(e.target.value) }))} required />
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={cfgForm.isActive}
-                onChange={(e) => setCfgForm((f) => ({ ...f, isActive: e.target.checked }))}
-                style={{ width: 16, height: 16 }}
-              />
-              <span>Exam active — students can see and start this exam</span>
-            </label>
-            {cfgForm.isActive && questions.length < cfgForm.questionsPerExam && (
-              <p className="error">⚠️ Question bank ({questions.length}) has fewer questions than the exam requires ({cfgForm.questionsPerExam}). Add more questions before activating.</p>
-            )}
-            <button type="submit" className="btn primary" disabled={saving || (cfgForm.isActive && questions.length < cfgForm.questionsPerExam)}>{saving ? 'Saving…' : 'Save Settings'}</button>
-          </form>
         </div>
       )}
 

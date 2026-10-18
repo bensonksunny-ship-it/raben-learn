@@ -14,7 +14,6 @@ import { ReportsPage } from './pages/admin/ReportsPage'
 import { MentorDashboard } from './pages/mentor/MentorDashboard'
 import { MentorStudentProgress } from './pages/mentor/MentorStudentProgress'
 import { StudentDashboard } from './pages/student/StudentDashboard'
-import { StudentCoursesPage } from './pages/student/StudentCoursesPage'
 import { StudentCourseView } from './pages/student/StudentCourseView'
 import { StudentDailyPlanner } from './pages/student/StudentDailyPlanner'
 import { StudentHistory } from './pages/student/StudentHistory'
@@ -26,11 +25,11 @@ const UserManagement = lazy(() =>
 const StudentsPage = lazy(() =>
   import('./pages/admin/StudentsPage').then((m) => ({ default: m.StudentsPage })),
 )
-const PlanningPage = lazy(() =>
-  import('./pages/admin/PlanningPage').then((m) => ({ default: m.PlanningPage })),
-)
 const SchedulePage = lazy(() =>
   import('./pages/admin/SchedulePage').then((m) => ({ default: m.SchedulePage })),
+)
+const StudentPreviewPage = lazy(() =>
+  import('./pages/admin/StudentPreviewPage').then((m) => ({ default: m.StudentPreviewPage })),
 )
 
 function AdminRouteFallback() {
@@ -87,9 +86,27 @@ export default function App() {
               </RequireCapability>
             }
           />
+          <Route
+            path="manager/student-preview"
+            element={
+              <RequireCapability cap="managerArea">
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <StudentPreviewPage />
+                </Suspense>
+              </RequireCapability>
+            }
+          />
           {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
           <Route path="timetable" element={<Navigate to="/schedule" replace />} />
           <Route path="admin/diary" element={<Navigate to="/schedule" replace />} />
+          {/* Retired — the standalone "all courses" list was redundant with the
+              dashboard's own "My Courses" section (no separate course view vs
+              dashboard view anymore). The per-course detail route stays. */}
+          <Route path="student/courses" element={<Navigate to="/student#my-courses" replace />} />
+          {/* Retired — Syllabus Builder now edits a course's title/description/core
+              outcome directly, so the separate Planning page (the same `courses`
+              collection, outcome-only) was redundant with it. */}
+          <Route path="admin/planning" element={<Navigate to="/admin/syllabus" replace />} />
           <Route path="admin" element={<RequireCapability cap="adminArea"><Outlet /></RequireCapability>}>
             <Route index element={<AdminDashboard />} />
             <Route
@@ -111,14 +128,6 @@ export default function App() {
             <Route path="syllabus" element={<SyllabusPage />} />
             <Route path="lessons" element={<SyllabusPage />} />
             <Route path="reports" element={<ReportsPage />} />
-            <Route
-              path="planning"
-              element={
-                <Suspense fallback={<AdminRouteFallback />}>
-                  <PlanningPage />
-                </Suspense>
-              }
-            />
           </Route>
           <Route path="mentor" element={<RequireCapability cap="mentorArea"><Outlet /></RequireCapability>}>
             <Route index element={<MentorDashboard />} />
@@ -128,7 +137,6 @@ export default function App() {
           </Route>
           <Route path="student" element={<RequireCapability cap="studentArea"><Outlet /></RequireCapability>}>
             <Route index element={<StudentDashboard />} />
-            <Route path="courses" element={<StudentCoursesPage />} />
             <Route path="courses/:courseId" element={<StudentCourseView />} />
             <Route path="planner" element={<StudentDailyPlanner />} />
             <Route path="history" element={<StudentHistory />} />

@@ -1,25 +1,20 @@
-import { Fragment, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router-dom'
-import * as XLSX from 'xlsx'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { normalizeTopicType, type Course, type LevelId, type Session, type Topic, type TopicType } from '../../types'
+import type { Course, LevelId, Session, Topic, TopicType } from '../../types'
 import { LEVELS, levelName } from '../../lib/levels'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { mapCourseDoc } from '../../lib/courses'
 import ExamManager from './ExamManager'
 import { useAuth } from '../../context/AuthContext'
 
-function newTopic(type: TopicType = 'concept'): Topic {
-  return { id: crypto.randomUUID(), type, title: '', remark: '' }
-}
-function topicTypeLabel(t: TopicType): string {
-  return t === 'concept' ? 'Concept' : 'Exercise'
-}
-function topicTypeColor(t: TopicType): { bg: string; text: string } {
-  return t === 'concept'
-    ? { bg: '#ede9fe', text: '#5b21b6' }
-    : { bg: '#dcfce7', text: '#166534' }
+/** One row of the flattened SL No./Title grid — a Topic plus which Session doc it
+ *  currently lives in (needed only so writes know where to save; the grid itself
+ *  shows no session boundaries). */
+interface FlatRow {
+  sessionId: string
+  topic: Topic
 }
 
 export function SyllabusPage() {
@@ -32,23 +27,32 @@ export function SyllabusPage() {
   const [addingCourse, setAddingCourse] = useState(false)
 
   const [sessions, setSessions] = useState<Session[]>([])
-  const [sessionFormOpen, setSessionFormOpen] = useState(false)
-  const [editingSessionId, setEditingSessionId] = useState<string | null>(null)
-  const [sessionTitle, setSessionTitle] = useState('')
-  const [sessionOrder, setSessionOrder] = useState(1)
-  const [sessionDuration, setSessionDuration] = useState(0)
-  const [sessionTopics, setSessionTopics] = useState<Topic[]>([newTopic()])
+  const [newRowTitle, setNewRowTitle] = useState('')
+  const [examModalOpen, setExamModalOpen] = useState(false)
+  const [editingCourseInfo, setEditingCourseInfo] = useState(false)
+  const [editCourseTitle, setEditCourseTitle] = useState('')
+  const [editCourseDesc, setEditCourseDesc] = useState('')
+  const [editCourseOutcome, setEditCourseOutcome] = useState('')
+  // Pure UI mode — every row already saves to Firestore as you blur it (see
+  // `commitRowTitle`/`addRow` below), so "Save Syllabus" has nothing left to write;
+  // it just confirms you're done and switches to the clean read-only table. Resets
+  // to editable whenever a different course is selected.
+  const [editingSyllabus, setEditingSyllabus] = useState(true)
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [importResult, setImportResult] = useState<string | null>(null)
-  const [showPasteModal, setShowPasteModal] = useState(false)
-  const [pasteText, setPasteText] = useState('')
-  const [parsedBlocks, setParsedBlocks] = useState<SessionBlock[]>([])
-  const [pasteError, setPasteError] = useState<string | null>(null)
 
-  const xlsxInputRef = useRef<HTMLInputElement>(null)
+  // "Clean up empty courses" — admin/mentor-only review-and-confirm flow. A course
+  // counts as "not recorded in the syllabus page" when it has zero Session docs at
+  // all (never had anything built for it here) — not when its sessions merely have
+  // no topics yet, which stays a normal in-progress course. Nothing is deleted
+  // without this list being shown and explicitly confirmed first.
+  const [cleanupCandidates, setCleanupCandidates] = useState<Course[] | null>(null)
+  const [cleanupLoading, setCleanupLoading] = useState(false)
+  const [cleanupDeleting, setCleanupDeleting] = useState(false)
+
+  const { profile } = useAuth()
+  const isAdminOrMentor = profile?.roles.some((r) => r === 'admin' || r === 'mentor') ?? false
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null
 
@@ -56,20 +60,12 @@ export function SyllabusPage() {
     selectedLevel === 'unassigned' ? c.levelId === null : c.levelId === selectedLevel,
   )
 
-  const [addTopicSessionId, setAddTopicSessionId] = useState<string | null>(null)
-  const [addTopicTitle, setAddTopicTitle] = useState('')
-  const [addTopicType, setAddTopicType] = useState<TopicType>('concept')
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const { profile } = useAuth()
-  const isAdminOrMentor = profile?.roles.some((r) => r === 'admin' || r === 'mentor') ?? false
-  const [rightTab, setRightTab] = useState<'sessions' | 'exam'>('sessions')
-
-  useEffect(() => {
-    if (!openMenuId) return
-    function close() { setOpenMenuId(null) }
-    document.addEventListener('click', close)
-    return () => document.removeEventListener('click', close)
-  }, [openMenuId])
+  /** Every topic from every session of the selected course, flattened into one
+   *  ordered list (session order, then position within that session) — the whole
+   *  session concept is invisible past this point; "SL No." is just `index + 1`. */
+  const flatRows: FlatRow[] = [...sessions]
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .flatMap((s) => s.activities.map((topic) => ({ sessionId: s.id, topic })))
 
   async function loadCourses() {
     const snap = await getDocs(collection(db, 'courses'))
@@ -105,11 +101,8 @@ export function SyllabusPage() {
     if (selectedCourseId) { setSessions([]); void loadSessions(selectedCourseId).catch((e) => setError(String(e))) }
   }, [selectedCourseId])
 
-  useEffect(() => {
-    setRightTab('sessions')
-  }, [selectedCourseId])
-
   useEffect(() => { setSelectedCourseId(null) }, [selectedLevel])
+  useEffect(() => { setExamModalOpen(false); setEditingSyllabus(true); setEditingCourseInfo(false) }, [selectedCourseId])
 
   async function createCourse(e: FormEvent) {
     e.preventDefault()
@@ -127,313 +120,200 @@ export function SyllabusPage() {
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
   }
 
-  function openNewSessionForm() {
-    setEditingSessionId(null)
-    setSessionTitle('')
-    setSessionOrder(sessions.length + 1)
-    setSessionDuration(0)
-    setSessionTopics([newTopic()])
-    setSessionFormOpen(true)
+  async function openCleanup() {
+    setCleanupLoading(true); setError('')
+    try {
+      const snap = await getDocs(collection(db, 'sessions'))
+      const coursesWithSessions = new Set<string>()
+      snap.forEach((d) => { const cid = d.data().courseId as string | null; if (cid) coursesWithSessions.add(cid) })
+      setCleanupCandidates(courses.filter((c) => !coursesWithSessions.has(c.id)))
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to check courses')
+    } finally {
+      setCleanupLoading(false)
+    }
   }
 
-  function openEditSessionForm(session: Session) {
-    setEditingSessionId(session.id)
-    setSessionTitle(session.title)
-    setSessionOrder(session.order ?? 1)
-    setSessionDuration(session.durationMinutes ?? 0)
-    setSessionTopics(session.activities.length > 0 ? [...session.activities] : [newTopic()])
-    setSessionFormOpen(true)
+  async function confirmCleanup() {
+    if (!cleanupCandidates || cleanupCandidates.length === 0) return
+    setCleanupDeleting(true); setError('')
+    try {
+      await Promise.all(cleanupCandidates.map((c) => deleteDoc(doc(db, 'courses', c.id))))
+      if (selectedCourseId && cleanupCandidates.some((c) => c.id === selectedCourseId)) setSelectedCourseId(null)
+      setCleanupCandidates(null)
+      await loadCourses()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete')
+    } finally {
+      setCleanupDeleting(false)
+    }
   }
 
-  async function saveSession(e: FormEvent) {
+  function openEditCourseInfo() {
+    if (!selectedCourse) return
+    setEditCourseTitle(selectedCourse.title)
+    setEditCourseDesc(selectedCourse.description ?? '')
+    setEditCourseOutcome(selectedCourse.coreOutcome ?? '')
+    setEditingCourseInfo(true)
+  }
+
+  /** Writes straight to the `courses` doc, then reloads the shared `courses` list —
+   *  both the left Courses panel and this view's large title read off that same
+   *  state, so one reload updates both at once. Sessions also carry their own
+   *  denormalized `courseName` snapshot (that's what Schedule's "Add elective" title
+   *  autocomplete shows as a suggestion's detail text — "Session · {courseName}"),
+   *  so a rename pushes the new title onto every one of this course's sessions too;
+   *  otherwise that one spot would keep showing the old name until each session
+   *  doc happened to be rewritten some other way. Core outcome lives here too (not
+   *  just title/description) — this is now the only place that edits it, since
+   *  Planning was removed. */
+  async function saveCourseInfo(e: FormEvent) {
     e.preventDefault()
     if (!selectedCourseId) return
-    const cleaned = sessionTopics
-      .map((t) => ({ ...t, title: t.title.trim(), remark: (t.remark ?? '').trim() }))
-      .filter((t) => t.title.length > 0)
-    if (!sessionTitle.trim()) { setError('Session title is required.'); return }
-    if (cleaned.length === 0) { setError('Add at least one topic.'); return }
+    const title = editCourseTitle.trim()
+    if (!title) { setError('Course title is required.'); return }
     setSaving(true); setError('')
     try {
-      const data = { courseId: selectedCourseId, courseName: selectedCourse?.title ?? '', title: sessionTitle.trim(), order: sessionOrder, durationMinutes: sessionDuration, activities: cleaned, updatedAt: serverTimestamp() }
-      if (editingSessionId) await updateDoc(doc(db, 'sessions', editingSessionId), data)
-      else await addDoc(collection(db, 'sessions'), { ...data, createdAt: serverTimestamp() })
-      setSessionFormOpen(false)
+      await updateDoc(doc(db, 'courses', selectedCourseId), { title, description: editCourseDesc.trim(), coreOutcome: editCourseOutcome.trim() })
+      await Promise.all(sessions.map((s) => updateDoc(doc(db, 'sessions', s.id), { courseName: title })))
+      setEditingCourseInfo(false)
+      await loadCourses()
       await loadSessions(selectedCourseId)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save session') } finally { setSaving(false) }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to update course') } finally { setSaving(false) }
   }
 
-  async function deleteSession(id: string) {
-    if (!selectedCourseId) return
-    if (!window.confirm('Delete this session?')) return
-    try { await deleteDoc(doc(db, 'sessions', id)); await loadSessions(selectedCourseId) }
-    catch (err) { setError(err instanceof Error ? err.message : 'Failed') }
-  }
+  // ─── Flattened Syllabus grid ────────────────────────────────────────────────
+  // All grid mutations fold through `commitFlatTopics`: it writes the complete
+  // new topic list onto one canonical session (the course's lowest-order one,
+  // created on first use if none exists yet) and empties any other sessions'
+  // `activities` the course happens to still have (from the old per-session UI,
+  // or a multi-sheet Excel import) — so the grid never has to reason about which
+  // session a row "belongs to", and nothing is ever silently lost, just merged.
 
-  function openAddTopic(session: Session) {
-    setAddTopicSessionId(session.id)
-    setAddTopicTitle('')
-    setAddTopicType('concept')
-  }
-
-  async function saveAddTopic() {
-    if (!selectedCourseId || !addTopicSessionId) return
-    const session = sessions.find((s) => s.id === addTopicSessionId) ?? null
-    if (!session) return
-    const title = addTopicTitle.trim()
-    if (!title) { setError('Topic title is required.'); return }
-
-    setSaving(true); setError('')
-    try {
-      const next: Topic[] = [
-        ...(session.activities ?? []),
-        { id: crypto.randomUUID(), title, type: addTopicType, remark: '' },
-      ]
-      await updateDoc(doc(db, 'sessions', session.id), { activities: next, updatedAt: serverTimestamp() })
-      setAddTopicSessionId(null)
-      await loadSessions(selectedCourseId)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
-  }
-
-  function updateTopic(index: number, patch: Partial<Topic>) {
-    setSessionTopics((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)))
-  }
-  function removeTopic(index: number) {
-    setSessionTopics((prev) => prev.filter((_, i) => i !== index))
-  }
-  function moveTopic(index: number, direction: -1 | 1) {
-    setSessionTopics((prev) => {
-      const next = [...prev]
-      const target = index + direction
-      if (target < 0 || target >= next.length) return prev
-      const [item] = next.splice(index, 1)
-      next.splice(target, 0, item!)
-      return next
+  async function getOrCreateCanonicalSessionId(): Promise<string> {
+    const sorted = [...sessions].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    if (sorted.length > 0) return sorted[0]!.id
+    const ref = await addDoc(collection(db, 'sessions'), {
+      courseId: selectedCourseId,
+      courseName: selectedCourse?.title ?? '',
+      title: selectedCourse?.title ?? 'Syllabus',
+      order: 1,
+      durationMinutes: 0,
+      activities: [],
+      createdAt: serverTimestamp(),
     })
+    return ref.id
   }
 
-  async function updateTopicInline(session: Session, topicId: string, patch: Partial<Topic>) {
+  async function commitFlatTopics(newTopics: Topic[]) {
     if (!selectedCourseId) return
     setSaving(true); setError('')
     try {
-      const next = session.activities.map((a) => (a.id === topicId ? { ...a, ...patch } : a))
-      await updateDoc(doc(db, 'sessions', session.id), { activities: next, updatedAt: serverTimestamp() })
+      const otherSessionIds = [...sessions]
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .slice(1)
+        .map((s) => s.id)
+      const canonicalId = await getOrCreateCanonicalSessionId()
+      await updateDoc(doc(db, 'sessions', canonicalId), { activities: newTopics, updatedAt: serverTimestamp() })
+      await Promise.all(otherSessionIds.map((id) => updateDoc(doc(db, 'sessions', id), { activities: [], updatedAt: serverTimestamp() })))
       await loadSessions(selectedCourseId)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
+    } catch (err) { setError(err instanceof Error ? err.message : 'Failed to save') } finally { setSaving(false) }
   }
 
-  async function deleteTopicInline(session: Session, topicId: string) {
+  /** Local-only edit while typing — keeps the input responsive without a Firestore
+   *  round trip per keystroke. `commitRowTitle` below is what actually saves it. */
+  function setLocalTopicTitle(topicId: string, title: string) {
+    setSessions((prev) => prev.map((s) => ({ ...s, activities: s.activities.map((t) => (t.id === topicId ? { ...t, title } : t)) })))
+  }
+
+  async function commitRowTitle(topicId: string) {
     if (!selectedCourseId) return
-    if (!window.confirm('Delete this topic?')) return
-    setSaving(true); setError('')
-    try {
-      const next = session.activities.filter((a) => a.id !== topicId)
-      if (next.length === 0) { setError('A session must have at least one topic.'); return }
-      await updateDoc(doc(db, 'sessions', session.id), { activities: next, updatedAt: serverTimestamp() })
-      await loadSessions(selectedCourseId)
-    } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
+    const topic = flatRows.find((r) => r.topic.id === topicId)?.topic
+    if (!topic) return
+    if (!topic.title.trim()) { await loadSessions(selectedCourseId); return }
+    await commitFlatTopics(flatRows.map((r) => r.topic))
   }
 
-  async function quickEditTopicTitle(session: Session, t: Topic) {
-    const nextTitle = window.prompt('Edit topic title', t.title)
-    if (nextTitle == null) return
-    const cleaned = nextTitle.trim()
-    if (!cleaned) return
-    await updateTopicInline(session, t.id, { title: cleaned })
+  async function addRow(title: string) {
+    const trimmed = title.trim()
+    if (!trimmed) return
+    const next = [...flatRows.map((r) => r.topic), { id: crypto.randomUUID(), title: trimmed, type: 'concept' as TopicType, remark: '' }]
+    setNewRowTitle('')
+    await commitFlatTopics(next)
   }
 
-  function parseTopicType(raw: string): TopicType {
-    return normalizeTopicType(raw)
+  async function deleteRow(topicId: string) {
+    if (!window.confirm('Delete this row?')) return
+    await commitFlatTopics(flatRows.filter((r) => r.topic.id !== topicId).map((r) => r.topic))
   }
 
-  function isTitleRow(row: (string | number | null)[]): string | null {
-    const first = String(row[0] ?? '').trim()
-    if (!first) return null
-    const rest = row.slice(1).filter((c) => String(c ?? '').trim() !== '')
-    if (rest.length > 0) return null
-    const lower = first.toLowerCase()
-    if (lower === 'sl no' || lower === 'sl' || lower === 'topic' || lower === 'type') return null
-    return first
+  async function moveRow(index: number, direction: -1 | 1) {
+    const target = index + direction
+    if (target < 0 || target >= flatRows.length) return
+    const topics = flatRows.map((r) => r.topic)
+    const tmp = topics[index]!
+    topics[index] = topics[target]!
+    topics[target] = tmp
+    await commitFlatTopics(topics)
   }
 
-  interface SessionBlock { name: string; order: number; durationMinutes?: number; topics: Topic[] }
-
-  function parseRows(rows: (string | number | null)[][]): SessionBlock[] {
-    const sessionsParsed: SessionBlock[] = []
-    let sessionCount = 0
-    let i = 0
-
-    while (i < rows.length) {
-      const titleVal = isTitleRow(rows[i] ?? [])
-      if (!titleVal) { i++; continue }
-
-      sessionCount++
-      const sessionName = titleVal
-      i++
-
-      if (i < rows.length && isTitleRow(rows[i] ?? [])) i++
-
-      let topicIdx = -1, typeIdx = -1, remarkIdx = -1
-      while (i < rows.length) {
-        const labels = (rows[i] ?? []).map((c) => String(c ?? '').trim().toLowerCase())
-        const tp = labels.findIndex((l) => l === 'topic' || l === 'title' || l === 'activity')
-        const ty = labels.findIndex((l) => l === 'type')
-        if (tp !== -1 && ty !== -1) { topicIdx = tp; typeIdx = ty; remarkIdx = labels.findIndex((l) => l.includes('remark') || l.includes('note')); i++; break }
-        i++
-      }
-      if (topicIdx === -1) continue
-
-      const topics: Topic[] = []
-      while (i < rows.length) {
-        if (isTitleRow(rows[i] ?? [])) break
-        const row = rows[i] ?? []
-        const topic = String(row[topicIdx] ?? '').trim()
-        const rawType = String(row[typeIdx] ?? '').trim()
-        if (topic) {
-          const remark = remarkIdx >= 0 ? String(row[remarkIdx] ?? '').trim() : ''
-          topics.push({ id: crypto.randomUUID(), title: topic, type: parseTopicType(rawType), remark })
+  /** Parses pasted text into an ordered list of titles — plain lines, lines
+   *  prefixed with "1." / "1)" / "1 -" (stripped, since SL No. is always
+   *  reassigned by position), or tab-separated rows (last non-empty cell wins,
+   *  so pasting a two-column "SL No. / Title" block works). A header-looking
+   *  first line ("SL No" / "Title") is dropped. */
+  function parsePasteLines(text: string): string[] {
+    const lines = text.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length > 0)
+    if (lines.length === 0) return []
+    const first = lines[0]!
+    const firstCells = first.split('\t').map((c) => c.trim().toLowerCase())
+    const looksLikeHeader = firstCells.some((c) => c === 'sl no' || c === 'sl no.' || c === 'sl')
+      && (firstCells.includes('title') || firstCells.length === 1)
+    const body = looksLikeHeader ? lines.slice(1) : lines
+    return body
+      .map((line) => {
+        let cell = line
+        if (cell.includes('\t')) {
+          const cells = cell.split('\t').map((c) => c.trim()).filter((c) => c.length > 0)
+          cell = cells[cells.length - 1] ?? ''
         }
-        i++
-      }
-
-      if (topics.length > 0) {
-        sessionsParsed.push({ name: sessionName, order: sessionCount, topics })
-      }
-    }
-
-    return sessionsParsed
-  }
-
-  function parseTsv(text: string): SessionBlock[] {
-    const lines = text.trim().split(/\r?\n/)
-    if (lines.length < 2) return []
-    const headers = lines[0]!.split('\t').map(h => h.trim().toLowerCase())
-
-    const sessionIdx = headers.indexOf('session')
-    const topicIdx = headers.findIndex(h => h === 'topic' || h === 'title' || h === 'activity')
-    const typeIdx = headers.indexOf('type')
-    const orderIdx = headers.indexOf('order')
-    const durationIdx = headers.findIndex(h => h === 'duration' || h === 'duration (min)' || h === 'duration(min)')
-
-    if (sessionIdx === -1 || topicIdx === -1) return []
-
-    const sessionMap = new Map<string, { order: number; durationMinutes: number; topics: Topic[] }>()
-    const sessionKeys: string[] = []
-    let autoOrder = 0
-
-    for (const line of lines.slice(1)) {
-      const cells = line.split('\t')
-      const sessionName = (cells[sessionIdx] ?? '').trim()
-      const topicTitle = (cells[topicIdx] ?? '').trim()
-      if (!sessionName || !topicTitle) continue
-
-      if (!sessionMap.has(sessionName)) {
-        autoOrder++
-        const parsedOrder = orderIdx >= 0 ? parseInt(cells[orderIdx] ?? '', 10) : NaN
-        const parsedDur = durationIdx >= 0 ? parseInt(cells[durationIdx] ?? '', 10) : NaN
-        sessionMap.set(sessionName, {
-          order: isNaN(parsedOrder) ? autoOrder : parsedOrder,
-          durationMinutes: isNaN(parsedDur) ? 0 : parsedDur,
-          topics: [],
-        })
-        sessionKeys.push(sessionName)
-      }
-
-      const rawType = typeIdx >= 0 ? (cells[typeIdx] ?? '').trim() : ''
-      sessionMap.get(sessionName)!.topics.push({
-        id: crypto.randomUUID(),
-        title: topicTitle,
-        type: parseTopicType(rawType),
-        remark: '',
+        return cell.replace(/^\s*\d+\s*[.)-]\s*/, '').trim()
       })
-    }
-
-    return sessionKeys.map(name => {
-      const s = sessionMap.get(name)!
-      return { name, order: s.order, durationMinutes: s.durationMinutes, topics: s.topics }
-    })
+      .filter((t) => t.length > 0)
   }
 
-  async function importBlocks(blocks: SessionBlock[]) {
-    let created = 0
-    for (const s of blocks) {
-      await addDoc(collection(db, 'sessions'), {
-        courseId: selectedCourseId,
-        courseName: selectedCourse?.title ?? '',
-        title: s.name,
-        order: s.order,
-        durationMinutes: s.durationMinutes ?? 0,
-        activities: s.topics,
-        createdAt: serverTimestamp(),
-      })
-      created++
-    }
-    setImportResult(`✓ Imported ${created} session${created !== 1 ? 's' : ''}.`)
-    await loadSessions(selectedCourseId!)
+  /** Spreadsheet-style fill-down: starting at `startIndex`, pasted titles overwrite
+   *  that many existing rows' titles and append the rest as new rows — nothing
+   *  before `startIndex` is touched. */
+  function buildPastedTopics(startIndex: number, titles: string[]): Topic[] {
+    const current = flatRows.map((r) => r.topic)
+    const before = current.slice(0, startIndex)
+    const overwriteCount = Math.min(titles.length, Math.max(0, current.length - startIndex))
+    const overwritten = current.slice(startIndex, startIndex + overwriteCount).map((t, i) => ({ ...t, title: titles[i]! }))
+    const added: Topic[] = titles.slice(overwriteCount).map((t) => ({ id: crypto.randomUUID(), title: t, type: 'concept', remark: '' }))
+    const after = current.slice(startIndex + overwriteCount)
+    return [...before, ...overwritten, ...added, ...after]
   }
 
-  function handlePaste(text: string) {
-    setPasteText(text)
-    if (!text.trim()) {
-      setParsedBlocks([])
-      setPasteError(null)
-      return
-    }
-    const blocks = parseTsv(text)
-    if (blocks.length > 0) {
-      setParsedBlocks(blocks)
-      setPasteError(null)
-    } else {
-      setParsedBlocks([])
-      const lines = text.trim().split(/\r?\n/)
-      if (lines.length < 2) {
-        setPasteError('No data rows found. Paste must have a header row and at least one data row.')
-      } else {
-        setPasteError('Couldn\'t detect columns. Expected headers: Session, Topic, Type, Duration.')
-      }
-    }
+  async function handleGridPaste(startIndex: number, text: string) {
+    const titles = parsePasteLines(text)
+    if (titles.length === 0) return
+    if (startIndex >= flatRows.length) setNewRowTitle('')
+    await commitFlatTopics(buildPastedTopics(startIndex, titles))
   }
 
-  async function handlePasteImport() {
-    if (!selectedCourseId || parsedBlocks.length === 0) return
-    setImporting(true); setError('')
-    try {
-      await importBlocks(parsedBlocks)
-      setShowPasteModal(false)
-      setPasteText('')
-      setParsedBlocks([])
-      setPasteError(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to import')
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  async function onImportCourse(file: File) {
-    if (!selectedCourseId) return
-    setImporting(true); setImportResult(null); setError('')
-    try {
-      const buffer = await file.arrayBuffer()
-      const wb = XLSX.read(buffer, { type: 'array' })
-      console.log('[Import] Sheet names:', wb.SheetNames)
-      const ws = wb.Sheets[wb.SheetNames[0]]
-      if (!ws) { setError('Excel file has no sheet.'); return }
-      const rows = XLSX.utils.sheet_to_json<(string | number | null)[]>(ws, { header: 1 })
-      console.log('[Import] Total rows:', rows.length)
-      rows.slice(0, 20).forEach((r, i) => console.log(`[Import] Row ${i}:`, JSON.stringify(r)))
-      const blocks = parseRows(rows)
-      console.log('[Import] Parsed blocks:', blocks.length, blocks.map(b => b.name))
-      if (blocks.length === 0) { setError('No sessions found.'); return }
-      await importBlocks(blocks)
-      if (xlsxInputRef.current) xlsxInputRef.current.value = ''
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to import') } finally { setImporting(false) }
+  /** "Save Syllabus" — every row already commits on blur, so this just catches
+   *  whatever's still sitting in the "add a title" row before switching to the
+   *  read-only view. */
+  async function saveSyllabus() {
+    if (newRowTitle.trim()) await addRow(newRowTitle)
+    setEditingSyllabus(false)
   }
 
   return (
     <div>
       <h1>📚 Syllabus Builder</h1>
-      <p className="muted">Design your curriculum: Courses → Sessions → Activities.</p>
+      <p className="muted">Design your curriculum: Courses → Syllabus.</p>
       <p className="notice" style={{ marginBottom: '0.75rem' }}>
         The <strong>ROL-style syllabus</strong> (modules list + item detail with attempts &amp; notes) is on the{' '}
         <strong>student course screen</strong>, not this builder.{' '}
@@ -461,7 +341,14 @@ export function SyllabusPage() {
         <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
           <div className="syllabus-col-header">
             <h2>📖 Courses</h2>
-            <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>➕ Add Course</button>
+            <div className="row" style={{ gap: '0.4rem' }}>
+              {isAdminOrMentor && (
+                <button type="button" className="btn small ghost" title="Find courses with no syllabus content" disabled={cleanupLoading} onClick={() => void openCleanup()}>
+                  {cleanupLoading ? '⏳…' : '🧹 Clean up'}
+                </button>
+              )}
+              <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
+            </div>
           </div>
           {addingCourse && (
             <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
@@ -493,363 +380,171 @@ export function SyllabusPage() {
           </div>
         </div>
 
-        {/* SESSIONS */}
+        {/* SYLLABUS — flat SL No./Title grid */}
         {selectedCourseId ? (
           <div className="syllabus-col syllabus-col-wide">
-            <div className="syllabus-col-header">
-              <h2>📝 Sessions</h2>
-              <div className="row">
-                <button
-                  type="button"
-                  className="btn small ghost"
-                  title="Paste from Excel or Google Sheets"
-                  onClick={() => setShowPasteModal(true)}
-                >
-                  📋 Paste Syllabus
+            <div className="syllabus-col-header" style={{ alignItems: 'flex-start' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {editingCourseInfo ? (
+                  <form onSubmit={(e) => void saveCourseInfo(e)} className="form syllabus-mini-form" style={{ marginBottom: 0 }}>
+                    <input value={editCourseTitle} onChange={(e) => setEditCourseTitle(e.target.value)} placeholder="Course title *" required autoFocus />
+                    <input value={editCourseDesc} onChange={(e) => setEditCourseDesc(e.target.value)} placeholder="Description (optional)" />
+                    <textarea
+                      value={editCourseOutcome}
+                      onChange={(e) => setEditCourseOutcome(e.target.value)}
+                      placeholder="Core outcome (optional) — what a student should be able to do after this course"
+                      style={{ width: '100%', minHeight: 60, fontFamily: 'inherit', boxSizing: 'border-box', marginBottom: '0.5rem' }}
+                    />
+                    <div className="row">
+                      <button type="submit" className="btn small primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+                      <button type="button" className="btn small secondary" onClick={() => setEditingCourseInfo(false)}>Cancel</button>
+                    </div>
+                  </form>
+                ) : (
+                  <>
+                    <h2 className="syllabus-active-title">
+                      {selectedCourse?.title}
+                      <button type="button" className="syllabus-title-edit-btn" title="Rename course" aria-label="Rename course" onClick={openEditCourseInfo}>✎</button>
+                    </h2>
+                    {selectedCourse?.description ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>{selectedCourse.description}</p> : null}
+                    {selectedCourse?.coreOutcome ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>🎯 {selectedCourse.coreOutcome}</p> : null}
+                  </>
+                )}
+              </div>
+              {editingSyllabus ? (
+                <button type="button" className="btn primary" disabled={saving} onClick={() => void saveSyllabus()} style={{ flexShrink: 0 }}>
+                  {saving ? 'Saving…' : 'Save Syllabus'}
                 </button>
-                <label className="btn small ghost" style={{ cursor: 'pointer' }} title="Import sessions from Excel">
-                  {importing ? '⏳…' : '📥 Import Sessions'}
-                  <input ref={xlsxInputRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }}
-                    onChange={(e) => { const f = e.target.files?.[0]; if (f) void onImportCourse(f) }} />
-                </label>
-                <button type="button" className="btn small primary" onClick={openNewSessionForm}>➕ Add Session</button>
-              </div>
+              ) : (
+                <button type="button" className="btn secondary" onClick={() => setEditingSyllabus(true)} style={{ flexShrink: 0 }}>Edit</button>
+              )}
             </div>
-            <p className="muted small syllabus-breadcrumb">in {selectedCourse?.title}</p>
-            {isAdminOrMentor && (
-              <div style={{ display: 'flex', gap: '0.25rem', marginBottom: '0.75rem', borderBottom: '2px solid var(--border)' }}>
-                {(['sessions', 'exam'] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setRightTab(t)}
-                    style={{
-                      padding: '0.4rem 0.85rem',
-                      border: 'none',
-                      borderBottom: rightTab === t ? '2px solid var(--primary)' : '2px solid transparent',
-                      background: 'none',
-                      color: rightTab === t ? 'var(--primary)' : 'var(--muted-2)',
-                      fontWeight: rightTab === t ? 700 : 400,
-                      cursor: 'pointer',
-                      fontSize: '0.86rem',
-                      marginBottom: '-2px',
-                    }}
-                  >
-                    {t === 'sessions' ? '📋 Sessions' : '📝 Exam'}
-                  </button>
-                ))}
-              </div>
-            )}
-            {rightTab === 'sessions' && (
+
+            {editingSyllabus ? (
               <>
-                <div className="muted small" style={{ marginBottom: '0.75rem', lineHeight: 1.6 }}>
-                  <strong style={{ color: 'var(--text)' }}>Session Excel format:</strong>&nbsp;
-                  Session title (single cell) → optional subtitle → <code>SL no · Topic · Type · Remark</code> → data rows
-                </div>
-                {importResult ? <p className="notice" style={{ marginBottom: '0.5rem' }}>{importResult}</p> : null}
+                <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+                  Type a title below, or paste a list (one per line, or straight from a spreadsheet) into any row — it fills down from there.
+                </p>
 
-                {sessionFormOpen ? (
-                  <div className="panel" style={{ marginBottom: '1rem' }}>
-                    <h3 style={{ marginBottom: '0.75rem' }}>{editingSessionId ? '✏️ Edit session' : '✨ New session'}</h3>
-                    <form onSubmit={(e) => void saveSession(e)} className="form">
-                      <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end' }}>
-                        <label style={{ flex: 1 }}>Session title<input value={sessionTitle} onChange={(e) => setSessionTitle(e.target.value)} placeholder="e.g. Session-1" required /></label>
-                        <label style={{ width: 90, flexShrink: 0 }}>Order<input type="number" value={sessionOrder} onChange={(e) => setSessionOrder(Number(e.target.value))} min={1} /></label>
-                        <label style={{ width: 110, flexShrink: 0 }}>Duration (min)<input type="number" value={sessionDuration} min={0} step={5} onChange={(e) => setSessionDuration(Number(e.target.value))} /></label>
-                      </div>
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
-                          <h4 style={{ margin: 0 }}>Topics</h4>
-                          <div className="row">
-                            <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('concept')])}>+ Concept</button>
-                            <button type="button" className="btn small ghost" onClick={() => setSessionTopics((p) => [...p, newTopic('exercise')])}>+ Exercise</button>
+                <table className="session-topics-table">
+                  <thead>
+                    <tr>
+                      <th className="session-topics-index">SL No.</th>
+                      <th>Title</th>
+                      <th aria-hidden="true" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {flatRows.map((row, idx) => (
+                      <tr key={row.topic.id}>
+                        <td className="session-topics-index muted small">{idx + 1}</td>
+                        <td className="session-topics-title">
+                          <input
+                            className="syllabus-grid-input"
+                            value={row.topic.title}
+                            onChange={(e) => setLocalTopicTitle(row.topic.id, e.target.value)}
+                            onBlur={() => void commitRowTitle(row.topic.id)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            onPaste={(e) => { e.preventDefault(); void handleGridPaste(idx, e.clipboardData.getData('text/plain')) }}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="session-topics-actions">
+                          <div className="session-topics-actions-inner">
+                            {isAdminOrMentor && (
+                              <button type="button" className="btn small ghost" title="Exam for this course" onClick={() => setExamModalOpen(true)}>📝</button>
+                            )}
+                            <button type="button" className="btn small ghost" title="Move up" disabled={idx === 0 || saving} onClick={() => void moveRow(idx, -1)}>↑</button>
+                            <button type="button" className="btn small ghost" title="Move down" disabled={idx === flatRows.length - 1 || saving} onClick={() => void moveRow(idx, 1)}>↓</button>
+                            <button type="button" className="btn small ghost" title="Delete" disabled={saving} onClick={() => void deleteRow(row.topic.id)}>✕</button>
                           </div>
-                        </div>
-                        <p className="muted small" style={{ margin: '0 0 0.5rem' }}>
-                          Topics appear in the student syllabus in this exact order. Mix Concepts and Exercises freely.
-                        </p>
-                        <ol className="topic-editor-list">
-                          {sessionTopics.map((t, i) => {
-                            const colors = topicTypeColor(t.type)
-                            return (
-                              <li key={t.id} className="topic-editor-row" style={{ borderLeftColor: colors.bg }}>
-                                <span className="topic-editor-index muted small">{i + 1}</span>
-                                <select
-                                  value={t.type}
-                                  onChange={(e) => updateTopic(i, { type: e.target.value as TopicType })}
-                                  aria-label="Topic type"
-                                >
-                                  <option value="concept">Concept</option>
-                                  <option value="exercise">Exercise</option>
-                                </select>
-                                <input
-                                  placeholder={`${topicTypeLabel(t.type)} title *`}
-                                  value={t.title}
-                                  onChange={(e) => updateTopic(i, { title: e.target.value })}
-                                />
-                                <input
-                                  placeholder="Remark (optional)"
-                                  value={t.remark ?? ''}
-                                  onChange={(e) => updateTopic(i, { remark: e.target.value })}
-                                />
-                                <div className="topic-editor-actions">
-                                  <button type="button" className="btn small ghost" title="Move up" disabled={i === 0} onClick={() => moveTopic(i, -1)}>↑</button>
-                                  <button type="button" className="btn small ghost" title="Move down" disabled={i === sessionTopics.length - 1} onClick={() => moveTopic(i, 1)}>↓</button>
-                                  <button type="button" className="btn small ghost" onClick={() => removeTopic(i)} disabled={sessionTopics.length === 1} title="Remove">✕</button>
-                                </div>
-                              </li>
-                            )
-                          })}
-                        </ol>
-                      </div>
-                      <div className="row">
-                        <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : editingSessionId ? 'Update' : 'Create'}</button>
-                        <button type="button" className="btn ghost" onClick={() => setSessionFormOpen(false)}>Cancel</button>
-                      </div>
-                    </form>
-                  </div>
-                ) : null}
-
-                <ul className="syllabus-lesson-list">
-                  {sessions.map((s) => {
-                    const conceptCount = s.activities.filter((t) => t.type === 'concept').length
-                    const exerciseCount = s.activities.length - conceptCount
-                    return (
-                      <li key={s.id} className="syllabus-lesson syllabus-session-card">
-                        <div className="row syllabus-session-head">
-                          <div>
-                            <strong className="syllabus-session-title">{s.order}. {s.title}</strong>
-                            <span className="muted small syllabus-session-meta">
-                              {s.activities.length} topic{s.activities.length === 1 ? '' : 's'}
-                              {s.activities.length > 0 ? ` · ${conceptCount} concept${conceptCount === 1 ? '' : 's'}, ${exerciseCount} exercise${exerciseCount === 1 ? '' : 's'}` : ''}
-                              {(s.durationMinutes ?? 0) > 0 ? ` · ${s.durationMinutes} min` : ''}
-                            </span>
-                          </div>
-                          <div className="actions syllabus-session-actions">
-                            <button type="button" className="btn small ghost" onClick={() => openAddTopic(s)} disabled={saving}>+ Topic</button>
-                            <button type="button" className="btn small ghost" onClick={() => openEditSessionForm(s)}>Edit</button>
-                            <button type="button" className="btn small ghost" onClick={() => void deleteSession(s.id)}>Delete</button>
-                          </div>
-                        </div>
-
-                        {s.activities.length === 0 ? (
-                          <p className="muted small" style={{ margin: '0.25rem 0 0' }}>No topics yet.</p>
-                        ) : (
-                          <ol className="topic-timeline">
-                            {s.activities.map((t, idx) => {
-                              const colors = topicTypeColor(t.type)
-                              return (
-                                <li key={t.id} className={`topic-timeline-row${t.completed ? ' topic-done' : ''}`}>
-                                  <span className="topic-timeline-index muted small">{idx + 1}</span>
-                                  <button
-                                    type="button"
-                                    className={`topic-complete-btn${t.completed ? ' done' : ''}`}
-                                    onClick={() => void updateTopicInline(s, t.id, { completed: !t.completed })}
-                                    disabled={saving}
-                                    title={t.completed ? 'Mark incomplete' : 'Mark complete'}
-                                  >
-                                    {t.completed ? '✓' : ''}
-                                  </button>
-                                  <span
-                                    className="topic-timeline-badge"
-                                    style={{ background: colors.bg, color: colors.text }}
-                                  >
-                                    {topicTypeLabel(t.type)}
-                                  </span>
-                                  <span className={`topic-timeline-title${t.completed ? ' topic-title-done' : ''}`}>
-                                    {t.title}
-                                    {t.remark ? <span className="muted"> — {t.remark}</span> : null}
-                                  </span>
-                                  <div className="topic-menu-wrap">
-                                    <button
-                                      type="button"
-                                      className="topic-menu-btn"
-                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === t.id ? null : t.id) }}
-                                      disabled={saving}
-                                      title="Options"
-                                    >
-                                      ⋮
-                                    </button>
-                                    {openMenuId === t.id && (
-                                      <div className="topic-menu-dropdown" onClick={(e) => e.stopPropagation()}>
-                                        <button
-                                          type="button"
-                                          className="topic-menu-item"
-                                          onClick={() => { void updateTopicInline(s, t.id, { type: t.type === 'concept' ? 'exercise' : 'concept' }); setOpenMenuId(null) }}
-                                          disabled={saving}
-                                        >
-                                          {t.type === 'concept' ? 'Exercise' : 'Concept'}
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="topic-menu-item"
-                                          onClick={() => { void quickEditTopicTitle(s, t); setOpenMenuId(null) }}
-                                          disabled={saving}
-                                        >
-                                          Edit
-                                        </button>
-                                        <button
-                                          type="button"
-                                          className="topic-menu-item danger"
-                                          onClick={() => { void deleteTopicInline(s, t.id); setOpenMenuId(null) }}
-                                          disabled={saving}
-                                        >
-                                          Delete
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                </li>
-                              )
-                            })}
-                          </ol>
-                        )}
-                      </li>
-                    )
-                  })}
-                  {sessions.length === 0 ? <li className="muted small" style={{ padding: '0.5rem 0' }}>No sessions yet.</li> : null}
-                </ul>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr>
+                      <td className="session-topics-index muted small">{flatRows.length + 1}</td>
+                      <td className="session-topics-title">
+                        <input
+                          className="syllabus-grid-input"
+                          placeholder="Type a title, or paste a list…"
+                          value={newRowTitle}
+                          onChange={(e) => setNewRowTitle(e.target.value)}
+                          onBlur={() => void addRow(newRowTitle)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          onPaste={(e) => { e.preventDefault(); void handleGridPaste(flatRows.length, e.clipboardData.getData('text/plain')) }}
+                          disabled={saving}
+                        />
+                      </td>
+                      <td className="session-topics-actions" />
+                    </tr>
+                  </tbody>
+                </table>
               </>
+            ) : (
+              <table className="session-topics-table readonly">
+                <thead>
+                  <tr>
+                    <th className="session-topics-index">SL No.</th>
+                    <th>Title</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {flatRows.length === 0 ? (
+                    <tr><td colSpan={2} className="muted small">No topics yet.</td></tr>
+                  ) : flatRows.map((row, idx) => (
+                    <tr key={row.topic.id}>
+                      <td className="session-topics-index muted small">{idx + 1}</td>
+                      <td className="session-topics-title">{row.topic.title}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             )}
-            {rightTab === 'exam' && selectedCourseId && <ExamManager courseId={selectedCourseId} />}
           </div>
         ) : null}
       </div>
 
-      {addTopicSessionId && (
-        <div className="modal-backdrop" onClick={() => setAddTopicSessionId(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 1rem' }}>Add Topic</h3>
-            <div className="form">
-              <label>Title<input value={addTopicTitle} onChange={(e) => setAddTopicTitle(e.target.value)} placeholder="Topic title" autoFocus /></label>
-              <label>Type<select value={addTopicType} onChange={(e) => setAddTopicType(e.target.value as TopicType)}>
-                <option value="concept">Concept</option>
-                <option value="exercise">Exercise</option>
-              </select></label>
-              <div className="row">
-                <button type="button" className="btn primary" disabled={saving} onClick={() => void saveAddTopic()}>Add</button>
-                <button type="button" className="btn ghost" onClick={() => setAddTopicSessionId(null)}>Cancel</button>
-              </div>
+      {cleanupCandidates && (
+        <div className="modal-backdrop" onClick={() => !cleanupDeleting && setCleanupCandidates(null)}>
+          <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>🧹 Clean up empty courses</h3>
+              <button type="button" className="btn small ghost" disabled={cleanupDeleting} onClick={() => setCleanupCandidates(null)}>✕</button>
             </div>
+            {cleanupCandidates.length === 0 ? (
+              <p className="muted">Nothing to clean up — every course has at least one session recorded.</p>
+            ) : (
+              <>
+                <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+                  These {cleanupCandidates.length} course{cleanupCandidates.length !== 1 ? 's' : ''} have no sessions recorded in the Syllabus Builder — nothing was ever built for them here. Deleting removes them everywhere (student course lists, reports).
+                </p>
+                <ul style={{ margin: '0 0 1.25rem', paddingLeft: '1.2rem', maxHeight: 240, overflowY: 'auto' }}>
+                  {cleanupCandidates.map((c) => (
+                    <li key={c.id} style={{ marginBottom: '0.3rem' }}>
+                      {c.title} <span className="muted small">({c.levelId === null ? 'Unassigned' : levelName(c.levelId)})</span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="row" style={{ justifyContent: 'flex-end' }}>
+                  <button type="button" className="btn ghost" disabled={cleanupDeleting} onClick={() => setCleanupCandidates(null)}>Cancel</button>
+                  <button type="button" className="btn danger" disabled={cleanupDeleting} onClick={() => void confirmCleanup()}>
+                    {cleanupDeleting ? 'Deleting…' : `Delete ${cleanupCandidates.length} course${cleanupCandidates.length !== 1 ? 's' : ''}`}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
 
-      {showPasteModal && (
-        <div className="modal-backdrop" onClick={() => { setShowPasteModal(false); setPasteText(''); setParsedBlocks([]); setPasteError(null) }}>
-          <div className="modal" style={{ maxWidth: 720 }} onClick={(e) => e.stopPropagation()}>
+      {examModalOpen && selectedCourseId && (
+        <div className="modal-backdrop" onClick={() => setExamModalOpen(false)}>
+          <div className="modal" style={{ maxWidth: 960, width: '95%' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>📋 Paste Syllabus</h3>
-              <button
-                type="button"
-                className="btn small ghost"
-                onClick={() => { setShowPasteModal(false); setPasteText(''); setParsedBlocks([]); setPasteError(null) }}
-              >✕</button>
+              <h3 style={{ margin: 0 }}>📝 Exam — {selectedCourse?.title}</h3>
+              <button type="button" className="btn small ghost" onClick={() => setExamModalOpen(false)}>✕</button>
             </div>
-
-            <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-              Copy cells from Excel or Google Sheets and paste below. First row must be column headers:&nbsp;
-              <code>Session · Order · Duration · Topic · Type</code>
-            </p>
-
-            <textarea
-              style={{
-                width: '100%',
-                minHeight: 120,
-                fontFamily: 'monospace',
-                fontSize: '0.8rem',
-                padding: '0.5rem',
-                border: '1px solid var(--border)',
-                borderRadius: 'var(--radius)',
-                resize: 'vertical',
-                boxSizing: 'border-box',
-              }}
-              placeholder={"Session\tOrder\tDuration\tTopic\tType\nIntro to Python\t1\t60\tVariables\tconcept"}
-              value={pasteText}
-              onPaste={(e) => {
-                e.preventDefault()
-                const text = e.clipboardData.getData('text/plain')
-                handlePaste(text)
-              }}
-              onChange={(e) => handlePaste(e.target.value)}
-            />
-
-            {pasteError && (
-              <p className="error" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
-                ⚠ {pasteError}
-              </p>
-            )}
-
-            {parsedBlocks.length > 0 && (
-              <div style={{ marginTop: '1rem' }}>
-                <p className="muted small" style={{ marginBottom: '0.4rem' }}>
-                  <strong style={{ color: 'var(--text)' }}>Preview</strong> — {parsedBlocks.length} session{parsedBlocks.length !== 1 ? 's' : ''},{' '}
-                  {parsedBlocks.reduce((n, b) => n + b.topics.length, 0)} topic{parsedBlocks.reduce((n, b) => n + b.topics.length, 0) !== 1 ? 's' : ''}
-                </p>
-                <div style={{ maxHeight: 'calc(10 * 36px)', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--radius)' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.83rem' }}>
-                    <thead>
-                      <tr style={{ background: 'var(--surface-2, #f4f6fb)', position: 'sticky', top: 0 }}>
-                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', width: 32 }}>#</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Session</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)' }}>Topic</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid var(--border)', width: 90 }}>Type</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid var(--border)', width: 70 }}>Dur (min)</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parsedBlocks.map((block) => (
-                        <Fragment key={block.name}>
-                          {block.topics.map((topic, tidx) => (
-                            <tr key={topic.id} style={{ height: 36, borderBottom: '1px solid var(--border)' }}>
-                              <td style={{ padding: '4px 8px', color: 'var(--muted-2)', fontSize: '0.75rem' }}>{tidx + 1}</td>
-                              <td style={{ padding: '4px 8px', color: tidx === 0 ? 'var(--text)' : 'var(--muted-2)', fontWeight: tidx === 0 ? 600 : 400 }}>
-                                {tidx === 0 ? block.name : ''}
-                              </td>
-                              <td style={{ padding: '4px 8px' }}>{topic.title}</td>
-                              <td style={{ padding: '4px 8px' }}>
-                                <span style={{
-                                  ...topicTypeColor(topic.type),
-                                  padding: '1px 6px',
-                                  borderRadius: 4,
-                                  fontSize: '0.75rem',
-                                  fontWeight: 600,
-                                }}>
-                                  {topicTypeLabel(topic.type)}
-                                </span>
-                              </td>
-                              <td style={{ padding: '4px 8px', textAlign: 'right', color: 'var(--muted-2)' }}>
-                                {tidx === 0 && (block.durationMinutes ?? 0) > 0 ? block.durationMinutes : ''}
-                              </td>
-                            </tr>
-                          ))}
-                        </Fragment>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="row" style={{ marginTop: '1.25rem', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn ghost"
-                onClick={() => { setShowPasteModal(false); setPasteText(''); setParsedBlocks([]); setPasteError(null) }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="btn primary"
-                disabled={parsedBlocks.length === 0 || importing || !selectedCourseId}
-                onClick={() => void handlePasteImport()}
-              >
-                {importing
-                  ? '⏳ Importing…'
-                  : `Import ${parsedBlocks.reduce((n, b) => n + b.topics.length, 0)} topic${parsedBlocks.reduce((n, b) => n + b.topics.length, 0) !== 1 ? 's' : ''}`}
-              </button>
-            </div>
+            <ExamManager courseId={selectedCourseId} />
           </div>
         </div>
       )}

@@ -15,18 +15,19 @@ import {
 // /student/planner route, so a lazy() wrapper here would just be dead weight
 // (same JS, no later chunk fetch to defer).
 import { StudentDailyPlanner } from './StudentDailyPlanner'
+import { StudentCourseView } from './StudentCourseView'
 
 // This one genuinely isn't loaded anywhere else yet, so lazy-loading it here keeps
 // its (PriorityScheduler-pulling) chunk out of the main bundle until opened.
 const StudentTimetableView = lazy(() => import('./StudentTimetableView').then((m) => ({ default: m.StudentTimetableView })))
 
-// No separate "courses" view — the dashboard's own "My Courses" section below is
-// the one place a student browses their enrolled courses. A popup duplicating
-// that list (the old `?view=courses`) was redundant with it.
-type StudentView = 'timetable' | 'planner'
+// There's no separate "Course View" page/route to navigate to — a course opens as
+// a popup over this same Dashboard (same `?view=` mechanism as Timetable/Notes),
+// the same way every other action here works. Never a competing full-page view.
+type StudentView = 'timetable' | 'planner' | 'course'
 
 function isStudentView(v: string | null): v is StudentView {
-  return v === 'timetable' || v === 'planner'
+  return v === 'timetable' || v === 'planner' || v === 'course'
 }
 
 /** 12-hour clock label for an "HH:MM" string, e.g. "14:30" → "2:30 PM". */
@@ -84,7 +85,9 @@ export function StudentDashboard() {
   const navigate = useNavigate()
   const rawView = searchParams.get('view')
   const view = isStudentView(rawView) ? rawView : null
+  const openCourseId = searchParams.get('course')
   function closeView() { navigate('/student') }
+  function openCourse(courseId: string) { navigate(`/student?view=course&course=${courseId}`) }
 
   const load = useCallback(async () => {
     if (!uid || !profile) return
@@ -205,8 +208,8 @@ export function StudentDashboard() {
 
       {loading ? <p className="muted">Loading…</p> : (
         <>
-          {/* Stat cards — "Courses" is informational only (enrolled count), since
-              there's no more course-browsing view to link it to. */}
+          {/* Stat cards — "Courses" is informational only (enrolled count); the
+              "My Courses" section below is where you actually open one. */}
           <div className="dash-stat-grid" style={{ marginBottom: '1.75rem' }}>
             {([
               { icon: '📚', value: courses.length, label: 'Courses', sub: 'enrolled', color: 'var(--primary)', to: null },
@@ -289,6 +292,49 @@ export function StudentDashboard() {
               )}
             </section>
           </div>
+
+          {/* My Courses — the one place a student opens a course. Clicking a card
+              opens it as a popup over this Dashboard (?view=course), never a
+              separate full-page "Course View". */}
+          <section className="panel">
+            <h2 style={{ fontSize: '1.1rem', marginBottom: '1.1rem' }}>My Courses</h2>
+            {courses.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>No courses assigned yet. Ask your mentor to enroll you.</p>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
+                {courses.map((c) => {
+                  const p = progress[c.id] ?? { total: 0, done: 0, review: 0 }
+                  const pct = p.total === 0 ? 0 : Math.round((p.done / p.total) * 100)
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => openCourse(c.id)}
+                      style={{ textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'block', width: '100%' }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{c.title}</span>
+                          <span className="muted small">{p.done} of {p.total} done</span>
+                          {p.review > 0 && (
+                            <span style={{ background: '#fef3c7', color: '#92400e', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>
+                              ⏳ {p.review} under review
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontWeight: 700, fontSize: '0.92rem', color: pct === 100 ? '#059669' : 'var(--primary)', flexShrink: 0 }}>
+                          {pct}%
+                        </span>
+                      </div>
+                      <div className="dash-progress-bar">
+                        <div className="dash-progress-fill" style={{ width: `${pct}%`, background: pct === 100 ? '#10b981' : 'var(--primary)' }} />
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </section>
         </>
       )}
 
@@ -318,9 +364,14 @@ export function StudentDashboard() {
                     <StudentTimetableView />
                   </Suspense>
                 </div>
-              ) : (
-                view === 'planner' && <StudentDailyPlanner />
-              )}
+              ) : view === 'planner' ? (
+                <StudentDailyPlanner />
+              ) : view === 'course' && openCourseId ? (
+                (() => {
+                  const openCourseObj = courses.find((c) => c.id === openCourseId)
+                  return openCourseObj ? <StudentCourseView course={openCourseObj} /> : <p className="muted">Course not found.</p>
+                })()
+              ) : null}
             </div>
           </div>
         )

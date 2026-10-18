@@ -442,7 +442,7 @@ export function SyllabusPage() {
                         <td className="session-topics-actions">
                           <div className="session-topics-actions-inner">
                             {isAdminOrMentor && (
-                              <button type="button" className="btn small ghost" title="Exam for this course" onClick={() => setExamModalOpen(true)}>📝</button>
+                              <button type="button" className="btn small secondary" title="Open exam configuration for this course" onClick={() => setExamModalOpen(true)}>Exam</button>
                             )}
                             <button type="button" className="btn small ghost" title="Move up" disabled={idx === 0 || saving} onClick={() => void moveRow(idx, -1)}>↑</button>
                             <button type="button" className="btn small ghost" title="Move down" disabled={idx === flatRows.length - 1 || saving} onClick={() => void moveRow(idx, 1)}>↓</button>

@@ -75,6 +75,16 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 .sidebar.open { transform: translateX(0); }
 @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 
+/* Desktop — the rail is permanent, not an overlay: `sticky` (not `fixed`) puts it
+   back in `.shell`'s normal flex flow, so `.main` yields it real width instead of
+   sitting underneath it, and it's never transformed off-screen or toggle-able.
+   The ☰ trigger/backdrop only make sense once the rail can be hidden, so both
+   disappear here too. */
+@media (min-width: 601px) {
+  .sidebar { position: sticky; top: 0; left: auto; transform: none; box-shadow: none; }
+  .sidebar-toggle, .sidebar-backdrop { display: none; }
+}
+
 /* The one trigger that opens/closes it — always on screen, same spot either way. */
 .sidebar-toggle {
   position: fixed; top: 14px; left: 14px; z-index: 330;
@@ -169,6 +179,28 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(10,18,40,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
 .modal { background: var(--surface); border-radius: calc(var(--radius) + 4px); padding: 1.75rem; width: 100%; max-width: 580px; box-shadow: 0 24px 60px rgba(10,18,40,0.2); max-height: 90vh; overflow-y: auto; }
+
+/* Glassmorphism variant — a frosted, translucent card over a softly blurred
+   backdrop, for compact task-focused modals (Add Student) rather than the
+   plain solid `.modal` used everywhere else. */
+.modal-backdrop.glass { background: rgba(10,18,40,0.38); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.modal.glass {
+  background: rgba(255,255,255,0.78); backdrop-filter: saturate(180%) blur(20px); -webkit-backdrop-filter: saturate(180%) blur(20px);
+  border: 1px solid rgba(255,255,255,0.5); border-radius: calc(var(--radius) + 10px);
+  padding: 1.5rem; max-width: 460px; box-shadow: 0 24px 60px rgba(10,18,40,0.28), inset 0 1px 0 rgba(255,255,255,0.6);
+  position: relative;
+}
+.modal-glass-close {
+  position: absolute; top: 1rem; right: 1rem; width: 30px; height: 30px; border-radius: 50%;
+  border: none; background: rgba(18,25,46,0.06); color: var(--muted); font-size: 0.95rem;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.15s, color 0.15s;
+}
+.modal-glass-close:hover { background: rgba(18,25,46,0.12); color: var(--text); }
+.modal-glass-header { margin: 0 2.25rem 1.1rem 0; }
+.modal-glass-title { margin: 0 0 0.2rem; font-size: 1.15rem; }
+.modal-glass-subtitle { margin: 0; }
+.modal-glass-field-hint { font-weight: 400; color: var(--muted-2); font-size: 0.78rem; }
+.modal-glass-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.4rem; }
 
 /* ─── Module launcher — frosted-glass app grid, reachable from anywhere ────── */
 /* A floating button, not part of the sidebar — bottom-center, sitting above page

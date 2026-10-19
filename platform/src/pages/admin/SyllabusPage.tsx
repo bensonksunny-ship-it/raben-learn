@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { Course, LevelId, Session, Topic, TopicType } from '../../types'
 import { LEVELS, levelName } from '../../lib/levels'
@@ -40,15 +40,6 @@ export function SyllabusPage() {
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-
-  // "Clean up empty courses" — admin/mentor-only review-and-confirm flow. A course
-  // counts as "not recorded in the syllabus page" when it has zero Session docs at
-  // all (never had anything built for it here) — not when its sessions merely have
-  // no topics yet, which stays a normal in-progress course. Nothing is deleted
-  // without this list being shown and explicitly confirmed first.
-  const [cleanupCandidates, setCleanupCandidates] = useState<Course[] | null>(null)
-  const [cleanupLoading, setCleanupLoading] = useState(false)
-  const [cleanupDeleting, setCleanupDeleting] = useState(false)
 
   const { profile } = useAuth()
   const isAdminOrMentor = profile?.roles.some((r) => r === 'admin' || r === 'mentor') ?? false
@@ -117,35 +108,6 @@ export function SyllabusPage() {
       setNewCourseTitle(''); setNewCourseDesc(''); setAddingCourse(false)
       await loadCourses()
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed') } finally { setSaving(false) }
-  }
-
-  async function openCleanup() {
-    setCleanupLoading(true); setError('')
-    try {
-      const snap = await getDocs(collection(db, 'sessions'))
-      const coursesWithSessions = new Set<string>()
-      snap.forEach((d) => { const cid = d.data().courseId as string | null; if (cid) coursesWithSessions.add(cid) })
-      setCleanupCandidates(courses.filter((c) => !coursesWithSessions.has(c.id)))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to check courses')
-    } finally {
-      setCleanupLoading(false)
-    }
-  }
-
-  async function confirmCleanup() {
-    if (!cleanupCandidates || cleanupCandidates.length === 0) return
-    setCleanupDeleting(true); setError('')
-    try {
-      await Promise.all(cleanupCandidates.map((c) => deleteDoc(doc(db, 'courses', c.id))))
-      if (selectedCourseId && cleanupCandidates.some((c) => c.id === selectedCourseId)) setSelectedCourseId(null)
-      setCleanupCandidates(null)
-      await loadCourses()
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete')
-    } finally {
-      setCleanupDeleting(false)
-    }
   }
 
   function openEditCourseInfo() {
@@ -331,14 +293,7 @@ export function SyllabusPage() {
         <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
           <div className="syllabus-col-header">
             <h2>📖 Courses</h2>
-            <div className="row" style={{ gap: '0.4rem' }}>
-              {isAdminOrMentor && (
-                <button type="button" className="btn small ghost" title="Find courses with no syllabus content" disabled={cleanupLoading} onClick={() => void openCleanup()}>
-                  {cleanupLoading ? '⏳…' : '🧹 Clean up'}
-                </button>
-              )}
-              <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
-            </div>
+            <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
           </div>
           {addingCourse && (
             <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
@@ -494,38 +449,6 @@ export function SyllabusPage() {
         ) : null}
       </div>
 
-      {cleanupCandidates && (
-        <div className="modal-backdrop" onClick={() => !cleanupDeleting && setCleanupCandidates(null)}>
-          <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>🧹 Clean up empty courses</h3>
-              <button type="button" className="btn small ghost" disabled={cleanupDeleting} onClick={() => setCleanupCandidates(null)}>✕</button>
-            </div>
-            {cleanupCandidates.length === 0 ? (
-              <p className="muted">Nothing to clean up — every course has at least one session recorded.</p>
-            ) : (
-              <>
-                <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-                  These {cleanupCandidates.length} course{cleanupCandidates.length !== 1 ? 's' : ''} have no sessions recorded in the Syllabus Builder — nothing was ever built for them here. Deleting removes them everywhere (student course lists, reports).
-                </p>
-                <ul style={{ margin: '0 0 1.25rem', paddingLeft: '1.2rem', maxHeight: 240, overflowY: 'auto' }}>
-                  {cleanupCandidates.map((c) => (
-                    <li key={c.id} style={{ marginBottom: '0.3rem' }}>
-                      {c.title} <span className="muted small">({c.levelId === null ? 'Unassigned' : levelName(c.levelId)})</span>
-                    </li>
-                  ))}
-                </ul>
-                <div className="row" style={{ justifyContent: 'flex-end' }}>
-                  <button type="button" className="btn ghost" disabled={cleanupDeleting} onClick={() => setCleanupCandidates(null)}>Cancel</button>
-                  <button type="button" className="btn danger" disabled={cleanupDeleting} onClick={() => void confirmCleanup()}>
-                    {cleanupDeleting ? 'Deleting…' : `Delete ${cleanupCandidates.length} course${cleanupCandidates.length !== 1 ? 's' : ''}`}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
 
       {examModalOpen && selectedCourseId && (
         <div className="modal-backdrop" onClick={() => setExamModalOpen(false)}>

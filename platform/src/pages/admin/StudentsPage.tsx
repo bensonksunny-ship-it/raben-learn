@@ -200,8 +200,8 @@ export function StudentsPage() {
           <h1 style={{ marginBottom: '0.25rem' }}>Students</h1>
         </div>
         {canManage && (
-          <button className="btn primary" onClick={() => { setShowCreate((v) => !v); setError('') }}>
-            {showCreate ? '✕ Cancel' : '+ New Student'}
+          <button className="btn primary" onClick={() => { setShowCreate(true); setError('') }}>
+            + New Student
           </button>
         )}
       </div>
@@ -215,44 +215,52 @@ export function StudentsPage() {
         </p>
       ) : null}
 
-      {/* Create student form */}
+      {/* Add Student — a compact floating modal rather than an inline panel, so
+          creating a student doesn't push the whole page layout around. */}
       {canManage && showCreate && (
-        <section className="panel" style={{ marginBottom: '1.5rem' }}>
-          <h2 style={{ marginBottom: '1rem' }}>Add Student</h2>
-          <form className="form grid" onSubmit={onCreate}>
-            <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
-            <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
-            <div className="full">
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-                Initial password <span className="muted small" style={{ fontWeight: 400 }}>(optional — leave blank to auto-generate)</span>
+        <div className="modal-backdrop glass" onClick={() => setShowCreate(false)}>
+          <div className="modal glass" onClick={(e) => e.stopPropagation()}>
+            <button type="button" className="modal-glass-close" aria-label="Close" onClick={() => setShowCreate(false)}>✕</button>
+            <div className="modal-glass-header">
+              <h2 className="modal-glass-title">Add Student</h2>
+              <p className="muted small modal-glass-subtitle">Create an account and assign their courses.</p>
+            </div>
+            <form className="form grid" onSubmit={onCreate}>
+              <label>Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" required /></label>
+              <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" required /></label>
+              <div className="full">
+                <label>
+                  Initial password <span className="modal-glass-field-hint">(optional — leave blank to auto-generate)</span>
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={tempPassword}
+                    onChange={(e) => setTempPassword(e.target.value)}
+                    placeholder="Min 8 characters or leave blank"
+                  />
+                </label>
               </div>
-              <input
-                type="password"
-                autoComplete="new-password"
-                value={tempPassword}
-                onChange={(e) => setTempPassword(e.target.value)}
-                placeholder="Min 8 characters or leave blank"
-              />
-            </div>
-            <div className="full">
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Assign Courses</div>
-              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                {courses.map((c) => (
-                  <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.9rem' }}>
-                    <input type="checkbox" checked={courseIds.includes(c.id)} onChange={() => toggleCourse(c.id)} />
-                    {c.title}
-                  </label>
-                ))}
-                {courses.length === 0 && <span className="muted small">No courses yet.</span>}
+              <div className="full">
+                <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.35rem' }}>Assign Courses</div>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {courses.map((c) => (
+                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.9rem', fontWeight: 400 }}>
+                      <input type="checkbox" checked={courseIds.includes(c.id)} onChange={() => toggleCourse(c.id)} />
+                      {c.title}
+                    </label>
+                  ))}
+                  {courses.length === 0 && <span className="muted small">No courses yet.</span>}
+                </div>
               </div>
-            </div>
-            <div className="full">
-              <button className="btn primary" type="submit" disabled={saving}>
-                {saving ? 'Creating…' : 'Create Student'}
-              </button>
-            </div>
-          </form>
-        </section>
+              <div className="full modal-glass-actions">
+                <button type="button" className="btn secondary" onClick={() => setShowCreate(false)}>Cancel</button>
+                <button className="btn primary" type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : 'Save Student'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {loading ? <p className="muted">Loading…</p> : null}

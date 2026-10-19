@@ -95,6 +95,17 @@ export default function App() {
               </RequireCapability>
             }
           />
+          {/* Academic Consultant's only page — admin/mentor already reach the same
+              <SyllabusPage> through their own /admin/syllabus, /mentor/syllabus
+              routes below, gated on adminArea/mentorArea instead. */}
+          <Route
+            path="syllabus"
+            element={
+              <RequireCapability cap="syllabusArea">
+                <SyllabusPage />
+              </RequireCapability>
+            }
+          />
           {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
           <Route path="timetable" element={<Navigate to="/schedule" replace />} />
           <Route path="admin/diary" element={<Navigate to="/schedule" replace />} />

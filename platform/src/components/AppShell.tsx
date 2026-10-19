@@ -8,12 +8,8 @@ import { ModuleLauncher, type LauncherItem } from './ModuleLauncher'
 export default function AppShell() {
   const { firebaseUser, profile, loading, logout } = useAuth()
   const [launcherOpen, setLauncherOpen] = useState(false)
-  // Mobile only (see index.css's desktop media query) — the ☰ trigger slides the
-  // rail in as an overlay there. On desktop the rail is always visible/static, so
-  // this state (and the toggle/backdrop that read it) simply has no effect.
-  const [sidebarOpen, setSidebarOpen] = useState(false)
-  // The "You" avatar's own popup — separate from the sidebar's open/closed state,
-  // since it's a menu on top of the (already open) sidebar, not another overlay.
+  // The "You" avatar's own popup — the sidebar itself is always visible now (no
+  // open/closed state of its own), so this is just a menu floating on top of it.
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
 
   if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
@@ -25,6 +21,7 @@ export default function AppShell() {
   const isMentor = profile.roles.includes('mentor')
   const isStudent = profile.roles.includes('student')
   const isManager = profile.roles.includes('manager')
+  const isConsultant = profile.roles.includes('consultant')
 
   const srl = ({ isActive }: { isActive: boolean }) => `sidebar-rail-link${isActive ? ' active' : ''}`
 
@@ -36,7 +33,7 @@ export default function AppShell() {
   // same priority the launcher's own role blocks below are listed in. (Manager-only
   // accounts land on the same place their own Manager icon does — that overlap
   // already existed before this icon was added, for the same reason.)
-  const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : '/manager'
+  const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : isConsultant ? '/syllabus' : '/manager'
 
   // Legacy docs can lack a `name` entirely (see StudentSelect/StudentsPage for the
   // same fallback) — email, then "?", so this never crashes on an old record.
@@ -75,39 +72,26 @@ export default function AppShell() {
 
   return (
     <div className="shell">
-      {/* Single trigger — always on screen, top-left — that slides the sidebar in/out. */}
-      <button
-        type="button"
-        className="sidebar-toggle"
-        aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
-        aria-expanded={sidebarOpen}
-        onClick={() => setSidebarOpen((v) => !v)}
-      >
-        {sidebarOpen ? '✕' : '☰'}
-      </button>
-
-      {/* Click-away target — only present while open. */}
-      {sidebarOpen && <div className="sidebar-backdrop" onClick={() => setSidebarOpen(false)} />}
-
-      {/* Sidebar — an ultra-minimal icon rail: brand mark, Home, Manager/Preview
-          (admin & manager only), then the "You" profile avatar (its own popup —
-          View Profile / Sign Out) pinned to the bottom. Always visible/static on
-          desktop (index.css forces it open there); on mobile it's hidden
-          off-screen until the ☰ trigger above opens it. Every other route lives
-          in the launcher grid instead (see `launcherItems` above). */}
-      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
+      {/* Sidebar — an ultra-minimal icon rail, always visible on every screen size
+          (no hamburger trigger, no slide-in overlay): Home anchors the very top
+          — bigger and brighter than everything below it, since it's the rail's
+          primary anchor now — then the brand mark, then Manager/Preview (admin &
+          manager only), then the "You" profile avatar (its own popup — View
+          Profile / Sign Out) pinned to the bottom. Every other route lives in the
+          launcher grid instead (see `launcherItems` above). */}
+      <aside className="sidebar">
+        <div className="sidebar-rail-links">
+          <NavLink to={homeTo} end className={({ isActive }) => `sidebar-rail-link home${isActive ? ' active' : ''}`} title="Home" aria-label="Home">🏠</NavLink>
+        </div>
         <div className="sidebar-brand">
           <AppIcon className="sidebar-brand-icon" />
         </div>
-        <div className="sidebar-rail-links">
-          <NavLink to={homeTo} end className={srl} title="Home" aria-label="Home" onClick={() => setSidebarOpen(false)}>🏠</NavLink>
-          {(isAdmin || isManager) && (
-            <>
-              <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager" onClick={() => setSidebarOpen(false)}>🧑‍💼</NavLink>
-              <NavLink to="/manager/student-preview" className={srl} title="Preview Student View" aria-label="Preview Student View" onClick={() => setSidebarOpen(false)}>👁️</NavLink>
-            </>
-          )}
-        </div>
+        {(isAdmin || isManager) && (
+          <div className="sidebar-rail-links">
+            <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager">🧑‍💼</NavLink>
+            <NavLink to="/manager/student-preview" className={srl} title="Preview Student View" aria-label="Preview Student View">👁️</NavLink>
+          </div>
+        )}
         <div className="profile-menu-wrap">
           {profileMenuOpen && <div className="profile-menu-backdrop" onClick={() => setProfileMenuOpen(false)} />}
           <button
@@ -149,8 +133,9 @@ export default function AppShell() {
 
       {/* No separate mobile bottom nav — the launcher below (reachable from the same
           🏠 button on every screen size) already lists every page and menu, and the
-          ☰-triggered sidebar above covers Manager/Preview/Sign out. A second,
-          always-visible nav bar duplicating the same links was redundant with it. */}
+          always-visible sidebar above covers Home/Manager/Preview/Sign out. A
+          second, always-visible nav bar duplicating the same links was redundant
+          with it. */}
       <button type="button" className="launcher-fab" aria-label="Open app launcher" onClick={() => setLauncherOpen(true)}>
         🏠
       </button>

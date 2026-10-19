@@ -5,6 +5,11 @@ service cloud.firestore {
     function isSignedIn() { return request.auth != null; }
     function hasRole(role) { return isSignedIn() && role in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles; }
     function isAdminOrMentor() { return hasRole('admin') || hasRole('mentor'); }
+    // Academic Consultant — syllabus edit rights only, nothing else `isAdminOrMentor()`
+    // gates (student_lesson_progress/student_daily_plans delete, course_history
+    // create, mentor_centres) is meant to widen to this role, so it's its own
+    // function rather than folded into that one.
+    function canEditSyllabus() { return isAdminOrMentor() || hasRole('consultant'); }
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function targetIsElevated(uid) {
       let roles = get(/databases/$(database)/documents/users/$(uid)).data.roles;
@@ -26,11 +31,11 @@ service cloud.firestore {
 
     match /courses/{id} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdminOrMentor();
+      allow create, update, delete: if canEditSyllabus();
     }
     match /sessions/{id} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isAdminOrMentor();
+      allow create, update, delete: if canEditSyllabus();
     }
 
     match /student_lesson_progress/{id} {

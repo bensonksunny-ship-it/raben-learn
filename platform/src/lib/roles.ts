@@ -12,5 +12,6 @@ export function homePath(profile: UserProfile): string {
   if (profile.roles.includes('admin')) return '/admin'
   if (profile.roles.includes('manager')) return '/manager'
   if (profile.roles.includes('mentor')) return '/mentor'
+  if (profile.roles.includes('consultant')) return '/syllabus'
   return '/student'
 }

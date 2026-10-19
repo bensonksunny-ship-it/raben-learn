@@ -9,7 +9,7 @@ import type { Role } from '../types'
 // `manageTimetable` now gates /schedule — the merged page that absorbed both the old
 // Timetable Planner (editable shared class schedule) and the old Student Diary
 // (read-only per-student log). Kept the original capability name to limit churn.
-export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable'
+export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable' | 'syllabusArea'
 
 const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // Admin can also reach /schedule and /manager (no separate /admin/* routes for
@@ -24,6 +24,11 @@ const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // can't touch admin/manager accounts or grant those roles — that's enforced
   // server-side, this table only decides which pages are reachable at all.
   manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable'],
+  // Academic Consultant — exactly one page, nothing else. `/syllabus` (App.tsx)
+  // is the only route gated on `syllabusArea`; admin/mentor reach the same
+  // `<SyllabusPage>` through their own `adminArea`/`mentorArea` routes instead,
+  // so this capability is consultant-only in practice.
+  consultant: ['syllabusArea'],
 }
 
 export function can(roles: Role[], cap: Capability): boolean {

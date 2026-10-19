@@ -1,4 +1,7 @@
-export type Role = 'admin' | 'mentor' | 'student' | 'manager'
+// 'consultant' = Academic Consultant — see lib/rbac.ts's `syllabusArea` capability:
+// the only role scoped to exactly one page (Syllabus), with full edit/add-course
+// rights there and nothing else reachable anywhere in the app.
+export type Role = 'admin' | 'mentor' | 'student' | 'manager' | 'consultant'
 export type UserStatus = 'active' | 'disabled'
 
 export interface UserProfile {

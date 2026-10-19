@@ -15,7 +15,7 @@ admin.initializeApp()
 const db = admin.firestore()
 const auth = admin.auth()
 
-const VALID_ROLES = ['admin', 'mentor', 'student', 'manager'] as const
+const VALID_ROLES = ['admin', 'mentor', 'student', 'manager', 'consultant'] as const
 type Role = (typeof VALID_ROLES)[number]
 const ELEVATED_ROLES: Role[] = ['admin', 'manager']
 

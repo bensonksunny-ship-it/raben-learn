@@ -20,12 +20,21 @@ function isElevated(roles: Role[]): boolean {
   return roles.some((r) => ELEVATED_ROLES.includes(r))
 }
 
+/** Checkbox/label display only — the stored role string itself stays the short 'consultant'. */
+function roleLabel(r: Role): string {
+  if (r === 'consultant') return 'Academic Consultant'
+  return r.charAt(0).toUpperCase() + r.slice(1)
+}
+
 export function UserManagement() {
   const { profile } = useAuth()
   const isAdminActor = Boolean(profile?.roles.includes('admin'))
   // A manager who is *also* admin keeps full admin power — only restrict a manager-only actor.
   const isManagerOnly = !isAdminActor && Boolean(profile?.roles.includes('manager'))
-  const roleOptions: Role[] = isManagerOnly ? ['mentor', 'student'] : ['admin', 'mentor', 'student', 'manager']
+  // Consultant isn't elevated — a manager-only actor can create/grant it too, same as mentor/student.
+  const roleOptions: Role[] = isManagerOnly
+    ? ['mentor', 'student', 'consultant']
+    : ['admin', 'mentor', 'student', 'manager', 'consultant']
 
   const [users, setUsers] = useState<UserProfile[]>([])
   const [courses, setCourses] = useState<Course[]>([])
@@ -250,7 +259,7 @@ export function UserManagement() {
                 {roleOptions.map((r) => (
                   <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.9rem' }}>
                     <input type="checkbox" checked={createRoles.includes(r)} onChange={() => toggleRole(createRoles, r, setCreateRoles)} />
-                    {r.charAt(0).toUpperCase() + r.slice(1)}
+                    {roleLabel(r)}
                   </label>
                 ))}
               </div>
@@ -283,6 +292,7 @@ export function UserManagement() {
           {!isManagerOnly && <option value="manager">Manager</option>}
           <option value="mentor">Mentor</option>
           <option value="student">Student</option>
+          <option value="consultant">Academic Consultant</option>
         </select>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginLeft: 'auto' }}>
           <button className="btn small secondary" disabled={loadingPage || pageIndex === 0} onClick={() => void fetchPage(null, 0)}>← First</button>
@@ -369,7 +379,7 @@ export function UserManagement() {
                   {roleOptions.map((r) => (
                     <label key={r} style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.9rem' }}>
                       <input type="checkbox" checked={editRoles.includes(r)} onChange={() => toggleRole(editRoles, r, setEditRoles)} />
-                      {r.charAt(0).toUpperCase() + r.slice(1)}
+                      {roleLabel(r)}
                     </label>
                   ))}
                 </div>

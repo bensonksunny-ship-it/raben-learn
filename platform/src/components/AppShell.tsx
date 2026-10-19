@@ -33,7 +33,7 @@ export default function AppShell() {
   // same priority the launcher's own role blocks below are listed in. (Manager-only
   // accounts land on the same place their own Manager icon does — that overlap
   // already existed before this icon was added, for the same reason.)
-  const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : isConsultant ? '/syllabus' : '/manager'
+  const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : isConsultant ? '/consultant' : '/manager'
 
   // Legacy docs can lack a `name` entirely (see StudentSelect/StudentsPage for the
   // same fallback) — email, then "?", so this never crashes on an old record.
@@ -73,23 +73,25 @@ export default function AppShell() {
   return (
     <div className="shell">
       {/* Sidebar — an ultra-minimal icon rail, always visible on every screen size
-          (no hamburger trigger, no slide-in overlay): Home anchors the very top
-          — bigger and brighter than everything below it, since it's the rail's
-          primary anchor now — then the brand mark, then Manager/Preview (admin &
-          manager only), then the "You" profile avatar (its own popup — View
-          Profile / Sign Out) pinned to the bottom. Every other route lives in the
-          launcher grid instead (see `launcherItems` above). */}
+          (no hamburger trigger, no slide-in overlay): the brand mark tops the
+          stack, then Home right below it — bigger and brighter than everything
+          below IT, since it's the rail's primary navigation anchor — then
+          Manager/Preview (admin & manager only), then the "You" profile avatar
+          (its own popup — View Profile / Sign Out) pinned to the bottom. Every
+          other route lives in the launcher grid instead (see `launcherItems`
+          above). */}
       <aside className="sidebar">
-        <div className="sidebar-rail-links">
-          <NavLink to={homeTo} end className={({ isActive }) => `sidebar-rail-link home${isActive ? ' active' : ''}`} title="Home" aria-label="Home">🏠</NavLink>
-        </div>
         <div className="sidebar-brand">
           <AppIcon className="sidebar-brand-icon" />
+        </div>
+        <div className="sidebar-rail-links">
+          <NavLink to={homeTo} end className={({ isActive }) => `sidebar-rail-link home${isActive ? ' active' : ''}`} title="Home" aria-label="Home">🏠</NavLink>
         </div>
         {(isAdmin || isManager) && (
           <div className="sidebar-rail-links">
             <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager">🧑‍💼</NavLink>
             <NavLink to="/manager/student-preview" className={srl} title="Preview Student View" aria-label="Preview Student View">👁️</NavLink>
+            <NavLink to="/manager/consultant-preview" className={srl} title="Preview Consultant View" aria-label="Preview Consultant View">📖</NavLink>
           </div>
         )}
         <div className="profile-menu-wrap">

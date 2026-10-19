@@ -16,6 +16,7 @@ import { MentorStudentProgress } from './pages/mentor/MentorStudentProgress'
 import { StudentDashboard } from './pages/student/StudentDashboard'
 import { StudentDailyPlanner } from './pages/student/StudentDailyPlanner'
 import { StudentHistory } from './pages/student/StudentHistory'
+import { ConsultantDashboard } from './pages/consultant/ConsultantDashboard'
 
 /** Lazy-loaded so admin callable code lives in its own chunk (avoids stale main-bundle caches). */
 const UserManagement = lazy(() =>
@@ -29,6 +30,9 @@ const SchedulePage = lazy(() =>
 )
 const StudentPreviewPage = lazy(() =>
   import('./pages/admin/StudentPreviewPage').then((m) => ({ default: m.StudentPreviewPage })),
+)
+const ConsultantPreviewPage = lazy(() =>
+  import('./pages/admin/ConsultantPreviewPage').then((m) => ({ default: m.ConsultantPreviewPage })),
 )
 
 function AdminRouteFallback() {
@@ -95,9 +99,28 @@ export default function App() {
               </RequireCapability>
             }
           />
-          {/* Academic Consultant's only page — admin/mentor already reach the same
-              <SyllabusPage> through their own /admin/syllabus, /mentor/syllabus
-              routes below, gated on adminArea/mentorArea instead. */}
+          <Route
+            path="manager/consultant-preview"
+            element={
+              <RequireCapability cap="managerArea">
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <ConsultantPreviewPage />
+                </Suspense>
+              </RequireCapability>
+            }
+          />
+          {/* Academic Consultant's whole area — a small dashboard (stats + a way
+              into Syllabus), then Syllabus itself. Admin/mentor already reach the
+              same <SyllabusPage> through their own /admin/syllabus,
+              /mentor/syllabus routes below, gated on adminArea/mentorArea instead. */}
+          <Route
+            path="consultant"
+            element={
+              <RequireCapability cap="syllabusArea">
+                <ConsultantDashboard />
+              </RequireCapability>
+            }
+          />
           <Route
             path="syllabus"
             element={

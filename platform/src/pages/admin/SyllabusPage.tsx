@@ -16,7 +16,7 @@ interface FlatRow {
   topic: Topic
 }
 
-export function SyllabusPage() {
+export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) {
   const [courses, setCourses] = useState<Course[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   type LevelFilter = LevelId | 'unassigned'
@@ -37,7 +37,7 @@ export function SyllabusPage() {
   // `commitRowTitle`/`addRow` below), so "Save Syllabus" has nothing left to write;
   // it just confirms you're done and switches to the clean read-only table. Resets
   // to editable whenever a different course is selected.
-  const [editingSyllabus, setEditingSyllabus] = useState(true)
+  const [editingSyllabus, setEditingSyllabus] = useState(!readOnly)
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -313,9 +313,11 @@ export function SyllabusPage() {
         <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
           <div className="syllabus-col-header">
             <h2>📖 Courses</h2>
-            <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
+            {!readOnly && (
+              <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
+            )}
           </div>
-          {addingCourse && (
+          {!readOnly && addingCourse && (
             <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
               <input placeholder="Course title *" value={newCourseTitle} onChange={(e) => setNewCourseTitle(e.target.value)} required autoFocus />
               <input placeholder="Description (optional)" value={newCourseDesc} onChange={(e) => setNewCourseDesc(e.target.value)} />
@@ -372,49 +374,51 @@ export function SyllabusPage() {
                     )}
                     <h2 className="syllabus-active-title">
                       {selectedCourse?.title}
-                      <div className="topic-menu-wrap" style={{ display: 'inline-block', marginLeft: '0.4rem', verticalAlign: 'middle' }}>
-                        <button
-                          type="button"
-                          className="syllabus-title-edit-btn"
-                          title="Course options"
-                          aria-label="Course options"
-                          onClick={() => setCourseMenuOpen((v) => !v)}
-                        >
-                          ✎
-                        </button>
-                        {courseMenuOpen && (
-                          <div className="topic-menu-dropdown">
-                            <button
-                              type="button"
-                              className="topic-menu-item"
-                              onClick={() => { setCourseMenuOpen(false); openEditCourseInfo() }}
-                            >
-                              ✎ Edit / Rename Course
-                            </button>
-                            <button
-                              type="button"
-                              className="topic-menu-item danger"
-                              disabled={saving}
-                              onClick={() => { setCourseMenuOpen(false); void deleteCourse() }}
-                            >
-                              🗑️ Delete Course
-                            </button>
-                          </div>
-                        )}
-                      </div>
+                      {!readOnly && (
+                        <div className="topic-menu-wrap" style={{ display: 'inline-block', marginLeft: '0.4rem', verticalAlign: 'middle' }}>
+                          <button
+                            type="button"
+                            className="syllabus-title-edit-btn"
+                            title="Course options"
+                            aria-label="Course options"
+                            onClick={() => setCourseMenuOpen((v) => !v)}
+                          >
+                            ✎
+                          </button>
+                          {courseMenuOpen && (
+                            <div className="topic-menu-dropdown">
+                              <button
+                                type="button"
+                                className="topic-menu-item"
+                                onClick={() => { setCourseMenuOpen(false); openEditCourseInfo() }}
+                              >
+                                ✎ Edit / Rename Course
+                              </button>
+                              <button
+                                type="button"
+                                className="topic-menu-item danger"
+                                disabled={saving}
+                                onClick={() => { setCourseMenuOpen(false); void deleteCourse() }}
+                              >
+                                🗑️ Delete Course
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </h2>
                     {selectedCourse?.description ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>{selectedCourse.description}</p> : null}
                     {selectedCourse?.coreOutcome ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>🎯 {selectedCourse.coreOutcome}</p> : null}
                   </>
                 )}
               </div>
-              {editingSyllabus ? (
+              {!readOnly && (editingSyllabus ? (
                 <button type="button" className="btn primary" disabled={saving} onClick={() => void saveSyllabus()} style={{ flexShrink: 0 }}>
                   {saving ? 'Saving…' : 'Save Syllabus'}
                 </button>
               ) : (
                 <button type="button" className="btn secondary" onClick={() => setEditingSyllabus(true)} style={{ flexShrink: 0 }}>Edit</button>
-              )}
+              ))}
             </div>
 
             {editingSyllabus ? (

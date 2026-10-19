@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { addDoc, collection, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { Course, LevelId, Session, Topic, TopicType } from '../../types'
 import { LEVELS, levelName } from '../../lib/levels'
@@ -29,6 +29,7 @@ export function SyllabusPage() {
   const [newRowTitle, setNewRowTitle] = useState('')
   const [examModalOpen, setExamModalOpen] = useState(false)
   const [editingCourseInfo, setEditingCourseInfo] = useState(false)
+  const [courseMenuOpen, setCourseMenuOpen] = useState(false)
   const [editCourseTitle, setEditCourseTitle] = useState('')
   const [editCourseDesc, setEditCourseDesc] = useState('')
   const [editCourseOutcome, setEditCourseOutcome] = useState('')
@@ -92,7 +93,7 @@ export function SyllabusPage() {
   }, [selectedCourseId])
 
   useEffect(() => { setSelectedCourseId(null) }, [selectedLevel])
-  useEffect(() => { setExamModalOpen(false); setEditingSyllabus(true); setEditingCourseInfo(false) }, [selectedCourseId])
+  useEffect(() => { setExamModalOpen(false); setEditingSyllabus(true); setEditingCourseInfo(false); setCourseMenuOpen(false) }, [selectedCourseId])
 
   async function createCourse(e: FormEvent) {
     e.preventDefault()
@@ -141,6 +142,25 @@ export function SyllabusPage() {
       await loadCourses()
       await loadSessions(selectedCourseId)
     } catch (err) { setError(err instanceof Error ? err.message : 'Failed to update course') } finally { setSaving(false) }
+  }
+
+  /** Deletes the course doc and every session doc under it (its syllabus) — a
+   *  course has no content of its own once those are gone, so nothing's left
+   *  orphaned. Confirmed once before anything is touched. */
+  async function deleteCourse() {
+    if (!selectedCourseId) return
+    if (!window.confirm('Are you sure you want to delete this course and its syllabus? This cannot be undone.')) return
+    setSaving(true); setError('')
+    try {
+      await Promise.all(sessions.map((s) => deleteDoc(doc(db, 'sessions', s.id))))
+      await deleteDoc(doc(db, 'courses', selectedCourseId))
+      setSelectedCourseId(null)
+      await loadCourses()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete course')
+    } finally {
+      setSaving(false)
+    }
   }
 
   // ─── Flattened Syllabus grid ────────────────────────────────────────────────
@@ -347,9 +367,41 @@ export function SyllabusPage() {
                   </form>
                 ) : (
                   <>
+                    {courseMenuOpen && (
+                      <div style={{ position: 'fixed', inset: 0, zIndex: 50 }} onClick={() => setCourseMenuOpen(false)} />
+                    )}
                     <h2 className="syllabus-active-title">
                       {selectedCourse?.title}
-                      <button type="button" className="syllabus-title-edit-btn" title="Rename course" aria-label="Rename course" onClick={openEditCourseInfo}>✎</button>
+                      <div className="topic-menu-wrap" style={{ display: 'inline-block', marginLeft: '0.4rem', verticalAlign: 'middle' }}>
+                        <button
+                          type="button"
+                          className="syllabus-title-edit-btn"
+                          title="Course options"
+                          aria-label="Course options"
+                          onClick={() => setCourseMenuOpen((v) => !v)}
+                        >
+                          ✎
+                        </button>
+                        {courseMenuOpen && (
+                          <div className="topic-menu-dropdown">
+                            <button
+                              type="button"
+                              className="topic-menu-item"
+                              onClick={() => { setCourseMenuOpen(false); openEditCourseInfo() }}
+                            >
+                              ✎ Edit / Rename Course
+                            </button>
+                            <button
+                              type="button"
+                              className="topic-menu-item danger"
+                              disabled={saving}
+                              onClick={() => { setCourseMenuOpen(false); void deleteCourse() }}
+                            >
+                              🗑️ Delete Course
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     </h2>
                     {selectedCourse?.description ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>{selectedCourse.description}</p> : null}
                     {selectedCourse?.coreOutcome ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>🎯 {selectedCourse.coreOutcome}</p> : null}

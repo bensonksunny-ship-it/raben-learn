@@ -53,8 +53,42 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 .shell.narrow { max-width: 420px; margin: 7vh auto; display: block; padding: 2rem; border: 1px solid var(--border); border-radius: calc(var(--radius) + 4px); background: var(--surface); box-shadow: 0 8px 40px rgba(12,24,60,0.12); min-height: unset; }
 
 /* Ultra-minimal icon rail — not a nav list anymore (the launcher owns navigation
-   now); just the brand mark up top and sign out pinned to the bottom. */
-.sidebar { width: 64px; min-width: 64px; background: var(--midnight); color: #fff; display: flex; flex-direction: column; align-items: center; padding: 1rem 0.5rem; gap: 0.75rem; position: sticky; top: 0; height: 100dvh; overflow-y: auto; }
+   now); just the brand mark up top and sign out pinned to the bottom. Hidden
+   off-screen by default — `position: fixed` (not `sticky`, it no longer takes up
+   any layout width) and slid in over the page via `.open`, toggled by the single
+   ☰ trigger below. */
+.sidebar {
+  width: 64px; min-width: 64px; background: var(--midnight); color: #fff;
+  display: flex; flex-direction: column; align-items: center;
+  /* Bottom padding adds the safe-area inset (home-indicator / gesture bar on
+     notched phones) on top of the usual 1rem, so the pinned avatar below never
+     sits flush against — or under — real hardware chrome. */
+  padding: 1rem 0.5rem calc(1rem + env(safe-area-inset-bottom, 0px)); gap: 0.75rem;
+  position: fixed; top: 0; left: 0; height: 100dvh;
+  /* No `overflow` here on purpose — the rail's own content (brand + at most 2
+     icons + the avatar) never exceeds the viewport, and an overflow:auto/hidden
+     here would clip `.profile-menu-dropdown` below, which intentionally pops out
+     past this box's right edge. */
+  z-index: 320; transform: translateX(-100%); transition: transform 0.22s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+  box-shadow: 10px 0 36px rgba(10,18,40,0.35);
+}
+.sidebar.open { transform: translateX(0); }
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+
+/* The one trigger that opens/closes it — always on screen, same spot either way. */
+.sidebar-toggle {
+  position: fixed; top: 14px; left: 14px; z-index: 330;
+  width: 42px; height: 42px; border-radius: 11px; border: none;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--midnight); color: #fff; font-size: 1.2rem; line-height: 1;
+  cursor: pointer; box-shadow: 0 6px 18px rgba(10,18,40,0.3);
+  transition: background 0.15s, transform 0.12s;
+}
+.sidebar-toggle:hover { background: #1c2b52; }
+.sidebar-toggle:active { transform: scale(0.94); }
+
+/* Click-away-to-close, while open only. */
+.sidebar-backdrop { position: fixed; inset: 0; z-index: 310; background: rgba(10,18,40,0.32); }
 .brand { font-family: var(--font-display); font-optical-sizing: auto; font-style: italic; font-weight: 600; font-size: 1.22rem; letter-spacing: -0.01em; padding: 0.2rem 0.5rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); color: #ffffff; line-height: 1.2; }
 
 .sidebar-brand { display: flex; align-items: center; justify-content: center; }
@@ -68,15 +102,33 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 }
 .sidebar-rail-link:hover { background: rgba(255,255,255,0.08); color: #fff; text-decoration: none; }
 .sidebar-rail-link.active { background: var(--amber-soft); color: #f5c97a; }
-.sidebar-rail-action {
-  margin-top: auto; width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0;
-  display: flex; align-items: center; justify-content: center;
-  background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.14);
-  color: rgba(255,255,255,0.75); font-size: 1.15rem; cursor: pointer;
-  transition: background 0.15s, color 0.15s, transform 0.12s;
+/* The "You" avatar pinned to the bottom of the rail, and its popup (View Profile /
+   Sign Out) — `.user-avatar.is-*` (shared with every other avatar in the app)
+   supplies the gradient/initials look; this just sizes it for the narrow rail and
+   adds the click behavior + flyout menu. */
+.profile-menu-wrap { position: relative; margin-top: auto; flex-shrink: 0; }
+.profile-menu-trigger.user-avatar {
+  width: 40px; height: 40px; min-width: 40px; padding: 0; font-size: 0.85rem;
+  border: 2px solid rgba(255,255,255,0.18); cursor: pointer;
+  transition: transform 0.12s, border-color 0.15s;
 }
-.sidebar-rail-action:hover { background: rgba(255,255,255,0.14); color: #fff; }
-.sidebar-rail-action:active { transform: scale(0.94); }
+.profile-menu-trigger:hover { border-color: rgba(255,255,255,0.4); }
+.profile-menu-trigger:active { transform: scale(0.94); }
+.profile-menu-backdrop { position: fixed; inset: 0; z-index: 321; }
+.profile-menu-dropdown {
+  position: absolute; left: calc(100% + 10px); bottom: 0; z-index: 322;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: 0 8px 28px rgba(10,18,40,0.25); min-width: 170px; overflow: hidden;
+}
+.profile-menu-item {
+  display: flex; align-items: center; gap: 0.5rem; width: 100%; padding: 0.65rem 0.9rem;
+  text-align: left; background: none; border: none; font-size: 0.9rem; font-weight: 500;
+  color: var(--text); text-decoration: none; cursor: pointer; font-family: var(--font-body);
+  transition: background 0.12s;
+}
+.profile-menu-item:hover { background: var(--surface-soft); text-decoration: none; }
+.profile-menu-item.danger { color: var(--danger); }
+.profile-menu-item.danger:hover { background: #fdf2f2; }
 .main { flex: 1; padding: 2rem 2.5rem; min-width: 0; }
 
 .form { display: flex; flex-direction: column; gap: 0.75rem; }
@@ -246,6 +298,22 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 }
 .landscape-exit-btn:hover { background: rgba(10,18,40,0.95); transform: scale(1.03); }
 .landscape-exit-btn:active { transform: scale(0.96); }
+
+/* Pure-CSS "fake" landscape — rotates the content 90° and swaps its own box to
+   viewport-height × viewport-width, so it visually fills the screen landscape-
+   style even though the device itself is still physically portrait (iOS Safari
+   has no orientation.lock at all; several other browsers silently ignore/reject
+   it). Self-contained and fixed-positioned, so it works the same whether the
+   page it wraps is the plain /schedule route or inside a Timetable popup. */
+.landscape-css-rotate-wrap {
+  position: fixed; top: 0; left: 0; z-index: 240;
+  width: 100vh; height: 100vw;
+  transform: rotate(90deg) translateY(-100%);
+  transform-origin: top left;
+  overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: var(--bg); padding: 0.75rem; box-sizing: border-box;
+}
+.landscape-css-rotate-wrap .schedule-page { height: 100%; }
 /* Toggled on <body> (not a wrapper div) so it reaches the sidebar/bottom-nav and
    .main regardless of how deep the grid is nested — a plain /schedule page vs.
    any of the Timetable popups (which already fill the viewport via their own

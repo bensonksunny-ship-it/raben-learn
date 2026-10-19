@@ -31,7 +31,7 @@ export interface StudentTimetableViewProps {
  * own Timetable popup and by the manager's Student Preview tool (via `studentId`).
  */
 export function StudentTimetableView({ studentId }: StudentTimetableViewProps = {}) {
-  const { promptVisible, isLandscapeFullscreen, enterLandscape, dismissPrompt, exitLandscape } = useLandscapeFullscreen()
+  const { promptVisible, isLandscapeFullscreen, useCssRotate, enterLandscape, dismissPrompt, exitLandscape } = useLandscapeFullscreen()
   const { firebaseUser } = useAuth()
   const uid = studentId ?? firebaseUser?.uid
 
@@ -115,7 +115,7 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
 
   if (loading || !timetable || !electives) return <p className="muted">Loading…</p>
 
-  return (
+  const content = (
     <div className="schedule-page">
       {promptVisible && <LandscapePrompt onSwitch={enterLandscape} onStay={dismissPrompt} />}
       {isLandscapeFullscreen && <LandscapeExitButton onExit={exitLandscape} />}
@@ -145,4 +145,10 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
       )}
     </div>
   )
+
+  // Pure-CSS fallback for browsers (notably iOS Safari) where neither Fullscreen
+  // nor orientation.lock actually rotates the device — see useCssRotate's own doc
+  // comment. Self-contained wrapper, independent of whatever ancestor layout
+  // (plain /schedule route vs. any of the Timetable popups) this ends up inside.
+  return useCssRotate ? <div className="landscape-css-rotate-wrap">{content}</div> : content
 }

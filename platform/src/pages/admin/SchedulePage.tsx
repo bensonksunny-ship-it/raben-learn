@@ -49,7 +49,7 @@ function toWeekday(name: string): Weekday | null {
  * original Timetable Planner spec this merges with the former StudentDiaryPage.
  */
 export function SchedulePage({ initialStudentId = null }: { initialStudentId?: string | null } = {}) {
-  const { promptVisible, isLandscapeFullscreen, enterLandscape, dismissPrompt, exitLandscape } = useLandscapeFullscreen()
+  const { promptVisible, isLandscapeFullscreen, useCssRotate, enterLandscape, dismissPrompt, exitLandscape } = useLandscapeFullscreen()
   const [students, setStudents] = useState<UserProfile[]>([])
   const [loadingStudents, setLoadingStudents] = useState(true)
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId)
@@ -269,7 +269,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     return !!p && p.items.length > 0 && !p.startTime
   })
 
-  return (
+  const content = (
     <div className="schedule-page">
       {promptVisible && <LandscapePrompt onSwitch={enterLandscape} onStay={dismissPrompt} />}
       {isLandscapeFullscreen && <LandscapeExitButton onExit={exitLandscape} />}
@@ -369,4 +369,10 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
       )}
     </div>
   )
+
+  // Pure-CSS fallback for browsers (notably iOS Safari) where neither Fullscreen
+  // nor orientation.lock actually rotates the device — see useCssRotate's own doc
+  // comment. Self-contained wrapper, independent of whatever ancestor layout
+  // (plain /schedule route vs. any of the Timetable popups) this ends up inside.
+  return useCssRotate ? <div className="landscape-css-rotate-wrap">{content}</div> : content
 }

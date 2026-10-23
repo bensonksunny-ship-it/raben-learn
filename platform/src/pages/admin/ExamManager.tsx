@@ -366,9 +366,10 @@ export default function ExamManager({ courseId }: Props) {
             <div key={s.id} className="panel" style={{ marginBottom: '1rem' }}>
               <h4 style={{ marginBottom: '0.5rem' }}>{s.label} — {sectionQs.length}/{s.questionCount} questions pasted</h4>
               <textarea
+                className="exam-paste-textarea"
                 value={pasteText[s.id] ?? ''}
                 onChange={(e) => setPasteText((pt) => ({ ...pt, [s.id]: e.target.value }))}
-                rows={5}
+                rows={6}
                 placeholder={
                   draft.type === 'written'
                     ? 'Paste multiple questions at once — separate each question with a blank line.'

@@ -423,10 +423,6 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
 
             {editingSyllabus ? (
               <>
-                <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-                  Type a title below, or paste a list (one per line, or straight from a spreadsheet) into any row — it fills down from there.
-                </p>
-
                 <table className="session-topics-table">
                   <thead>
                     <tr>

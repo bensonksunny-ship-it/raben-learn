@@ -34,6 +34,10 @@ const StudentPreviewPage = lazy(() =>
 const ConsultantPreviewPage = lazy(() =>
   import('./pages/admin/ConsultantPreviewPage').then((m) => ({ default: m.ConsultantPreviewPage })),
 )
+const ExamPrintView = lazy(() => import('./pages/admin/ExamPrintView'))
+const ExamInstructions = lazy(() => import('./pages/exam/ExamInstructions'))
+const ExamRunner = lazy(() => import('./pages/exam/ExamRunner'))
+const ExamResults = lazy(() => import('./pages/exam/ExamResults'))
 
 function AdminRouteFallback() {
   return (
@@ -162,12 +166,20 @@ export default function App() {
             <Route path="syllabus" element={<SyllabusPage />} />
             <Route path="lessons" element={<SyllabusPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route
+              path="exam-print/:courseId/:examId"
+              element={<Suspense fallback={<AdminRouteFallback />}><ExamPrintView /></Suspense>}
+            />
           </Route>
           <Route path="mentor" element={<RequireCapability cap="mentorArea"><Outlet /></RequireCapability>}>
             <Route index element={<MentorDashboard />} />
             <Route path="students/:studentId" element={<MentorStudentProgress />} />
             <Route path="syllabus" element={<SyllabusPage />} />
             <Route path="reports" element={<ReportsPage />} />
+            <Route
+              path="exam-print/:courseId/:examId"
+              element={<Suspense fallback={<AdminRouteFallback />}><ExamPrintView /></Suspense>}
+            />
           </Route>
           <Route path="student" element={<RequireCapability cap="studentArea"><Outlet /></RequireCapability>}>
             <Route index element={<StudentDashboard />} />
@@ -176,6 +188,18 @@ export default function App() {
           </Route>
           <Route path="profile" element={<ProfilePage />} />
           <Route path="exam" element={<ExamPage />} />
+          <Route
+            path="exam/:courseId/:examId/instructions"
+            element={<Suspense fallback={<AdminRouteFallback />}><ExamInstructions /></Suspense>}
+          />
+          <Route
+            path="exam/:courseId/:examId/run"
+            element={<Suspense fallback={<AdminRouteFallback />}><ExamRunner /></Suspense>}
+          />
+          <Route
+            path="exam/:courseId/:examId/results/:attemptId"
+            element={<Suspense fallback={<AdminRouteFallback />}><ExamResults /></Suspense>}
+          />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

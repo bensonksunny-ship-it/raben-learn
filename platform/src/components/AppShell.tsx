@@ -29,10 +29,11 @@ export default function AppShell() {
     if (window.confirm('Are you sure you want to sign out?')) void logout()
   }
 
-  // The rail's own "Home" icon — one Dashboard destination, picked by role in the
-  // same priority the launcher's own role blocks below are listed in. (Manager-only
-  // accounts land on the same place their own Manager icon does — that overlap
-  // already existed before this icon was added, for the same reason.)
+  // The rail's brand logo doubles as the Home button — one Dashboard destination,
+  // picked by role in the same priority the launcher's own role blocks below are
+  // listed in. (Manager-only accounts land on the same place their own Manager
+  // icon does — that overlap already existed before this was added, for the same
+  // reason.)
   const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : isConsultant ? '/consultant' : '/manager'
 
   // Legacy docs can lack a `name` entirely (see StudentSelect/StudentsPage for the
@@ -62,6 +63,7 @@ export default function AppShell() {
     ...(isStudent ? [
       { to: '/student/planner', label: "Today's Plan", icon: '📅' },
       { to: '/student/history', label: 'History', icon: '🏆' },
+      { to: '/exam', label: 'Exams', icon: '📝' },
     ] : []),
     ...(isManager ? [
       { to: '/manager?view=users', label: 'Users', icon: '👤' },
@@ -73,20 +75,16 @@ export default function AppShell() {
   return (
     <div className="shell">
       {/* Sidebar — an ultra-minimal icon rail, always visible on every screen size
-          (no hamburger trigger, no slide-in overlay): the brand mark tops the
-          stack, then Home right below it — bigger and brighter than everything
-          below IT, since it's the rail's primary navigation anchor — then
-          Manager/Preview (admin & manager only), then the "You" profile avatar
-          (its own popup — View Profile / Sign Out) pinned to the bottom. Every
-          other route lives in the launcher grid instead (see `launcherItems`
-          above). */}
+          (no hamburger trigger, no slide-in overlay): the brand mark itself *is*
+          the Home button now — click the logo to go to Dashboard, no separate
+          🏠 icon beside it — then Manager/Preview (admin & manager only), then
+          the "You" profile avatar (its own popup — View Profile / Sign Out)
+          pinned to the bottom. Every other route lives in the launcher grid
+          instead (see `launcherItems` above). */}
       <aside className="sidebar">
-        <div className="sidebar-brand">
+        <NavLink to={homeTo} end className={({ isActive }) => `sidebar-brand-home${isActive ? ' active' : ''}`} title="Home" aria-label="Home — go to Dashboard">
           <AppIcon className="sidebar-brand-icon" />
-        </div>
-        <div className="sidebar-rail-links">
-          <NavLink to={homeTo} end className={({ isActive }) => `sidebar-rail-link home${isActive ? ' active' : ''}`} title="Home" aria-label="Home">🏠</NavLink>
-        </div>
+        </NavLink>
         {(isAdmin || isManager) && (
           <div className="sidebar-rail-links">
             <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager">🧑‍💼</NavLink>

@@ -187,40 +187,53 @@ export interface ProgressEntry {
   attemptHistory?: AttemptRecord[]
 }
 
-export interface ExamConfig {
-  duration: number           // minutes
-  totalMarks: number
-  questionsPerExam: number
-  isActive: boolean
-  createdBy: string          // uid
-}
+/** A exam is either a printable paper for a written/in-person exam, or an
+ *  in-app, auto-graded multiple-choice exam. Both share the same sectioned
+ *  structure (e.g. "Part A" = 10 × 1 mark, "Part B" = 5 × 5 marks) — a real
+ *  question paper's shape — rather than a random pool pulled per attempt. */
+export type ExamType = 'written' | 'mcq'
 
-export interface ExamQuestion {
+export interface ExamSection {
   id: string
-  question: string
-  options: string[]          // always 4
-  correctAnswer: string      // must match one of options exactly
-  explanation: string
-  difficulty: 'easy' | 'medium' | 'hard'
-  topic: string
-  marks: number
-  usageCount: number
+  label: string              // e.g. "Part A"
+  questionCount: number      // target count — a guide while pasting, not enforced
+  marksPerQuestion: number
 }
 
-export interface QuestionSnapshot extends ExamQuestion {
-  shuffledOptions: string[]  // options in the order shown to the student
+export interface ExamQuestionItem {
+  id: string
+  sectionId: string
+  text: string
+  options?: string[]         // mcq only, always 4
+  correctAnswer?: string     // mcq only — must match one of options exactly
+}
+
+export interface Exam {
+  id: string
+  courseId: string
+  type: ExamType
+  title: string
+  sections: ExamSection[]
+  questions: ExamQuestionItem[]
+  totalQuestions: number     // target entered up front, for the mismatch check
+  totalMarks: number         // target entered up front, for the mismatch check
+  durationMinutes: number    // mcq only
+  isActive: boolean          // mcq only — students can see and start it
+  createdBy: string          // uid
+  updatedAt?: unknown
 }
 
 export interface ExamAttempt {
   id: string
-  studentId: string
+  examId: string
   courseId: string
+  studentId: string
   startedAt: string          // ISO timestamp string
   submittedAt: string | null
   timeSpentSeconds: number
-  questions: QuestionSnapshot[]
-  answers: Record<string, string>  // questionId → chosen option text
+  questionOrder: string[]            // question ids, fixed at start (exam order)
+  optionOrder: Record<string, string[]>  // per-question shuffled options snapshot
+  answers: Record<string, string>    // questionId → chosen option text
   score: number
   totalMarks: number
-  topicBreakdown: Record<string, { correct: number; total: number }>
 }

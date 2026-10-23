@@ -1,90 +1,212 @@
-import React, { useCallback, useEffect, useState, type FormEvent } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   addDoc, collection, deleteDoc, doc, getDoc, getDocs,
-  query, serverTimestamp, setDoc, updateDoc, where,
+  query, serverTimestamp, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
-import type { ExamAttempt, ExamConfig, ExamQuestion, UserProfile } from '../../types'
+import { parseMcqPaste, parseWrittenPaste } from '../../lib/examUtils'
+import type { Exam, ExamAttempt, ExamQuestionItem, ExamSection, ExamType, UserProfile } from '../../types'
 
 interface Props { courseId: string }
 
-type MgrTab = 'main' | 'results'
-type Difficulty = 'easy' | 'medium' | 'hard'
+type View = 'list' | 'edit'
 
-interface QForm {
-  question: string
-  options: [string, string, string, string]
-  correctAnswer: string
-  explanation: string
-  difficulty: Difficulty
-  topic: string
-  marks: number
+function newId(): string {
+  return crypto.randomUUID()
 }
 
-function blankForm(): QForm {
-  return { question: '', options: ['', '', '', ''], correctAnswer: '', explanation: '', difficulty: 'medium', topic: '', marks: 1 }
-}
-
-const DIFF_COLORS: Record<Difficulty, { bg: string; text: string }> = {
-  easy: { bg: '#dcfce7', text: '#166534' },
-  medium: { bg: '#fef9c3', text: '#854d0e' },
-  hard: { bg: '#fee2e2', text: '#991b1b' },
+function blankDraft(type: ExamType, courseId: string): Exam {
+  return {
+    id: '',
+    courseId,
+    type,
+    title: '',
+    sections: [],
+    questions: [],
+    totalQuestions: 0,
+    totalMarks: 0,
+    durationMinutes: 30,
+    isActive: false,
+    createdBy: '',
+  }
 }
 
 export default function ExamManager({ courseId }: Props) {
-  const [tab, setTab] = useState<MgrTab>('main')
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [questions, setQuestions] = useState<ExamQuestion[]>([])
-  const [config, setConfig] = useState<ExamConfig | null>(null)
-  const [attempts, setAttempts] = useState<ExamAttempt[]>([])
-  const [studentMap, setStudentMap] = useState<Record<string, string>>({})
+  const { firebaseUser, profile } = useAuth()
+  const printPrefix = profile?.roles.includes('admin') ? 'admin' : 'mentor'
+  const [view, setView] = useState<View>('list')
+  const [exams, setExams] = useState<Exam[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const [success, setSuccess] = useState('')
 
-  // Question bank state
-  const [formOpen, setFormOpen] = useState(false)
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [qForm, setQForm] = useState<QForm>(blankForm())
-  const [filterTopic, setFilterTopic] = useState('')
-  const [filterDiff, setFilterDiff] = useState('')
+  const [draft, setDraft] = useState<Exam | null>(null)
+  const [pasteText, setPasteText] = useState<Record<string, string>>({})
+  const [parseErrors, setParseErrors] = useState<Record<string, string[]>>({})
 
-  // Settings form
-  const [cfgForm, setCfgForm] = useState<Omit<ExamConfig, 'createdBy'>>({
-    duration: 30, totalMarks: 20, questionsPerExam: 20, isActive: false,
-  })
-
-  // Results expanded row
-  const [expandedId, setExpandedId] = useState<string | null>(null)
-
-  const { firebaseUser } = useAuth()
+  const [resultsForExamId, setResultsForExamId] = useState<string | null>(null)
+  const [attempts, setAttempts] = useState<ExamAttempt[]>([])
+  const [studentMap, setStudentMap] = useState<Record<string, string>>({})
+  const [expandedAttemptId, setExpandedAttemptId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const [cfgSnap, qSnap, attSnap] = await Promise.all([
-        getDoc(doc(db, 'courses', courseId, 'exam', 'config')),
-        getDocs(collection(db, 'courses', courseId, 'questionBank')),
-        getDocs(query(collection(db, 'examAttempts'), where('courseId', '==', courseId))),
-      ])
-      if (cfgSnap.exists()) {
-        const c = cfgSnap.data() as ExamConfig
-        setConfig(c)
-        setCfgForm({ duration: c.duration, totalMarks: c.totalMarks, questionsPerExam: c.questionsPerExam, isActive: c.isActive })
-      }
-      const qs: ExamQuestion[] = []
-      qSnap.forEach((d) => qs.push({ id: d.id, ...(d.data() as Omit<ExamQuestion, 'id'>) }))
-      qs.sort((a, b) => a.topic.localeCompare(b.topic) || a.question.localeCompare(b.question))
-      setQuestions(qs)
+      const snap = await getDocs(collection(db, 'courses', courseId, 'exams'))
+      const list: Exam[] = []
+      snap.forEach((d) => list.push({ id: d.id, ...(d.data() as Omit<Exam, 'id'>) }))
+      list.sort((a, b) => a.title.localeCompare(b.title))
+      setExams(list)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load') }
+    finally { setLoading(false) }
+  }, [courseId])
 
+  useEffect(() => { void load() }, [load])
+
+  // ─── Create / Edit ──────────────────────────────────────────────────────
+
+  function openNew(type: ExamType) {
+    setDraft(blankDraft(type, courseId))
+    setPasteText({}); setParseErrors({}); setError('')
+    setView('edit')
+  }
+
+  function openEdit(exam: Exam) {
+    setDraft({ ...exam, sections: exam.sections.map((s) => ({ ...s })), questions: exam.questions.map((q) => ({ ...q })) })
+    setPasteText({}); setParseErrors({}); setError('')
+    setView('edit')
+  }
+
+  function addSection() {
+    if (!draft) return
+    const section: ExamSection = { id: newId(), label: `Part ${String.fromCharCode(65 + draft.sections.length)}`, questionCount: 5, marksPerQuestion: 1 }
+    setDraft({ ...draft, sections: [...draft.sections, section] })
+  }
+
+  function updateSection(id: string, patch: Partial<ExamSection>) {
+    if (!draft) return
+    setDraft({ ...draft, sections: draft.sections.map((s) => (s.id === id ? { ...s, ...patch } : s)) })
+  }
+
+  function removeSection(id: string) {
+    if (!draft) return
+    if (draft.questions.some((q) => q.sectionId === id) && !window.confirm('This section has pasted questions — remove it and its questions?')) return
+    setDraft({ ...draft, sections: draft.sections.filter((s) => s.id !== id), questions: draft.questions.filter((q) => q.sectionId !== id) })
+  }
+
+  function parseSection(sectionId: string) {
+    if (!draft) return
+    const text = pasteText[sectionId] ?? ''
+    if (!text.trim()) return
+    if (draft.type === 'written') {
+      const blocks = parseWrittenPaste(text)
+      const items: ExamQuestionItem[] = blocks.map((t) => ({ id: newId(), sectionId, text: t }))
+      setDraft({ ...draft, questions: [...draft.questions, ...items] })
+      setParseErrors((pe) => ({ ...pe, [sectionId]: [] }))
+    } else {
+      const parsed = parseMcqPaste(text)
+      const ok = parsed.filter((p) => !p.error)
+      const bad = parsed.filter((p) => p.error)
+      const items: ExamQuestionItem[] = ok.map((p) => ({ id: newId(), sectionId, text: p.text, options: p.options, correctAnswer: p.correctAnswer }))
+      setDraft({ ...draft, questions: [...draft.questions, ...items] })
+      setParseErrors((pe) => ({ ...pe, [sectionId]: bad.map((b, i) => `Block ${i + 1}: ${b.error}`) }))
+    }
+    setPasteText((pt) => ({ ...pt, [sectionId]: '' }))
+  }
+
+  function updateQuestion(id: string, patch: Partial<ExamQuestionItem>) {
+    if (!draft) return
+    setDraft({ ...draft, questions: draft.questions.map((q) => (q.id === id ? { ...q, ...patch } : q)) })
+  }
+
+  function updateOption(id: string, idx: number, value: string) {
+    if (!draft) return
+    const q = draft.questions.find((qq) => qq.id === id)
+    if (!q?.options) return
+    const options = [...q.options]
+    options[idx] = value
+    const correctAnswer = q.correctAnswer === q.options[idx] ? value : q.correctAnswer
+    updateQuestion(id, { options, correctAnswer })
+  }
+
+  function removeQuestion(id: string) {
+    if (!draft) return
+    setDraft({ ...draft, questions: draft.questions.filter((q) => q.id !== id) })
+  }
+
+  function addBlankQuestion(sectionId: string) {
+    if (!draft) return
+    const item: ExamQuestionItem = draft.type === 'mcq'
+      ? { id: newId(), sectionId, text: '', options: ['', '', '', ''], correctAnswer: '' }
+      : { id: newId(), sectionId, text: '' }
+    setDraft({ ...draft, questions: [...draft.questions, item] })
+  }
+
+  async function saveExam() {
+    if (!draft) return
+    const title = draft.title.trim()
+    if (!title) { setError('Give the exam a title.'); return }
+    if (draft.sections.length === 0) { setError('Add at least one section.'); return }
+    if (draft.questions.length === 0) { setError('Paste or add at least one question.'); return }
+    for (const q of draft.questions) {
+      if (!q.text.trim()) { setError('Every question needs its text filled in.'); return }
+      if (draft.type === 'mcq') {
+        if (!q.options || q.options.some((o) => !o.trim())) { setError('Every MCQ question needs all 4 options filled in.'); return }
+        if (!q.correctAnswer || !q.options.includes(q.correctAnswer)) { setError('Every MCQ question needs a correct option marked.'); return }
+      }
+    }
+    setSaving(true); setError('')
+    try {
+      const data = {
+        courseId: draft.courseId,
+        type: draft.type,
+        title,
+        sections: draft.sections,
+        questions: draft.questions,
+        totalQuestions: draft.totalQuestions,
+        totalMarks: draft.totalMarks,
+        durationMinutes: draft.durationMinutes,
+        isActive: draft.isActive,
+        createdBy: draft.createdBy || firebaseUser?.uid || '',
+        updatedAt: serverTimestamp(),
+      }
+      if (draft.id) {
+        await updateDoc(doc(db, 'courses', courseId, 'exams', draft.id), data)
+      } else {
+        await addDoc(collection(db, 'courses', courseId, 'exams'), data)
+      }
+      setView('list'); setDraft(null)
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed') }
+    finally { setSaving(false) }
+  }
+
+  async function deleteExam(exam: Exam) {
+    if (!window.confirm(`Delete "${exam.title}"? This cannot be undone.`)) return
+    try {
+      await deleteDoc(doc(db, 'courses', courseId, 'exams', exam.id))
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Delete failed') }
+  }
+
+  async function toggleActive(exam: Exam) {
+    try {
+      await updateDoc(doc(db, 'courses', courseId, 'exams', exam.id), { isActive: !exam.isActive, updatedAt: serverTimestamp() })
+      await load()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Update failed') }
+  }
+
+  // ─── Results ────────────────────────────────────────────────────────────
+
+  async function openResults(exam: Exam) {
+    setResultsForExamId(exam.id); setExpandedAttemptId(null)
+    try {
+      const snap = await getDocs(query(collection(db, 'examAttempts'), where('examId', '==', exam.id)))
       const atts: ExamAttempt[] = []
-      attSnap.forEach((d) => atts.push({ id: d.id, ...(d.data() as Omit<ExamAttempt, 'id'>) }))
+      snap.forEach((d) => atts.push({ id: d.id, ...(d.data() as Omit<ExamAttempt, 'id'>) }))
       atts.sort((a, b) => (b.submittedAt ?? b.startedAt).localeCompare(a.submittedAt ?? a.startedAt))
       setAttempts(atts)
-
-      // Fetch student names for the results table
       const uids = [...new Set(atts.map((a) => a.studentId))]
       if (uids.length > 0) {
         const userSnaps = await Promise.all(uids.map((uid) => getDoc(doc(db, 'users', uid))))
@@ -92,345 +214,263 @@ export default function ExamManager({ courseId }: Props) {
         userSnaps.forEach((s) => { if (s.exists()) map[s.id] = (s.data() as UserProfile).name })
         setStudentMap(map)
       }
-    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load') }
-    finally { setLoading(false) }
-  }, [courseId])
-
-  useEffect(() => { void load() }, [load])
-
-  // ─── Question Bank ─────────────────────────────────────────────────────────
-
-  function openNewQuestion() {
-    setEditingId(null); setQForm(blankForm()); setFormOpen(true); setError('')
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load results') }
   }
-
-  function openEditQuestion(q: ExamQuestion) {
-    setEditingId(q.id)
-    setQForm({
-      question: q.question,
-      options: [q.options[0] ?? '', q.options[1] ?? '', q.options[2] ?? '', q.options[3] ?? ''],
-      correctAnswer: q.correctAnswer,
-      explanation: q.explanation,
-      difficulty: q.difficulty,
-      topic: q.topic,
-      marks: q.marks,
-    })
-    setFormOpen(true); setError('')
-  }
-
-  async function saveQuestion(e: FormEvent) {
-    e.preventDefault()
-    const opts = qForm.options.map((o) => o.trim())
-    if (opts.some((o) => !o)) { setError('All 4 options are required.'); return }
-    if (!qForm.correctAnswer) { setError('Select the correct answer.'); return }
-    if (!opts.includes(qForm.correctAnswer)) { setError('Correct answer must match one of the options.'); return }
-    setSaving(true); setError('')
-    try {
-      const data = {
-        question: qForm.question.trim(),
-        options: opts,
-        correctAnswer: qForm.correctAnswer,
-        explanation: qForm.explanation.trim(),
-        difficulty: qForm.difficulty,
-        topic: qForm.topic.trim(),
-        marks: qForm.marks,
-        updatedAt: serverTimestamp(),
-      }
-      if (editingId) {
-        await updateDoc(doc(db, 'courses', courseId, 'questionBank', editingId), data)
-      } else {
-        await addDoc(collection(db, 'courses', courseId, 'questionBank'), { ...data, usageCount: 0, createdAt: serverTimestamp() })
-      }
-      setFormOpen(false); await load()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Save failed') }
-    finally { setSaving(false) }
-  }
-
-  async function deleteQuestion(id: string, questionText: string) {
-    if (!window.confirm(`Delete question: "${questionText.slice(0, 60)}…"?`)) return
-    try {
-      await deleteDoc(doc(db, 'courses', courseId, 'questionBank', id))
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Delete failed')
-      return
-    }
-    await load()
-  }
-
-  // ─── Settings ─────────────────────────────────────────────────────────────
-
-  async function saveConfig(e: FormEvent) {
-    e.preventDefault(); setSaving(true); setError(''); setSuccess('')
-    try {
-      await setDoc(doc(db, 'courses', courseId, 'exam', 'config'), {
-        ...cfgForm,
-        createdBy: config?.createdBy || firebaseUser?.uid || '',
-        updatedAt: serverTimestamp(),
-      })
-      setSuccess('Settings saved.')
-      await load()
-    } catch (err) { setError(err instanceof Error ? err.message : 'Save failed') }
-    finally { setSaving(false) }
-  }
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────
-
-  const topics = [...new Set(questions.map((q) => q.topic).filter(Boolean))].sort()
-
-  const filteredQs = questions.filter((q) => {
-    if (filterTopic && q.topic !== filterTopic) return false
-    if (filterDiff && q.difficulty !== filterDiff) return false
-    return true
-  })
 
   function pct(score: number, total: number) {
     return total === 0 ? 0 : Math.round((score / total) * 100)
   }
-
   function fmtDate(iso: string | null) {
     if (!iso) return '—'
     return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   }
-
   function fmtTime(secs: number) {
     const m = Math.floor(secs / 60), s = secs % 60
     return `${m}m ${s}s`
   }
 
-  if (loading) return <p className="muted" style={{ padding: '1rem' }}>Loading exam data…</p>
+  if (loading) return <p className="muted" style={{ padding: '1rem' }}>Loading exams…</p>
+
+  // ─── Results panel ──────────────────────────────────────────────────────
+
+  if (resultsForExamId) {
+    const exam = exams.find((e) => e.id === resultsForExamId)
+    return (
+      <div>
+        <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => setResultsForExamId(null)}>← Back to Exams</button>
+        <h3 style={{ marginBottom: '0.75rem' }}>📊 Results — {exam?.title}</h3>
+        {error && <p className="error">{error}</p>}
+        {attempts.length === 0 ? <p className="muted">No attempts yet.</p> : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
+                  {['Student', 'Score', '%', 'Time Spent', 'Date', ''].map((h) => (
+                    <th key={h} style={{ padding: '0.5rem 0.75rem', fontWeight: 600, color: 'var(--muted)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {attempts.map((a) => (
+                  <React.Fragment key={a.id}>
+                    <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }} onClick={() => setExpandedAttemptId(expandedAttemptId === a.id ? null : a.id)}>
+                      <td style={{ padding: '0.6rem 0.75rem', fontWeight: 500 }}>{studentMap[a.studentId] ?? a.studentId.slice(0, 8)}</td>
+                      <td style={{ padding: '0.6rem 0.75rem' }}>{a.submittedAt ? `${a.score} / ${a.totalMarks}` : '—'}</td>
+                      <td style={{ padding: '0.6rem 0.75rem', color: a.submittedAt ? (pct(a.score, a.totalMarks) >= 50 ? '#059669' : '#dc2626') : 'var(--muted-2)' }}>
+                        {a.submittedAt ? `${pct(a.score, a.totalMarks)}%` : 'In progress'}
+                      </td>
+                      <td style={{ padding: '0.6rem 0.75rem' }}>{a.timeSpentSeconds > 0 ? fmtTime(a.timeSpentSeconds) : '—'}</td>
+                      <td style={{ padding: '0.6rem 0.75rem' }}>{fmtDate(a.submittedAt)}</td>
+                      <td style={{ padding: '0.6rem 0.75rem', color: 'var(--muted-2)' }}>{expandedAttemptId === a.id ? '▲' : '▼'}</td>
+                    </tr>
+                    {expandedAttemptId === a.id && exam && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '0.75rem', background: 'var(--surface-soft)' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                            {a.questionOrder.map((qid, qi) => {
+                              const q = exam.questions.find((qq) => qq.id === qid)
+                              if (!q) return null
+                              const studentAns = a.answers[qid]
+                              const correct = studentAns === q.correctAnswer
+                              return (
+                                <div key={qid} style={{ padding: '0.6rem', background: 'var(--bg)', borderRadius: 8, border: `1px solid ${correct ? '#bbf7d0' : '#fecaca'}` }}>
+                                  <div style={{ fontWeight: 600, marginBottom: '0.25rem', fontSize: '0.85rem' }}>{correct ? '✅' : '❌'} Q{qi + 1}: {q.text}</div>
+                                  <div style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
+                                    Student: <span style={{ color: correct ? '#059669' : '#dc2626', fontWeight: 600 }}>{studentAns ?? '(not answered)'}</span>
+                                    {!correct && <> · Correct: <span style={{ color: '#059669', fontWeight: 600 }}>{q.correctAnswer}</span></>}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </React.Fragment>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ─── Edit / create panel ────────────────────────────────────────────────
+
+  if (view === 'edit' && draft) {
+    const sumQuestions = draft.sections.reduce((s, sec) => s + sec.questionCount, 0)
+    const sumMarks = draft.sections.reduce((s, sec) => s + sec.questionCount * sec.marksPerQuestion, 0)
+    const mismatch = (draft.totalQuestions > 0 && sumQuestions !== draft.totalQuestions) || (draft.totalMarks > 0 && sumMarks !== draft.totalMarks)
+
+    return (
+      <div>
+        <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => { setView('list'); setDraft(null) }}>← Back to Exams</button>
+        <h3 style={{ marginBottom: '0.75rem' }}>
+          {draft.id ? '✏️ Edit' : '✨ New'} {draft.type === 'written' ? 'Written (Printable) Exam' : 'MCQ (In-App) Exam'}
+        </h3>
+        {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
+
+        <div className="panel" style={{ marginBottom: '1rem' }}>
+          <div className="form">
+            <label>Exam Title *<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="e.g. Mid-Term Exam" /></label>
+            <div style={{ display: 'grid', gridTemplateColumns: draft.type === 'mcq' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '0.5rem' }}>
+              <label>Total Questions (target)<input type="number" min={0} value={draft.totalQuestions} onChange={(e) => setDraft({ ...draft, totalQuestions: Number(e.target.value) })} /></label>
+              <label>Total Marks (target)<input type="number" min={0} value={draft.totalMarks} onChange={(e) => setDraft({ ...draft, totalMarks: Number(e.target.value) })} /></label>
+              {draft.type === 'mcq' && (
+                <label>Duration (minutes)<input type="number" min={5} max={180} value={draft.durationMinutes} onChange={(e) => setDraft({ ...draft, durationMinutes: Number(e.target.value) })} /></label>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel" style={{ marginBottom: '1rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+            <h4 style={{ margin: 0 }}>Sections / Sub-divisions</h4>
+            <button type="button" className="btn small primary" onClick={addSection}>+ Add Section</button>
+          </div>
+          {draft.sections.length === 0 ? (
+            <p className="muted small">No sections yet — e.g. "Part A" = 10 questions × 1 mark, "Part B" = 5 questions × 5 marks.</p>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              {draft.sections.map((s) => (
+                <div key={s.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
+                  <input value={s.label} onChange={(e) => updateSection(s.id, { label: e.target.value })} placeholder="Section label" />
+                  <input type="number" min={0} value={s.questionCount} onChange={(e) => updateSection(s.id, { questionCount: Number(e.target.value) })} placeholder="Questions" title="Question count" />
+                  <input type="number" min={0} value={s.marksPerQuestion} onChange={(e) => updateSection(s.id, { marksPerQuestion: Number(e.target.value) })} placeholder="Marks/Q" title="Marks per question" />
+                  <span className="muted small">= {s.questionCount * s.marksPerQuestion} marks</span>
+                  <button type="button" className="btn small ghost" onClick={() => removeSection(s.id)}>✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+          {draft.sections.length > 0 && (
+            <p className={mismatch ? 'error' : 'muted small'} style={{ marginTop: '0.75rem' }}>
+              Sections total: {sumQuestions} questions, {sumMarks} marks
+              {mismatch ? ' — doesn\'t match the target above.' : ''}
+            </p>
+          )}
+        </div>
+
+        {draft.sections.map((s) => {
+          const sectionQs = draft.questions.filter((q) => q.sectionId === s.id)
+          const errs = parseErrors[s.id] ?? []
+          return (
+            <div key={s.id} className="panel" style={{ marginBottom: '1rem' }}>
+              <h4 style={{ marginBottom: '0.5rem' }}>{s.label} — {sectionQs.length}/{s.questionCount} questions pasted</h4>
+              <textarea
+                value={pasteText[s.id] ?? ''}
+                onChange={(e) => setPasteText((pt) => ({ ...pt, [s.id]: e.target.value }))}
+                rows={5}
+                placeholder={
+                  draft.type === 'written'
+                    ? 'Paste multiple questions at once — separate each question with a blank line.'
+                    : 'Paste multiple MCQs at once, separated by a blank line. For each:\nQuestion text?\nA) option\nB) option *\nC) option\nD) option\n(mark the correct option with a trailing *)'
+                }
+              />
+              <div className="row" style={{ marginTop: '0.5rem' }}>
+                <button type="button" className="btn small primary" onClick={() => parseSection(s.id)}>Parse & Add to Section</button>
+                <button type="button" className="btn small ghost" onClick={() => addBlankQuestion(s.id)}>+ Add One Manually</button>
+              </div>
+              {errs.length > 0 && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  {errs.map((e, i) => <p key={i} className="error small" style={{ margin: 0 }}>{e}</p>)}
+                </div>
+              )}
+
+              {sectionQs.length > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem' }}>
+                  {sectionQs.map((q, qi) => (
+                    <div key={q.id} style={{ padding: '0.6rem', background: 'var(--surface-soft)', borderRadius: 8 }}>
+                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                        <span className="muted small" style={{ paddingTop: '0.4rem' }}>Q{qi + 1}</span>
+                        <textarea value={q.text} onChange={(e) => updateQuestion(q.id, { text: e.target.value })} rows={2} style={{ flex: 1 }} />
+                        <button type="button" className="btn small ghost" onClick={() => removeQuestion(q.id)}>✕</button>
+                      </div>
+                      {draft.type === 'mcq' && q.options && (
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginTop: '0.4rem', paddingLeft: '2rem' }}>
+                          {q.options.map((opt, oi) => (
+                            <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
+                              <input
+                                type="radio"
+                                name={`correct-${q.id}`}
+                                checked={q.correctAnswer === opt && opt !== ''}
+                                onChange={() => updateQuestion(q.id, { correctAnswer: opt })}
+                              />
+                              <input value={opt} onChange={(e) => updateOption(q.id, oi, e.target.value)} placeholder={`Option ${String.fromCharCode(65 + oi)}`} style={{ flex: 1 }} />
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        <div className="row">
+          <button type="button" className="btn primary" disabled={saving} onClick={() => void saveExam()}>{saving ? 'Saving…' : 'Save Exam'}</button>
+          <button type="button" className="btn ghost" onClick={() => { setView('list'); setDraft(null) }}>Cancel</button>
+        </div>
+      </div>
+    )
+  }
+
+  // ─── List ───────────────────────────────────────────────────────────────
 
   return (
     <div>
-      {/* No tab bar — Question Bank and Settings are one combined view below.
-          Results is a lightweight toggle link, not a tab. */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.75rem' }}>
-        <button
-          type="button"
-          className="btn small ghost"
-          onClick={() => setTab(tab === 'results' ? 'main' : 'results')}
-        >
-          {tab === 'results' ? '← Back to Questions' : '📊 View Results'}
-        </button>
+      <div className="row" style={{ marginBottom: '1rem' }}>
+        <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New Written Exam (Printable)</button>
+        <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New MCQ Exam (In-App)</button>
       </div>
-
-      {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
-      {success && <p className="notice" style={{ marginBottom: '0.75rem' }}>{success}</p>}
-
-      {/* ── Question Bank + Settings, one combined view (no sub-tabs) ── */}
-      {tab === 'main' && (
-        <div>
-          <div className="panel" style={{ marginBottom: '1rem', padding: '0.6rem 1rem' }}>
-            <button
-              type="button"
-              className="btn small ghost"
-              style={{ padding: '0.2rem 0' }}
-              onClick={() => setSettingsOpen((v) => !v)}
-            >
-              {settingsOpen ? '▾' : '▸'} ⚙️ Exam Settings{!config ? ' (not configured yet)' : ''}
-            </button>
-            {settingsOpen && (
-              <div style={{ marginTop: '0.75rem' }}>
-                {!config && (
-                  <p className="notice" style={{ marginBottom: '0.75rem' }}>No exam configured yet. Save settings to create the exam for this course.</p>
-                )}
-                <form onSubmit={(e) => void saveConfig(e)} className="form" style={{ maxWidth: 400 }}>
-                  <label>
-                    Duration (minutes)
-                    <input type="number" min={5} max={180} value={cfgForm.duration} onChange={(e) => setCfgForm((f) => ({ ...f, duration: Number(e.target.value) }))} required />
-                  </label>
-                  <label>
-                    Questions per exam
-                    <input type="number" min={1} value={cfgForm.questionsPerExam} onChange={(e) => setCfgForm((f) => ({ ...f, questionsPerExam: Number(e.target.value) }))} required />
-                    <span className="muted small">Bank has {questions.length} question{questions.length !== 1 ? 's' : ''}.</span>
-                  </label>
-                  <label>
-                    Total marks
-                    <input type="number" min={1} value={cfgForm.totalMarks} onChange={(e) => setCfgForm((f) => ({ ...f, totalMarks: Number(e.target.value) }))} required />
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={cfgForm.isActive}
-                      onChange={(e) => setCfgForm((f) => ({ ...f, isActive: e.target.checked }))}
-                      style={{ width: 16, height: 16 }}
-                    />
-                    <span>Exam active — students can see and start this exam</span>
-                  </label>
-                  {cfgForm.isActive && questions.length < cfgForm.questionsPerExam && (
-                    <p className="error">⚠️ Question bank ({questions.length}) has fewer questions than the exam requires ({cfgForm.questionsPerExam}). Add more questions before activating.</p>
-                  )}
-                  <button type="submit" className="btn primary" disabled={saving || (cfgForm.isActive && questions.length < cfgForm.questionsPerExam)}>{saving ? 'Saving…' : 'Save Settings'}</button>
-                </form>
-              </div>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.75rem' }}>
-            <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <select value={filterTopic} onChange={(e) => setFilterTopic(e.target.value)} style={{ fontSize: '0.85rem' }}>
-                <option value="">All topics</option>
-                {topics.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <select value={filterDiff} onChange={(e) => setFilterDiff(e.target.value)} style={{ fontSize: '0.85rem' }}>
-                <option value="">All difficulties</option>
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-              </select>
-              <span className="muted small">{filteredQs.length} of {questions.length} questions</span>
-            </div>
-            <button type="button" className="btn small primary" onClick={openNewQuestion}>+ Add Question</button>
-          </div>
-
-          {formOpen && (
-            <div className="panel" style={{ marginBottom: '1rem' }}>
-              <h3 style={{ marginBottom: '0.75rem' }}>{editingId ? '✏️ Edit Question' : '✨ New Question'}</h3>
-              <form onSubmit={(e) => void saveQuestion(e)} className="form">
-                <label>Question *<textarea value={qForm.question} onChange={(e) => setQForm((f) => ({ ...f, question: e.target.value }))} rows={3} required /></label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                  {([0, 1, 2, 3] as const).map((i) => (
-                    <label key={i}>
-                      Option {String.fromCharCode(65 + i)} *
-                      <input
-                        value={qForm.options[i]}
-                        onChange={(e) => {
-                          const opts = [...qForm.options] as [string, string, string, string]
-                          opts[i] = e.target.value
-                          setQForm((f) => ({ ...f, options: opts }))
-                        }}
-                        placeholder={`Option ${String.fromCharCode(65 + i)}`}
-                        required
-                      />
-                    </label>
-                  ))}
-                </div>
-                <label>
-                  Correct Answer *
-                  <select value={qForm.correctAnswer} onChange={(e) => setQForm((f) => ({ ...f, correctAnswer: e.target.value }))} required>
-                    <option value="">Select correct option…</option>
-                    {qForm.options.map((o, i) => o.trim() ? <option key={i} value={o.trim()}>{String.fromCharCode(65 + i)}: {o.trim()}</option> : null)}
-                  </select>
-                </label>
-                <label>Explanation<textarea value={qForm.explanation} onChange={(e) => setQForm((f) => ({ ...f, explanation: e.target.value }))} rows={2} /></label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 80px', gap: '0.5rem' }}>
-                  <label>Topic *<input value={qForm.topic} onChange={(e) => setQForm((f) => ({ ...f, topic: e.target.value }))} required /></label>
-                  <label>Difficulty
-                    <select value={qForm.difficulty} onChange={(e) => setQForm((f) => ({ ...f, difficulty: e.target.value as Difficulty }))}>
-                      <option value="easy">Easy</option>
-                      <option value="medium">Medium</option>
-                      <option value="hard">Hard</option>
-                    </select>
-                  </label>
-                  <label>Marks<input type="number" min={1} value={qForm.marks} onChange={(e) => setQForm((f) => ({ ...f, marks: Number(e.target.value) }))} /></label>
-                </div>
-                <div className="row">
-                  <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : editingId ? 'Update' : 'Add Question'}</button>
-                  <button type="button" className="btn ghost" onClick={() => setFormOpen(false)}>Cancel</button>
-                </div>
-              </form>
-            </div>
-          )}
-
-          {filteredQs.length === 0 ? (
-            <p className="muted small">No questions yet. Click "+ Add Question" to start building the bank.</p>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-              {filteredQs.map((q, idx) => {
-                const dc = DIFF_COLORS[q.difficulty]
-                return (
-                  <div key={q.id} className="panel" style={{ padding: '0.75rem 1rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.35rem', flexWrap: 'wrap' }}>
-                          <span className="muted small">Q{idx + 1}</span>
-                          <span style={{ background: dc.bg, color: dc.text, borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>{q.difficulty}</span>
-                          {q.topic && <span style={{ background: 'var(--surface-soft)', color: 'var(--muted)', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem' }}>{q.topic}</span>}
-                          <span className="muted small">{q.marks} mark{q.marks !== 1 ? 's' : ''} · used {q.usageCount}×</span>
-                        </div>
-                        <div style={{ fontWeight: 500, marginBottom: '0.35rem', fontSize: '0.9rem' }}>{q.question}</div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.2rem 0.75rem' }}>
-                          {q.options.map((o, i) => (
-                            <span key={i} style={{ fontSize: '0.83rem', color: o === q.correctAnswer ? '#059669' : 'var(--muted)', fontWeight: o === q.correctAnswer ? 700 : 400 }}>
-                              {String.fromCharCode(65 + i)}. {o} {o === q.correctAnswer ? '✓' : ''}
-                            </span>
-                          ))}
-                        </div>
-                        {q.explanation && <p className="muted small" style={{ margin: '0.35rem 0 0', fontStyle: 'italic' }}>💡 {q.explanation}</p>}
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
-                        <button type="button" className="btn small ghost" onClick={() => openEditQuestion(q)}>Edit</button>
-                        <button type="button" className="btn small ghost" onClick={() => void deleteQuestion(q.id, q.question)}>Delete</button>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Results ── */}
-      {tab === 'results' && (
-        <div>
-          {attempts.length === 0 ? (
-            <p className="muted">No attempts yet.</p>
-          ) : (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.88rem' }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--border)', textAlign: 'left' }}>
-                    {['Student', 'Score', '%', 'Time Spent', 'Date', ''].map((h) => (
-                      <th key={h} style={{ padding: '0.5rem 0.75rem', fontWeight: 600, color: 'var(--muted)' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {attempts.map((a) => (
-                    <React.Fragment key={a.id}>
-                      <tr
-                        style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                        onClick={() => setExpandedId(expandedId === a.id ? null : a.id)}
-                      >
-                        <td style={{ padding: '0.6rem 0.75rem', fontWeight: 500 }}>{studentMap[a.studentId] ?? a.studentId.slice(0, 8)}</td>
-                        <td style={{ padding: '0.6rem 0.75rem' }}>{a.submittedAt ? `${a.score} / ${a.totalMarks}` : '—'}</td>
-                        <td style={{ padding: '0.6rem 0.75rem', color: a.submittedAt ? (pct(a.score, a.totalMarks) >= 50 ? '#059669' : '#dc2626') : 'var(--muted-2)' }}>
-                          {a.submittedAt ? `${pct(a.score, a.totalMarks)}%` : 'In progress'}
-                        </td>
-                        <td style={{ padding: '0.6rem 0.75rem' }}>{a.timeSpentSeconds > 0 ? fmtTime(a.timeSpentSeconds) : '—'}</td>
-                        <td style={{ padding: '0.6rem 0.75rem' }}>{fmtDate(a.submittedAt)}</td>
-                        <td style={{ padding: '0.6rem 0.75rem', color: 'var(--muted-2)' }}>{expandedId === a.id ? '▲' : '▼'}</td>
-                      </tr>
-                      {expandedId === a.id && (
-                        <tr>
-                          <td colSpan={6} style={{ padding: '0.75rem', background: 'var(--surface-soft)' }}>
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                              {a.questions.map((q, qi) => {
-                                const studentAns = a.answers[q.id]
-                                const correct = studentAns === q.correctAnswer
-                                return (
-                                  <div key={q.id} style={{ padding: '0.6rem', background: 'var(--bg)', borderRadius: 8, border: `1px solid ${correct ? '#bbf7d0' : '#fecaca'}` }}>
-                                    <div style={{ fontWeight: 600, marginBottom: '0.25rem', fontSize: '0.85rem' }}>
-                                      {correct ? '✅' : '❌'} Q{qi + 1}: {q.question}
-                                    </div>
-                                    <div style={{ fontSize: '0.82rem', color: 'var(--muted)' }}>
-                                      Student: <span style={{ color: correct ? '#059669' : '#dc2626', fontWeight: 600 }}>{studentAns ?? '(not answered)'}</span>
-                                      {!correct && <> · Correct: <span style={{ color: '#059669', fontWeight: 600 }}>{q.correctAnswer}</span></>}
-                                    </div>
-                                    {q.explanation && <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic', marginTop: '0.2rem' }}>💡 {q.explanation}</div>}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          </td>
-                        </tr>
+      {error && <p className="error">{error}</p>}
+      {exams.length === 0 ? (
+        <p className="muted small">No exams yet for this course.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
+          {exams.map((exam) => {
+            const sumQuestions = exam.sections.reduce((s, sec) => s + sec.questionCount, 0)
+            const sumMarks = exam.sections.reduce((s, sec) => s + sec.questionCount * sec.marksPerQuestion, 0)
+            return (
+              <div key={exam.id} className="panel" style={{ padding: '0.75rem 1rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600 }}>{exam.title || '(untitled)'}</span>
+                      <span style={{ background: exam.type === 'mcq' ? '#ede9fe' : '#fef3c7', color: exam.type === 'mcq' ? '#5b21b6' : '#92400e', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>
+                        {exam.type === 'mcq' ? 'MCQ · In-App' : 'Written · Printable'}
+                      </span>
+                      {exam.type === 'mcq' && (
+                        <span style={{ background: exam.isActive ? '#dcfce7' : 'var(--surface-soft)', color: exam.isActive ? '#166534' : 'var(--muted)', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>
+                          {exam.isActive ? 'Active' : 'Inactive'}
+                        </span>
                       )}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                    </div>
+                    <span className="muted small">
+                      {exam.sections.length} section{exam.sections.length !== 1 ? 's' : ''} · {sumQuestions} questions · {sumMarks} marks
+                      {exam.type === 'mcq' ? ` · ${exam.durationMinutes}min` : ''}
+                    </span>
+                  </div>
+                  <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                    {exam.type === 'mcq' && (
+                      <>
+                        <button type="button" className="btn small ghost" onClick={() => void toggleActive(exam)}>{exam.isActive ? 'Deactivate' : 'Activate'}</button>
+                        <button type="button" className="btn small ghost" onClick={() => void openResults(exam)}>📊 Results</button>
+                      </>
+                    )}
+                    {exam.type === 'written' && (
+                      <a className="btn small ghost" href={`/${printPrefix}/exam-print/${courseId}/${exam.id}`} target="_blank" rel="noreferrer">🖨 Print / PDF</a>
+                    )}
+                    <button type="button" className="btn small ghost" onClick={() => openEdit(exam)}>Edit</button>
+                    <button type="button" className="btn small ghost" onClick={() => void deleteExam(exam)}>Delete</button>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       )}
     </div>

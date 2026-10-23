@@ -3,42 +3,41 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
-import { makeSnapshots, pickQuestions } from '../../lib/examUtils'
-import type { ExamAttempt, ExamConfig, ExamQuestion } from '../../types'
+import { shuffleArray } from '../../lib/examUtils'
+import type { Exam, ExamAttempt } from '../../types'
 
 export default function ExamInstructions() {
-  const { courseId } = useParams<{ courseId: string }>()
+  const { courseId, examId } = useParams<{ courseId: string; examId: string }>()
   const { firebaseUser } = useAuth()
   const navigate = useNavigate()
 
-  const [config, setConfig] = useState<ExamConfig | null>(null)
+  const [exam, setExam] = useState<Exam | null>(null)
   const [courseTitle, setCourseTitle] = useState('')
   const [existingAttempt, setExistingAttempt] = useState<ExamAttempt | null>(null)
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
 
-  useEffect(() => { void load() }, [courseId, firebaseUser?.uid])
+  useEffect(() => { void load() }, [courseId, examId, firebaseUser?.uid])
 
   async function load() {
-    if (!courseId || !firebaseUser?.uid) return
+    if (!courseId || !examId || !firebaseUser?.uid) return
     setLoading(true)
     try {
-      const [courseSnap, cfgSnap, attSnap] = await Promise.all([
+      const [courseSnap, examSnap, attSnap] = await Promise.all([
         getDoc(doc(db, 'courses', courseId)),
-        getDoc(doc(db, 'courses', courseId, 'exam', 'config')),
-        getDocs(query(collection(db, 'examAttempts'), where('studentId', '==', firebaseUser.uid), where('courseId', '==', courseId))),
+        getDoc(doc(db, 'courses', courseId, 'exams', examId)),
+        getDocs(query(collection(db, 'examAttempts'), where('studentId', '==', firebaseUser.uid), where('examId', '==', examId))),
       ])
       if (courseSnap.exists()) setCourseTitle((courseSnap.data().title as string) ?? '')
-      if (cfgSnap.exists()) setConfig(cfgSnap.data() as ExamConfig)
+      if (examSnap.exists()) setExam({ id: examSnap.id, ...(examSnap.data() as Omit<Exam, 'id'>) })
 
       if (!attSnap.empty) {
         const d = attSnap.docs[0]!
         const att = { id: d.id, ...(d.data() as Omit<ExamAttempt, 'id'>) }
         setExistingAttempt(att)
-        // If already submitted, redirect straight to results
         if (att.submittedAt) {
-          navigate(`/exam/${courseId}/results/${att.id}`, { replace: true })
+          navigate(`/exam/${courseId}/${examId}/results/${att.id}`, { replace: true })
           return
         }
       }
@@ -47,74 +46,76 @@ export default function ExamInstructions() {
   }
 
   async function startExam() {
-    if (!courseId || !firebaseUser?.uid || !config) return
-    // Resume if incomplete attempt exists
+    if (!courseId || !examId || !firebaseUser?.uid || !exam) return
     if (existingAttempt && !existingAttempt.submittedAt) {
-      navigate(`/exam/${courseId}/run`, { state: { attemptId: existingAttempt.id } })
+      navigate(`/exam/${courseId}/${examId}/run`, { state: { attemptId: existingAttempt.id } })
       return
     }
     setStarting(true); setError('')
     try {
-      const qSnap = await getDocs(collection(db, 'courses', courseId, 'questionBank'))
-      const allQs: ExamQuestion[] = []
-      qSnap.forEach((d) => allQs.push({ id: d.id, ...(d.data() as Omit<ExamQuestion, 'id'>) }))
+      if (exam.questions.length === 0) { setError('This exam has no questions yet.'); setStarting(false); return }
 
-      if (allQs.length === 0) { setError('No questions in the question bank yet.'); setStarting(false); return }
+      const sectionOrder = new Map(exam.sections.map((s, i) => [s.id, i]))
+      const ordered = [...exam.questions].sort((a, b) => (sectionOrder.get(a.sectionId) ?? 0) - (sectionOrder.get(b.sectionId) ?? 0))
+      const questionOrder = ordered.map((q) => q.id)
+      const optionOrder: Record<string, string[]> = {}
+      for (const q of ordered) if (q.options) optionOrder[q.id] = shuffleArray(q.options)
 
-      const picked = pickQuestions(allQs, config.questionsPerExam)
-      const snapshots = makeSnapshots(picked)
+      const marksBySection = new Map(exam.sections.map((s) => [s.id, s.marksPerQuestion]))
+      const totalMarks = ordered.reduce((sum, q) => sum + (marksBySection.get(q.sectionId) ?? 0), 0)
 
       const attemptData: Omit<ExamAttempt, 'id'> = {
-        studentId: firebaseUser.uid,
+        examId,
         courseId,
+        studentId: firebaseUser.uid,
         startedAt: new Date().toISOString(),
         submittedAt: null,
         timeSpentSeconds: 0,
-        questions: snapshots,
+        questionOrder,
+        optionOrder,
         answers: {},
         score: 0,
-        totalMarks: config.totalMarks,
-        topicBreakdown: {},
+        totalMarks,
       }
 
-      const ref = await addDoc(collection(db, 'examAttempts'), {
-        ...attemptData,
-        createdAt: serverTimestamp(),
-      })
+      const ref = await addDoc(collection(db, 'examAttempts'), { ...attemptData, createdAt: serverTimestamp() })
 
       setStarting(false)
-      navigate(`/exam/${courseId}/run`, { state: { attemptId: ref.id } })
+      navigate(`/exam/${courseId}/${examId}/run`, { state: { attemptId: ref.id } })
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to start exam'); setStarting(false) }
   }
 
   if (loading) return <div style={{ padding: '2rem' }}><p className="muted">Loading…</p></div>
 
-  if (!config) return (
+  if (!exam) return (
     <div style={{ padding: '2rem' }}>
-      <p className="error">No exam configured for this course yet. Ask your mentor.</p>
+      <p className="error">Exam not found.</p>
     </div>
   )
 
-  if (!config.isActive) return (
+  if (!exam.isActive) return (
     <div style={{ padding: '2rem' }}>
-      <p className="notice">The exam for this course is not active yet. Check back later.</p>
+      <p className="notice">This exam is not active yet. Check back later.</p>
     </div>
   )
 
+  const totalQuestions = exam.questions.length
+  const marksBySection = new Map(exam.sections.map((s) => [s.id, s.marksPerQuestion]))
+  const totalMarks = exam.questions.reduce((sum, q) => sum + (marksBySection.get(q.sectionId) ?? 0), 0)
   const isResume = !!existingAttempt && !existingAttempt.submittedAt
 
   return (
     <div style={{ maxWidth: 560, margin: '0 auto', padding: '2rem 1rem' }}>
       <h1 style={{ marginBottom: '0.3rem' }}>{courseTitle}</h1>
-      <h2 style={{ marginBottom: '1.5rem', fontWeight: 400, color: 'var(--muted)' }}>Exam Instructions</h2>
+      <h2 style={{ marginBottom: '1.5rem', fontWeight: 400, color: 'var(--muted)' }}>{exam.title}</h2>
 
       <div className="panel" style={{ marginBottom: '1.25rem' }}>
         <h3 style={{ marginBottom: '0.75rem' }}>Exam Details</h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
           {[
-            ['⏱ Duration', `${config.duration} minutes`],
-            ['📋 Questions', `${config.questionsPerExam} questions`],
-            ['🏆 Total Marks', `${config.totalMarks} marks`],
+            ['⏱ Duration', `${exam.durationMinutes} minutes`],
+            ['📋 Questions', `${totalQuestions} questions`],
+            ['🏆 Total Marks', `${totalMarks} marks`],
           ].map(([label, value]) => (
             <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.4rem 0', borderBottom: '1px solid var(--border)' }}>
               <span className="muted">{label}</span>
@@ -122,6 +123,14 @@ export default function ExamInstructions() {
             </div>
           ))}
         </div>
+        {exam.sections.length > 0 && (
+          <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+            {exam.sections.map((s) => {
+              const n = exam.questions.filter((q) => q.sectionId === s.id).length
+              return <span key={s.id} className="muted small">{s.label}: {n} × {s.marksPerQuestion} mark{s.marksPerQuestion !== 1 ? 's' : ''}</span>
+            })}
+          </div>
+        )}
       </div>
 
       <div className="panel" style={{ marginBottom: '1.5rem' }}>

@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { collection, doc, getDoc, getDocs, increment, query, updateDoc, where } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, query, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { calculateScore, formatTime } from '../../lib/examUtils'
-import type { ExamAttempt } from '../../types'
+import type { Exam, ExamAttempt, ExamQuestionItem } from '../../types'
 
 export default function ExamRunner() {
-  const { courseId } = useParams<{ courseId: string }>()
+  const { courseId, examId } = useParams<{ courseId: string; examId: string }>()
   const location = useLocation()
   const navigate = useNavigate()
   const { firebaseUser } = useAuth()
 
+  const [exam, setExam] = useState<Exam | null>(null)
   const [attempt, setAttempt] = useState<ExamAttempt | null>(null)
   const [answers, setAnswers] = useState<Record<string, string>>({})
   const [currentIdx, setCurrentIdx] = useState(0)
@@ -29,50 +30,52 @@ export default function ExamRunner() {
 
   useEffect(() => {
     void load()
-  }, [courseId, firebaseUser?.uid])
+  }, [courseId, examId, firebaseUser?.uid])
 
   async function load() {
-    if (!courseId || !firebaseUser?.uid) return
+    if (!courseId || !examId || !firebaseUser?.uid) return
     setLoading(true)
     try {
       const stateAttemptId = (location.state as { attemptId?: string } | null)?.attemptId
 
-      let docs: Array<{ id: string; data: () => Record<string, unknown> }> = []
+      let attemptDoc: { id: string; data: () => Record<string, unknown> } | null = null
 
       if (stateAttemptId) {
         const d = await getDoc(doc(db, 'examAttempts', stateAttemptId))
-        if (d.exists()) docs = [{ id: d.id, data: () => d.data() as Record<string, unknown> }]
+        if (d.exists()) attemptDoc = { id: d.id, data: () => d.data() as Record<string, unknown> }
       } else {
         const snap = await getDocs(
           query(collection(db, 'examAttempts'),
             where('studentId', '==', firebaseUser.uid),
-            where('courseId', '==', courseId))
+            where('examId', '==', examId))
         )
-        docs = snap.docs.map((d) => ({ id: d.id, data: () => d.data() as Record<string, unknown> }))
+        if (!snap.empty) { const d = snap.docs[0]!; attemptDoc = { id: d.id, data: () => d.data() as Record<string, unknown> } }
       }
 
-      if (docs.length === 0) {
+      if (!attemptDoc) {
         setError('No exam attempt found. Please go back and start the exam.')
         setLoading(false)
         return
       }
 
-      const d = docs[0]!
-      const att = { id: d.id, ...(d.data() as Omit<ExamAttempt, 'id'>) }
+      const att = { id: attemptDoc.id, ...(attemptDoc.data() as Omit<ExamAttempt, 'id'>) }
 
       if (att.submittedAt) {
-        navigate(`/exam/${courseId}/results/${att.id}`, { replace: true })
+        navigate(`/exam/${courseId}/${examId}/results/${att.id}`, { replace: true })
         return
       }
 
+      const examSnap = await getDoc(doc(db, 'courses', courseId, 'exams', examId))
+      if (!examSnap.exists()) { setError('Exam not found.'); setLoading(false); return }
+      const examData = { id: examSnap.id, ...(examSnap.data() as Omit<Exam, 'id'>) }
+
       attemptIdRef.current = att.id
       setAttempt(att)
+      setExam(examData)
       setAnswers(att.answers)
 
       const elapsedSecs = Math.floor((Date.now() - new Date(att.startedAt).getTime()) / 1000)
-      const cfgSnap = await getDoc(doc(db, 'courses', courseId, 'exam', 'config'))
-      const durationMinutes: number = cfgSnap.exists() ? (cfgSnap.data().duration as number) : 30
-      const totalSecs = durationMinutes * 60
+      const totalSecs = examData.durationMinutes * 60
       const remaining = Math.max(0, totalSecs - elapsedSecs)
       setTimeLeft(remaining)
       startedAtRef.current = new Date(att.startedAt).getTime()
@@ -97,6 +100,10 @@ export default function ExamRunner() {
     await submit(true)
   }
 
+  const questions: ExamQuestionItem[] = exam && attempt
+    ? attempt.questionOrder.map((qid) => exam.questions.find((q) => q.id === qid)).filter((q): q is ExamQuestionItem => !!q)
+    : []
+
   const goTo = useCallback((idx: number) => {
     setDirection(idx > currentIdx ? 1 : -1)
     setCurrentIdx(idx)
@@ -104,9 +111,8 @@ export default function ExamRunner() {
   }, [currentIdx])
 
   const goNext = useCallback(() => {
-    if (!attempt) return
-    if (currentIdx < attempt.questions.length - 1) goTo(currentIdx + 1)
-  }, [attempt, currentIdx, goTo])
+    if (currentIdx < questions.length - 1) goTo(currentIdx + 1)
+  }, [questions.length, currentIdx, goTo])
 
   const goPrev = useCallback(() => {
     if (currentIdx > 0) goTo(currentIdx - 1)
@@ -117,15 +123,15 @@ export default function ExamRunner() {
       if (e.key === 'ArrowRight') goNext()
       else if (e.key === 'ArrowLeft') goPrev()
       else if (['1', '2', '3', '4'].includes(e.key)) {
-        const q = attempt?.questions[currentIdx]
-        if (!q) return
-        const opt = q.shuffledOptions[Number(e.key) - 1]
+        const q = questions[currentIdx]
+        if (!q || !attempt) return
+        const opt = attempt.optionOrder[q.id]?.[Number(e.key) - 1]
         if (opt) void selectAnswer(q.id, opt)
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [attempt, currentIdx, goNext, goPrev])
+  }, [attempt, questions, currentIdx, goNext, goPrev])
 
   async function selectAnswer(questionId: string, option: string) {
     const next = { ...answers, [questionId]: option }
@@ -139,39 +145,34 @@ export default function ExamRunner() {
   }
 
   async function submit(auto = false) {
-    if (!attempt || !attemptIdRef.current || submitting) return
+    if (!attempt || !exam || !attemptIdRef.current || submitting) return
     if (!auto) {
       if (!window.confirm('Are you sure you want to submit? You cannot change answers after submitting.')) return
     }
     setSubmitting(true)
     try {
       const timeSpentSeconds = Math.floor((Date.now() - startedAtRef.current) / 1000)
-      const { score, topicBreakdown } = calculateScore(attempt.questions, answers)
+      const marksBySection = Object.fromEntries(exam.sections.map((s) => [s.id, s.marksPerQuestion]))
+      const score = calculateScore(exam.questions, marksBySection, attempt.questionOrder, answers)
 
       await updateDoc(doc(db, 'examAttempts', attemptIdRef.current), {
         submittedAt: new Date().toISOString(),
         score,
-        topicBreakdown,
         timeSpentSeconds,
         answers,
       })
 
-      await Promise.all(
-        attempt.questions.map((q) =>
-          updateDoc(doc(db, 'courses', courseId!, 'questionBank', q.id), { usageCount: increment(1) })
-        )
-      )
-
-      navigate(`/exam/${courseId}/results/${attemptIdRef.current}`, { replace: true })
+      navigate(`/exam/${courseId}/${examId}/results/${attemptIdRef.current}`, { replace: true })
     } catch (e) { setError(e instanceof Error ? e.message : 'Submit failed'); setSubmitting(false) }
   }
 
   if (loading) return <div style={{ padding: '2rem' }}><p className="muted">Loading exam…</p></div>
   if (error) return <div style={{ padding: '2rem' }}><p className="error">{error}</p></div>
-  if (!attempt) return null
+  if (!attempt || !exam || questions.length === 0) return null
 
-  const q = attempt.questions[currentIdx]!
-  const totalQ = attempt.questions.length
+  const q = questions[currentIdx]!
+  const shuffledOptions = attempt.optionOrder[q.id] ?? q.options ?? []
+  const totalQ = questions.length
   const timerRed = timeLeft <= 300
   const answeredCount = Object.keys(answers).length
 
@@ -182,7 +183,7 @@ export default function ExamRunner() {
   }
 
   function paletteStatus(idx: number) {
-    const qid = attempt!.questions[idx]!.id
+    const qid = questions[idx]!.id
     if (idx === currentIdx) return 'current'
     if (answers[qid]) return 'answered'
     return 'unseen'
@@ -200,7 +201,7 @@ export default function ExamRunner() {
         {answeredCount}/{totalQ} answered
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '0.3rem' }}>
-        {attempt.questions.map((_, idx) => {
+        {questions.map((_, idx) => {
           const status = paletteStatus(idx)
           return (
             <button
@@ -275,11 +276,11 @@ export default function ExamRunner() {
               transition={{ duration: 0.22, ease: 'easeInOut' }}
             >
               <div className="panel" style={{ marginBottom: '1.25rem', fontSize: '1rem', lineHeight: 1.6 }}>
-                {q.question}
+                {q.text}
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.5rem' }}>
-                {q.shuffledOptions.map((opt, i) => {
+                {shuffledOptions.map((opt, i) => {
                   const selected = answers[q.id] === opt
                   return (
                     <button

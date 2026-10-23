@@ -74,7 +74,15 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 }
 .brand { font-family: var(--font-display); font-optical-sizing: auto; font-style: italic; font-weight: 600; font-size: 1.22rem; letter-spacing: -0.01em; padding: 0.2rem 0.5rem 1rem; border-bottom: 1px solid rgba(255,255,255,0.1); color: #ffffff; line-height: 1.2; }
 
-.sidebar-brand { display: flex; align-items: center; justify-content: center; }
+/* The logo doubles as the Home button — no separate 🏠 icon beside it anymore. */
+.sidebar-brand-home {
+  display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px; border-radius: 12px; flex-shrink: 0;
+  transition: background 0.15s, transform 0.12s;
+}
+.sidebar-brand-home:hover { background: rgba(255,255,255,0.12); }
+.sidebar-brand-home:active { transform: scale(0.94); }
+.sidebar-brand-home.active { background: rgba(255,255,255,0.18); }
 .sidebar-brand-icon { width: 34px; height: 34px; flex-shrink: 0; }
 .sidebar-rail-links { display: flex; flex-direction: column; gap: 0.5rem; }
 .sidebar-rail-link {
@@ -85,16 +93,6 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 }
 .sidebar-rail-link:hover { background: rgba(255,255,255,0.08); color: #fff; text-decoration: none; }
 .sidebar-rail-link.active { background: var(--amber-soft); color: #f5c97a; }
-/* Home — the rail's primary anchor, sitting above everything else (including
-   the brand mark): bigger than the other rail icons and lit with a bright
-   white-tinted fill so it reads as the one anchor point, not just another
-   link among equals. */
-.sidebar-rail-link.home {
-  width: 52px; height: 52px; font-size: 1.85rem; color: #fff;
-  background: rgba(255,255,255,0.16);
-}
-.sidebar-rail-link.home:hover { background: rgba(255,255,255,0.26); }
-.sidebar-rail-link.home.active { background: #fff; }
 /* The "You" avatar pinned to the bottom of the rail, and its popup (View Profile /
    Sign Out) — `.user-avatar.is-*` (shared with every other avatar in the app)
    supplies the gradient/initials look; this just sizes it for the narrow rail and

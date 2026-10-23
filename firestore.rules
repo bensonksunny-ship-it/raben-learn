@@ -38,6 +38,20 @@ service cloud.firestore {
       allow create, update, delete: if canEditSyllabus();
     }
 
+    // A `match` on a collection doesn't cover its subcollections — exam papers
+    // live under `courses/{courseId}/exams/{examId}`, with their sections and
+    // questions embedded in the one doc, but still need their own rule here or
+    // every read/write to them is denied by default. Admin/mentor-only to
+    // write (the Exam button in the Syllabus Builder is gated the same way, not
+    // widened to `canEditSyllabus()`'s consultant role) but readable by anyone
+    // signed in, since a student needs the exam doc (including each question's
+    // options/correctAnswer) to take an mcq exam client-side — same tradeoff the
+    // old questionBank rule made; there's no server-side grading to hide it behind.
+    match /courses/{courseId}/exams/{examId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrMentor();
+    }
+
     match /student_lesson_progress/{id} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn();
@@ -48,6 +62,18 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn();
       allow delete: if isAdminOrMentor() || (isSignedIn() && id.matches(request.auth.uid + '_.*'));
+    }
+
+    // A student's own exam attempt: created when they start an exam (ExamInstructions),
+    // updated as they answer and submit (ExamRunner) — both scoped to the attempt's
+    // own `studentId` matching the caller, same ownership shape as `isOwner()` above.
+    // Read stays blanket `isSignedIn()`, matching `student_lesson_progress`/
+    // `student_daily_plans` below: admin/mentor's Results tab reads every attempt
+    // for a course, not just one student's own.
+    match /examAttempts/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.studentId == request.auth.uid;
+      allow update: if isSignedIn() && resource.data.studentId == request.auth.uid;
     }
 
     match /course_history/{id} {

@@ -16,6 +16,13 @@ function newId(): string {
   return crypto.randomUUID()
 }
 
+/** Short label for compact action buttons/badges — "Paper Exm" (written,
+ *  printable) vs "Dig Exm" (digital, in-app MCQ). Used everywhere an exam's
+ *  type is shown outside the one-time creation choice. */
+function examTypeLabel(type: ExamType): string {
+  return type === 'written' ? 'Paper Exm' : 'Dig Exm'
+}
+
 function blankDraft(type: ExamType, courseId: string): Exam {
   return {
     id: '',
@@ -307,7 +314,7 @@ export default function ExamManager({ courseId }: Props) {
       <div>
         <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => { setView('list'); setDraft(null) }}>← Back to Exams</button>
         <h3 style={{ marginBottom: '0.75rem' }}>
-          {draft.id ? '✏️ Edit' : '✨ New'} {draft.type === 'written' ? 'Written (Printable) Exam' : 'MCQ (In-App) Exam'}
+          {draft.id ? '✏️ Edit' : '✨ New'} {examTypeLabel(draft.type)}
         </h3>
         {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
 
@@ -423,8 +430,8 @@ export default function ExamManager({ courseId }: Props) {
   return (
     <div>
       <div className="row" style={{ marginBottom: '1rem' }}>
-        <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New Written Exam (Printable)</button>
-        <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New MCQ Exam (In-App)</button>
+        <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New {examTypeLabel('written')}</button>
+        <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New {examTypeLabel('mcq')}</button>
       </div>
       {error && <p className="error">{error}</p>}
       {exams.length === 0 ? (
@@ -441,7 +448,7 @@ export default function ExamManager({ courseId }: Props) {
                     <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.25rem', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600 }}>{exam.title || '(untitled)'}</span>
                       <span style={{ background: exam.type === 'mcq' ? '#ede9fe' : '#fef3c7', color: exam.type === 'mcq' ? '#5b21b6' : '#92400e', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>
-                        {exam.type === 'mcq' ? 'MCQ · In-App' : 'Written · Printable'}
+                        {examTypeLabel(exam.type)}
                       </span>
                       {exam.type === 'mcq' && (
                         <span style={{ background: exam.isActive ? '#dcfce7' : 'var(--surface-soft)', color: exam.isActive ? '#166534' : 'var(--muted)', borderRadius: 99, padding: '0.1rem 0.5rem', fontSize: '0.72rem', fontWeight: 700 }}>

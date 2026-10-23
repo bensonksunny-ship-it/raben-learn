@@ -127,7 +127,12 @@ export default function ExamInstructions() {
           <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
             {exam.sections.map((s) => {
               const n = exam.questions.filter((q) => q.sectionId === s.id).length
-              return <span key={s.id} className="muted small">{s.label}: {n} × {s.marksPerQuestion} mark{s.marksPerQuestion !== 1 ? 's' : ''}</span>
+              return (
+                <span key={s.id} className="muted small">
+                  {s.label}: {n} × {s.marksPerQuestion} mark{s.marksPerQuestion !== 1 ? 's' : ''}
+                  {s.caption && <> — <em>{s.caption}</em></>}
+                </span>
+              )
             })}
           </div>
         )}

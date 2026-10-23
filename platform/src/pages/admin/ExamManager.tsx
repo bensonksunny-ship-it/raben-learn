@@ -6,11 +6,15 @@ import {
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { parseMcqPaste, parseWrittenPaste } from '../../lib/examUtils'
-import type { Exam, ExamAttempt, ExamQuestionItem, ExamSection, ExamType, UserProfile } from '../../types'
+import type { Exam, ExamAttempt, ExamQuestionItem, ExamSection, ExamType, SectionTemplate, UserProfile } from '../../types'
 
 interface Props { courseId: string }
 
-type View = 'list' | 'edit'
+type View = 'list' | 'edit' | 'templates'
+
+function blankTemplateForm(): { id: string | null; title: string; caption: string; marksPerQuestion: number } {
+  return { id: null, title: '', caption: '', marksPerQuestion: 1 }
+}
 
 function newId(): string {
   return crypto.randomUUID()
@@ -57,6 +61,23 @@ export default function ExamManager({ courseId }: Props) {
   const [studentMap, setStudentMap] = useState<Record<string, string>>({})
   const [expandedAttemptId, setExpandedAttemptId] = useState<string | null>(null)
 
+  // Reusable sub-section designs — global across courses, not scoped to this one.
+  const [templates, setTemplates] = useState<SectionTemplate[]>([])
+  const [templateForm, setTemplateForm] = useState(blankTemplateForm())
+  const [templateSaving, setTemplateSaving] = useState(false)
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const snap = await getDocs(collection(db, 'sectionTemplates'))
+      const list: SectionTemplate[] = []
+      snap.forEach((d) => list.push({ id: d.id, ...(d.data() as Omit<SectionTemplate, 'id'>) }))
+      list.sort((a, b) => a.title.localeCompare(b.title))
+      setTemplates(list)
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load sub-section templates') }
+  }, [])
+
+  useEffect(() => { void loadTemplates() }, [loadTemplates])
+
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
@@ -88,6 +109,14 @@ export default function ExamManager({ courseId }: Props) {
   function addSection() {
     if (!draft) return
     const section: ExamSection = { id: newId(), label: `Part ${String.fromCharCode(65 + draft.sections.length)}`, questionCount: 5, marksPerQuestion: 1 }
+    setDraft({ ...draft, sections: [...draft.sections, section] })
+  }
+
+  function addSectionFromTemplate(templateId: string) {
+    if (!draft) return
+    const t = templates.find((tt) => tt.id === templateId)
+    if (!t) return
+    const section: ExamSection = { id: newId(), label: t.title, caption: t.caption, questionCount: 5, marksPerQuestion: t.marksPerQuestion }
     setDraft({ ...draft, sections: [...draft.sections, section] })
   }
 
@@ -204,6 +233,42 @@ export default function ExamManager({ courseId }: Props) {
     } catch (e) { setError(e instanceof Error ? e.message : 'Update failed') }
   }
 
+  // ─── Sub-Section Templates ─────────────────────────────────────────────
+
+  function openNewTemplate() {
+    setTemplateForm(blankTemplateForm()); setError('')
+  }
+
+  function openEditTemplate(t: SectionTemplate) {
+    setTemplateForm({ id: t.id, title: t.title, caption: t.caption, marksPerQuestion: t.marksPerQuestion }); setError('')
+  }
+
+  async function saveTemplate() {
+    const title = templateForm.title.trim()
+    if (!title) { setError('Give the sub-section a title.'); return }
+    setTemplateSaving(true); setError('')
+    try {
+      const data = { title, caption: templateForm.caption.trim(), marksPerQuestion: templateForm.marksPerQuestion, updatedAt: serverTimestamp() }
+      if (templateForm.id) {
+        await updateDoc(doc(db, 'sectionTemplates', templateForm.id), data)
+      } else {
+        await addDoc(collection(db, 'sectionTemplates'), { ...data, createdBy: firebaseUser?.uid || '' })
+      }
+      setTemplateForm(blankTemplateForm())
+      await loadTemplates()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Save failed') }
+    finally { setTemplateSaving(false) }
+  }
+
+  async function deleteTemplate(t: SectionTemplate) {
+    if (!window.confirm(`Delete sub-section "${t.title}"? Exams that already used it keep their own copy.`)) return
+    try {
+      await deleteDoc(doc(db, 'sectionTemplates', t.id))
+      if (templateForm.id === t.id) setTemplateForm(blankTemplateForm())
+      await loadTemplates()
+    } catch (e) { setError(e instanceof Error ? e.message : 'Delete failed') }
+  }
+
   // ─── Results ────────────────────────────────────────────────────────────
 
   async function openResults(exam: Exam) {
@@ -303,6 +368,61 @@ export default function ExamManager({ courseId }: Props) {
     )
   }
 
+  // ─── Sub-Section Template Library ──────────────────────────────────────
+
+  if (view === 'templates') {
+    return (
+      <div>
+        <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => { setView('list'); setTemplateForm(blankTemplateForm()) }}>← Back to Exams</button>
+        <h3 style={{ marginBottom: '0.25rem' }}>📑 Sub-Section Library</h3>
+        <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+          Design a sub-section once — title, explanation for students, and marks per question — then pick it from the list whenever you build an exam paper.
+        </p>
+        {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
+
+        <div className="panel" style={{ marginBottom: '1rem' }}>
+          <h4 style={{ marginBottom: '0.5rem' }}>{templateForm.id ? '✏️ Edit Sub-Section' : '✨ New Sub-Section'}</h4>
+          <div className="form">
+            <label>Title *<input value={templateForm.title} onChange={(e) => setTemplateForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Part A — Short Answer" /></label>
+            <label>
+              Caption / Explanation for students
+              <textarea
+                value={templateForm.caption}
+                onChange={(e) => setTemplateForm((f) => ({ ...f, caption: e.target.value }))}
+                rows={2}
+                placeholder="e.g. Answer any 5 of the following 8 questions."
+              />
+            </label>
+            <label style={{ maxWidth: 180 }}>Marks per Question<input type="number" min={0} value={templateForm.marksPerQuestion} onChange={(e) => setTemplateForm((f) => ({ ...f, marksPerQuestion: Number(e.target.value) }))} /></label>
+            <div className="row">
+              <button type="button" className="btn primary" disabled={templateSaving} onClick={() => void saveTemplate()}>{templateSaving ? 'Saving…' : templateForm.id ? 'Update' : 'Add Sub-Section'}</button>
+              {templateForm.id && <button type="button" className="btn ghost" onClick={openNewTemplate}>Cancel</button>}
+            </div>
+          </div>
+        </div>
+
+        {templates.length === 0 ? (
+          <p className="muted small">No sub-sections designed yet.</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {templates.map((t) => (
+              <div key={t.id} className="panel" style={{ padding: '0.65rem 1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
+                <div>
+                  <div style={{ fontWeight: 600 }}>{t.title} <span className="muted small">· {t.marksPerQuestion} mark{t.marksPerQuestion !== 1 ? 's' : ''}/question</span></div>
+                  {t.caption && <div className="muted small" style={{ marginTop: '0.15rem' }}>{t.caption}</div>}
+                </div>
+                <div style={{ display: 'flex', gap: '0.3rem', flexShrink: 0 }}>
+                  <button type="button" className="btn small ghost" onClick={() => openEditTemplate(t)}>Edit</button>
+                  <button type="button" className="btn small ghost" onClick={() => void deleteTemplate(t)}>Delete</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   // ─── Edit / create panel ────────────────────────────────────────────────
 
   if (view === 'edit' && draft) {
@@ -332,21 +452,42 @@ export default function ExamManager({ courseId }: Props) {
         </div>
 
         <div className="panel" style={{ marginBottom: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
             <h4 style={{ margin: 0 }}>Sections / Sub-divisions</h4>
-            <button type="button" className="btn small primary" onClick={addSection}>+ Add Section</button>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              {templates.length > 0 && (
+                <select
+                  value=""
+                  onChange={(e) => { if (e.target.value) addSectionFromTemplate(e.target.value) }}
+                  style={{ maxWidth: 220 }}
+                  title="Add a section from the sub-section library"
+                >
+                  <option value="">+ From Library…</option>
+                  {templates.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+                </select>
+              )}
+              <button type="button" className="btn small ghost" onClick={() => setView('templates')}>📑 Manage Library</button>
+              <button type="button" className="btn small primary" onClick={addSection}>+ Add Section</button>
+            </div>
           </div>
           {draft.sections.length === 0 ? (
             <p className="muted small">No sections yet — e.g. "Part A" = 10 questions × 1 mark, "Part B" = 5 questions × 5 marks.</p>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {draft.sections.map((s) => (
-                <div key={s.id} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
-                  <input value={s.label} onChange={(e) => updateSection(s.id, { label: e.target.value })} placeholder="Section label" />
-                  <input type="number" min={0} value={s.questionCount} onChange={(e) => updateSection(s.id, { questionCount: Number(e.target.value) })} placeholder="Questions" title="Question count" />
-                  <input type="number" min={0} value={s.marksPerQuestion} onChange={(e) => updateSection(s.id, { marksPerQuestion: Number(e.target.value) })} placeholder="Marks/Q" title="Marks per question" />
-                  <span className="muted small">= {s.questionCount * s.marksPerQuestion} marks</span>
-                  <button type="button" className="btn small ghost" onClick={() => removeSection(s.id)}>✕</button>
+                <div key={s.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
+                    <input value={s.label} onChange={(e) => updateSection(s.id, { label: e.target.value })} placeholder="Section label" />
+                    <input type="number" min={0} value={s.questionCount} onChange={(e) => updateSection(s.id, { questionCount: Number(e.target.value) })} placeholder="Questions" title="Question count" />
+                    <input type="number" min={0} value={s.marksPerQuestion} onChange={(e) => updateSection(s.id, { marksPerQuestion: Number(e.target.value) })} placeholder="Marks/Q" title="Marks per question" />
+                    <span className="muted small">= {s.questionCount * s.marksPerQuestion} marks</span>
+                    <button type="button" className="btn small ghost" onClick={() => removeSection(s.id)}>✕</button>
+                  </div>
+                  <input
+                    value={s.caption ?? ''}
+                    onChange={(e) => updateSection(s.id, { caption: e.target.value })}
+                    placeholder="Explanation for students (optional) — e.g. 'Answer any 5 of the following 8 questions.'"
+                  />
                 </div>
               ))}
             </div>
@@ -433,6 +574,7 @@ export default function ExamManager({ courseId }: Props) {
       <div className="row" style={{ marginBottom: '1rem' }}>
         <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New {examTypeLabel('written')}</button>
         <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New {examTypeLabel('mcq')}</button>
+        <button type="button" className="btn small ghost" onClick={() => { setTemplateForm(blankTemplateForm()); setView('templates') }}>📑 Sub-Section Library</button>
       </div>
       {error && <p className="error">{error}</p>}
       {exams.length === 0 ? (

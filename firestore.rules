@@ -52,6 +52,14 @@ service cloud.firestore {
       allow write: if isAdminOrMentor();
     }
 
+    // Reusable sub-section designs (title/caption/marks), global across courses —
+    // built once from the Exam Manager's section picker and reused on later exam
+    // papers there. Same access shape as the exam docs themselves.
+    match /sectionTemplates/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrMentor();
+    }
+
     match /student_lesson_progress/{id} {
       allow read: if isSignedIn();
       allow create, update: if isSignedIn();

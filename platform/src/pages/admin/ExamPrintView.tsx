@@ -41,6 +41,7 @@ export default function ExamPrintView() {
         .exam-print-page .sub { text-align: center; color: #555; margin: 0 0 1.5rem; font-size: 0.95rem; }
         .exam-print-page .meta { display: flex; justify-content: space-between; border-top: 1px solid #333; border-bottom: 1px solid #333; padding: 0.5rem 0; margin-bottom: 1.5rem; font-size: 0.9rem; }
         .exam-print-page .section-head { font-weight: 700; margin: 1.5rem 0 0.75rem; font-size: 1.05rem; border-bottom: 1px solid #999; padding-bottom: 0.25rem; }
+        .exam-print-page .section-caption { font-style: italic; color: #444; margin: -0.5rem 0 1rem; font-size: 0.92rem; }
         .exam-print-page .q { margin-bottom: 1.4rem; display: flex; gap: 0.6rem; }
         .exam-print-page .q .num { font-weight: 700; flex-shrink: 0; }
         .exam-print-page .q .body { flex: 1; }
@@ -70,6 +71,7 @@ export default function ExamPrintView() {
         return (
           <div key={section.id}>
             <div className="section-head">{section.label} ({sectionQs.length} × {section.marksPerQuestion} mark{section.marksPerQuestion !== 1 ? 's' : ''} = {sectionQs.length * section.marksPerQuestion})</div>
+            {section.caption && <div className="section-caption">{section.caption}</div>}
             {sectionQs.map((q) => {
               qNum++
               return (

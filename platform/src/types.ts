@@ -196,8 +196,23 @@ export type ExamType = 'written' | 'mcq'
 export interface ExamSection {
   id: string
   label: string              // e.g. "Part A"
+  caption?: string           // explanation for students — instructions for this section
   questionCount: number      // target count — a guide while pasting, not enforced
   marksPerQuestion: number
+}
+
+/** A reusable sub-section design, built once by the academic coordinator and
+ *  picked from a list whenever anyone assembles an exam paper afterward —
+ *  rather than retyping the same section's label/explanation/marks every
+ *  time. Picking one seeds a fresh `ExamSection`; editing the template later
+ *  doesn't retroactively change exams that already used it. */
+export interface SectionTemplate {
+  id: string
+  title: string
+  caption: string            // explanation for students
+  marksPerQuestion: number
+  createdBy: string          // uid
+  updatedAt?: unknown
 }
 
 export interface ExamQuestionItem {

@@ -122,6 +122,43 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 .profile-menu-item.danger:hover { background: #fdf2f2; }
 .main { flex: 1; padding: 2rem 2.5rem; min-width: 0; }
 
+/* Mobile compact top bar — replaces the icon rail below md so it doesn't eat
+   64px of width from `.main` on a phone screen. Hidden on desktop; `.sidebar`
+   hides itself at the same breakpoint, so exactly one of the two shows. */
+.mobile-topbar { display: none; }
+@media (max-width: 768px) {
+  .sidebar { display: none; }
+  .mobile-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 320;
+    /* Safe-area inset on top of the usual padding so the bar — and everything
+       in it — clears a notch/camera-cutout/status-bar instead of sitting under it. */
+    padding: calc(env(safe-area-inset-top, 0px) + 0.6rem) 1rem 0.6rem;
+    background: var(--midnight); box-shadow: 0 6px 20px rgba(10,18,40,0.3);
+  }
+  /* Clears the fixed top bar (its own height plus the safe-area inset already
+     baked into that height) so page headers — e.g. Dashboard's title/"Welcome
+     back"/date pill — never render underneath it. */
+  .main { padding-top: calc(env(safe-area-inset-top, 0px) + 4.75rem); padding-left: 1.25rem; padding-right: 1.25rem; }
+}
+.mobile-topbar-home { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; transition: background 0.15s; }
+.mobile-topbar-home:hover { background: rgba(255,255,255,0.12); }
+.mobile-topbar-icon { width: 28px; height: 28px; flex-shrink: 0; }
+.mobile-topbar-actions { display: flex; align-items: center; gap: 0.6rem; }
+.mobile-topbar-btn {
+  width: 36px; height: 36px; border-radius: 10px; border: none; background: rgba(255,255,255,0.08);
+  color: #fff; font-size: 1.2rem; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  transition: background 0.15s;
+}
+.mobile-topbar-btn:hover { background: rgba(255,255,255,0.16); }
+.mobile-topbar-avatar.profile-menu-trigger { width: 36px; height: 36px; min-width: 36px; }
+/* The sidebar's dropdown flies out to the right of a left-edge rail; up here
+   in a top-right bar that has no room to its right, it needs to open
+   downward instead — same `.profile-menu-dropdown`/`.profile-menu-wrap`
+   markup, just repositioned for this ancestor. */
+.mobile-topbar .profile-menu-wrap { margin-top: 0; }
+.mobile-topbar .profile-menu-dropdown { left: auto; right: 0; top: calc(100% + 10px); bottom: auto; }
+
 .form { display: flex; flex-direction: column; gap: 0.75rem; }
 .form.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .form.grid .full { grid-column: 1 / -1; }

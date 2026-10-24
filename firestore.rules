@@ -117,6 +117,22 @@ service cloud.firestore {
       allow write: if hasRole('manager') || hasRole('admin') || hasRole('student');
     }
 
+    // Per-student schedule overrides — doc id is the student's own uid. Same
+    // shape as class_timetable/elective_sessions (ClassTimetable/ElectiveSchedule),
+    // but only ever read/written for one specific student rather than shared.
+    // Staff manage these from the Schedule page's student picker; a student can
+    // also write their own once it exists, from StudentTimetableView's own
+    // self-booking flow (same exception class_timetable grants every student,
+    // scoped down to just their own doc here since this one isn't shared).
+    match /student_timetables/{studentId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager') || hasRole('admin') || isOwner(studentId);
+    }
+    match /student_electives/{studentId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager') || hasRole('admin') || isOwner(studentId);
+    }
+
     // Legacy collections for Cloud Functions
     match /centres/{id} { allow read, write: if hasRole('admin'); }
     match /mentor_centres/{id} { allow read, write: if isAdminOrMentor(); }

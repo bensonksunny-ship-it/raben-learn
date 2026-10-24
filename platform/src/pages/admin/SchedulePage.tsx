@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
 import { mapCourseDoc } from '../../lib/courses'
@@ -11,12 +11,12 @@ import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import {
-  WEEKDAYS, DAY_COLORS, formatTime,
+  WEEKDAYS, DAY_COLORS,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
 } from '../../components/manager/schedulerShared'
 import type {
-  ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, Session, Topic, UserProfile, Weekday,
+  ClassTimetable, Course, ElectiveSchedule, Session, Topic, UserProfile, Weekday,
 } from '../../types'
 
 /**
@@ -28,45 +28,42 @@ function studentLabel(s: UserProfile): string {
   return s.name || s.email || s.id
 }
 
-/** The grid is Mon–Sat only — no Sunday column — so `formatDayName()`'s own output
- *  ("Sun" included) can't be trusted as a `Weekday` outright. Returns null on a
- *  Sunday date instead of a value the grid has no row for. */
-function toWeekday(name: string): Weekday | null {
-  return (WEEKDAYS as string[]).includes(name) ? (name as Weekday) : null
-}
+/** Sentinel `selectedStudentId` value standing in for "no student" — an explicit,
+ *  visible row in the picker rather than a blank/placeholder state, since editing
+ *  here always writes *somewhere* (the shared master schedule) and that should
+ *  read as a deliberate choice, not the absence of one. */
+const DEFAULT_STUDENT_ID = '__ALL__'
 
 /**
  * One grid, two modes, picked by the student dropdown:
- *  - No student selected → "edit mode": the shared class timetable (Priority 1,
- *    locked) plus the elective-session board (Priority 2, flexible) — both
- *    clickable, via `<PriorityScheduler />`.
- *  - A student selected → "view mode": that student's actual logged activities
- *    (the old read-only "Diary"), shown as full-color cards layered on top of the
- *    same shared schedule rendered as a faded, non-interactive backdrop. Nothing
- *    is editable in this mode — the two modes are never interactive at once, so
- *    there's never a competing click target.
- * See docs/superpowers/specs/2026-10-15-timetable-planner-design.md for the
- * original Timetable Planner spec this merges with the former StudentDiaryPage.
+ *  - "All Students (Default)" → edits the shared class timetable (Priority 1,
+ *    locked) and elective-session board (Priority 2, flexible) everyone sees,
+ *    via `<PriorityScheduler />`.
+ *  - A specific student → edits that student's own override of the same two
+ *    documents (`student_timetables`/`student_electives`, keyed by their uid).
+ *    Until they have one, editing shows the master schedule as the starting
+ *    point; the first save forks it into a personal copy, independent of the
+ *    master from then on. "Reset to Default" deletes the override outright.
  */
 export function SchedulePage({ initialStudentId = null }: { initialStudentId?: string | null } = {}) {
   const { promptVisible, isLandscapeFullscreen, useCssRotate, enterLandscape, dismissPrompt, exitLandscape } = useLandscapeFullscreen()
   const [students, setStudents] = useState<UserProfile[]>([])
   const [loadingStudents, setLoadingStudents] = useState(true)
-  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(initialStudentId)
-  // Student-view only (see `editingAllowed` below) — defaults to "Today", a single
-  // day's row on the grid, rather than the full week. The manager's own edit mode
-  // always shows the full week (it's one shared schedule, not a per-day thing), so
-  // this toggle only ever renders once a student is selected.
-  const [weekView, setWeekView] = useState(false)
+  const [selectedStudentId, setSelectedStudentId] = useState<string>(initialStudentId ?? DEFAULT_STUDENT_ID)
   const [date, setDate] = useState(todayStr())
-  const [weekPlans, setWeekPlans] = useState<Record<string, DailyPlan | null>>({})
-  const [loadingPlans, setLoadingPlans] = useState(false)
 
   const [timetable, setTimetable] = useState<ClassTimetable | null>(null)
   const [loadingTimetable, setLoadingTimetable] = useState(true)
   const [electives, setElectives] = useState<ElectiveSchedule | null>(null)
   const [loadingElectives, setLoadingElectives] = useState(true)
   const [saving, setSaving] = useState(false)
+
+  // A specific student's own override of the two docs above — absent until staff
+  // (or the student themself, from their own Timetable view) make a first edit.
+  const [studentTimetableOverride, setStudentTimetableOverride] = useState<ClassTimetable | null>(null)
+  const [studentElectiveOverride, setStudentElectiveOverride] = useState<ElectiveSchedule | null>(null)
+  const [hasOverride, setHasOverride] = useState(false)
+  const [loadingOverride, setLoadingOverride] = useState(false)
 
   // "Copy to Whole Week" — duplicates one day's periods+electives onto every
   // other day of the same shared template (there's no per-calendar-week data
@@ -85,7 +82,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   // Mon–Sat only — no Sunday column. Index-aligned with WEEKDAYS (both start Monday),
   // so weekDates[i] is the real calendar date for WEEKDAYS[i] in the shown week.
   const weekDates = Array.from({ length: 6 }, (_, i) => addDays(weekStart, i))
-  const editingAllowed = selectedStudentId == null
+  const isOverrideMode = selectedStudentId !== DEFAULT_STUDENT_ID
 
   useEffect(() => {
     void (async () => {
@@ -178,38 +175,24 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   }
 
   useEffect(() => {
-    if (!selectedStudentId) { setWeekPlans({}); return }
+    if (!isOverrideMode) { setStudentTimetableOverride(null); setStudentElectiveOverride(null); setHasOverride(false); return }
     void (async () => {
-      setLoadingPlans(true); setError('')
+      setLoadingOverride(true); setError('')
       try {
-        // Kept as a separate local array (rather than closing over `weekDates`) so it
-        // isn't an unstable effect dependency that would refetch on every render.
-        const days = Array.from({ length: 6 }, (_, i) => addDays(weekStart, i))
-        const snaps = await Promise.all(days.map((d) => getDoc(doc(db, 'student_daily_plans', `${selectedStudentId}_${d}`))))
-        const map: Record<string, DailyPlan | null> = {}
-        snaps.forEach((snap, i) => {
-          const d = days[i]!
-          if (snap.exists()) {
-            const x = snap.data()
-            map[d] = {
-              id: snap.id,
-              studentId: (x.studentId as string) ?? selectedStudentId,
-              date: (x.date as string) ?? d,
-              startTime: (x.startTime as string) ?? null,
-              items: (x.items as DailyPlanItem[]) ?? [],
-            }
-          } else {
-            map[d] = null
-          }
-        })
-        setWeekPlans(map)
+        const [tSnap, eSnap] = await Promise.all([
+          getDoc(doc(db, 'student_timetables', selectedStudentId)),
+          getDoc(doc(db, 'student_electives', selectedStudentId)),
+        ])
+        setHasOverride(tSnap.exists() || eSnap.exists())
+        setStudentTimetableOverride(tSnap.exists() ? normalizeTimetable(tSnap.data()) : null)
+        setStudentElectiveOverride(eSnap.exists() ? normalizeElectives(eSnap.data()) : null)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load diary entries')
+        setError(e instanceof Error ? e.message : "Failed to load this student's schedule")
       } finally {
-        setLoadingPlans(false)
+        setLoadingOverride(false)
       }
     })()
-  }, [selectedStudentId, weekStart])
+  }, [selectedStudentId, isOverrideMode])
 
   async function saveTimetable(next: ClassTimetable) {
     setSaving(true); setError('')
@@ -240,27 +223,76 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     void saveTimetable({ ...timetable, ...patch })
   }
 
-  function confirmCopyWeek() {
-    if (!timetable || !electives) return
-    if (!window.confirm(`Copy ${copyWeekSourceDay}'s schedule to every other day this week? This replaces whatever is already scheduled on those days.`)) return
-    const sourcePeriods = timetable.days[copyWeekSourceDay].periods
-    const sourceSessions = electives.days[copyWeekSourceDay]?.sessions ?? []
-    let nextTimetableDays = timetable.days
-    let nextElectiveDays = electives.days
-    for (const d of WEEKDAYS) {
-      if (d === copyWeekSourceDay) continue
-      nextTimetableDays = { ...nextTimetableDays, [d]: { periods: sourcePeriods.map((p) => ({ ...p, id: crypto.randomUUID() })) } }
-      nextElectiveDays = { ...nextElectiveDays, [d]: { sessions: sourceSessions.map((s) => ({ ...s, id: crypto.randomUUID() })) } }
+  async function saveOverrideTimetable(next: ClassTimetable) {
+    setSaving(true); setError('')
+    setStudentTimetableOverride(next); setHasOverride(true) // optimistic, same as saveTimetable
+    try {
+      await setDoc(doc(db, 'student_timetables', selectedStudentId), next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save this student's timetable")
+    } finally {
+      setSaving(false)
     }
-    void saveTimetable({ ...timetable, days: nextTimetableDays })
-    void saveElectives({ ...electives, days: nextElectiveDays })
-    setCopyWeekOpen(false)
+  }
+
+  async function saveOverrideElectives(next: ElectiveSchedule) {
+    setSaving(true); setError('')
+    setStudentElectiveOverride(next); setHasOverride(true)
+    try {
+      await setDoc(doc(db, 'student_electives', selectedStudentId), next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save this student's electives")
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function resetToDefault() {
+    if (!window.confirm(`Remove ${selectedStudent?.name ?? 'this student'}'s individual schedule and revert to the default?`)) return
+    setSaving(true); setError('')
+    try {
+      await Promise.all([
+        deleteDoc(doc(db, 'student_timetables', selectedStudentId)),
+        deleteDoc(doc(db, 'student_electives', selectedStudentId)),
+      ])
+      setStudentTimetableOverride(null); setStudentElectiveOverride(null); setHasOverride(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reset to default')
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loadingTimetable || loadingElectives || !timetable || !electives) return <p className="muted">Loading…</p>
 
   const selectedStudent = students.find((s) => s.id === selectedStudentId) ?? null
-  const studentOptions = students.map((s) => ({ id: s.id, name: studentLabel(s) }))
+  const studentOptions = [
+    { id: DEFAULT_STUDENT_ID, name: '📋 All Students (Default)' },
+    ...students.map((s) => ({ id: s.id, name: studentLabel(s) })),
+  ]
+  // Until a student has their own saved override, editing shows the master
+  // schedule as the starting point — the first save (via saveOverrideTimetable/
+  // Electives above) is what actually forks it into a personal copy.
+  const effectiveTimetable = isOverrideMode ? (studentTimetableOverride ?? timetable) : timetable
+  const effectiveElectives = isOverrideMode ? (studentElectiveOverride ?? electives) : electives
+
+  function confirmCopyWeek() {
+    if (!window.confirm(`Copy ${copyWeekSourceDay}'s schedule to every other day this week? This replaces whatever is already scheduled on those days.`)) return
+    const sourcePeriods = effectiveTimetable.days[copyWeekSourceDay].periods
+    const sourceSessions = effectiveElectives.days[copyWeekSourceDay]?.sessions ?? []
+    let nextTimetableDays = effectiveTimetable.days
+    let nextElectiveDays = effectiveElectives.days
+    for (const d of WEEKDAYS) {
+      if (d === copyWeekSourceDay) continue
+      nextTimetableDays = { ...nextTimetableDays, [d]: { periods: sourcePeriods.map((p) => ({ ...p, id: crypto.randomUUID() })) } }
+      nextElectiveDays = { ...nextElectiveDays, [d]: { sessions: sourceSessions.map((s) => ({ ...s, id: crypto.randomUUID() })) } }
+    }
+    const saveTT = isOverrideMode ? saveOverrideTimetable : saveTimetable
+    const saveEL = isOverrideMode ? saveOverrideElectives : saveElectives
+    void saveTT({ ...effectiveTimetable, days: nextTimetableDays })
+    void saveEL({ ...effectiveElectives, days: nextElectiveDays })
+    setCopyWeekOpen(false)
+  }
   const today = todayStr()
   const dayOptions: WeekDayOption[] = weekDates.map((d) => ({
     date: d,
@@ -269,28 +301,6 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     color: DAY_COLORS[formatDayName(d) as Weekday] ?? { bg: 'var(--surface-soft)', text: 'var(--text)' },
     isToday: d === today,
   }))
-
-  // Student-view day/week toggle — "Today" (the default) narrows every stat and the
-  // grid itself down to just `date`; "Full Week" is the original, unfiltered range.
-  const showingSingleDay = !editingAllowed && !weekView
-  const focusDay = showingSingleDay ? toWeekday(formatDayName(date)) : null
-  // Sunday has no column on the grid at all — nothing to narrow down to, so the
-  // day view has nothing to render until the student/staff member picks a real
-  // school day (or switches to Full Week).
-  const noScheduleToday = showingSingleDay && focusDay === null
-  const itemDates = showingSingleDay ? [date] : weekDates
-
-  const allItems = editingAllowed ? [] : itemDates.flatMap((d) => weekPlans[d]?.items ?? [])
-  const totalItems = allItems.length
-  const doneItems = allItems.filter((i) => i.done).length
-  const pct = totalItems === 0 ? 0 : Math.round((doneItems / totalItems) * 100)
-  const totalPlannedMin = allItems.reduce((s, i) => s + i.plannedMinutes, 0)
-  const totalSpentMs = allItems.reduce((s, i) => s + i.timeSpentMs, 0)
-  const hasAnyEntry = itemDates.some((d) => weekPlans[d] != null)
-  const noStartTimeDays = itemDates.filter((d) => {
-    const p = weekPlans[d]
-    return !!p && p.items.length > 0 && !p.startTime
-  })
 
   const content = (
     <div className="schedule-page">
@@ -320,7 +330,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
       <div className="diary-toolbar">
         <h1 style={{ margin: 0 }}>🗓️ Schedule</h1>
         <div className="diary-toolbar-controls">
-          <StudentSelect students={studentOptions} value={selectedStudentId} onChange={setSelectedStudentId} loading={loadingStudents} />
+          <StudentSelect students={studentOptions} value={selectedStudentId} onChange={(id) => setSelectedStudentId(id ?? DEFAULT_STUDENT_ID)} loading={loadingStudents} />
           {/* Always visible, not just once a student is picked — the shared schedule
               is the same every week, but staff still want day/date context on screen
               (e.g. to know what "today" is) while authoring it, not just while viewing
@@ -331,86 +341,56 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
             <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, 7))} aria-label="Next week">›</button>
           </div>
           <WeekDaySelect options={dayOptions} value={date} onChange={setDate} />
-          {editingAllowed && (
-            <button type="button" className="btn small secondary" onClick={() => { setCopyWeekSourceDay('Mon'); setCopyWeekOpen(true) }}>
-              📋 Copy to Whole Week
-            </button>
-          )}
-          {!editingAllowed && (
-            <div className="row" style={{ gap: '0.4rem' }}>
-              <button
-                type="button"
-                className={`btn small ${showingSingleDay ? 'primary' : 'secondary'}`}
-                onClick={() => { setWeekView(false); setDate(todayStr()) }}
-              >
-                Today
-              </button>
-              <button
-                type="button"
-                className={`btn small ${showingSingleDay ? 'secondary' : 'primary'}`}
-                onClick={() => setWeekView(true)}
-              >
-                Full Week
-              </button>
-            </div>
-          )}
+          <button type="button" className="btn small secondary" onClick={() => { setCopyWeekSourceDay('Mon'); setCopyWeekOpen(true) }}>
+            📋 Copy to Whole Week
+          </button>
         </div>
       </div>
 
-      {editingAllowed && (
-        <div className="panel" style={{ marginBottom: '1.25rem' }}>
-          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
-            <strong style={{ fontSize: '0.88rem' }}>Grid time range</strong>
-            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              Start
-              <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowStart} onChange={(e) => updateWindow({ windowStart: e.target.value })} />
-            </label>
-            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
-              End
-              <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowEnd} onChange={(e) => updateWindow({ windowEnd: e.target.value })} />
-            </label>
-          </div>
+      {isOverrideMode && (
+        <div className="row" style={{ alignItems: 'center', marginBottom: '0.75rem', gap: '0.6rem' }}>
+          {loadingOverride ? (
+            <span className="muted small">Loading {selectedStudent?.name ?? 'this student'}'s schedule…</span>
+          ) : hasOverride ? (
+            <>
+              <span className="tag" style={{ background: '#fef3c7', borderColor: '#fde68a', color: '#92400e' }}>🏷️ Individual Override</span>
+              <button type="button" className="btn small secondary" disabled={saving} onClick={() => void resetToDefault()}>Reset to Default</button>
+            </>
+          ) : (
+            <span className="muted small">
+              Editing the default schedule for <strong>{selectedStudent?.name ?? 'this student'}</strong> — the first change creates a personal override.
+            </span>
+          )}
         </div>
       )}
+
+      <div className="panel" style={{ marginBottom: '1.25rem' }}>
+        <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+          <strong style={{ fontSize: '0.88rem' }}>Grid time range</strong>
+          <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            Start
+            <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowStart} onChange={(e) => updateWindow({ windowStart: e.target.value })} />
+          </label>
+          <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            End
+            <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowEnd} onChange={(e) => updateWindow({ windowEnd: e.target.value })} />
+          </label>
+          <span className="muted small">(shared by every student's schedule, including overrides)</span>
+        </div>
+      </div>
 
       {error ? <p className="error">{error}</p> : null}
 
-      {!editingAllowed && selectedStudent && totalItems > 0 && (
-        <div className="planner-stats" style={{ marginBottom: '0.75rem' }}>
-          <div className="planner-stat"><span className="planner-stat-value">{doneItems}/{totalItems}</span><span className="muted small">Tasks</span></div>
-          <div className="planner-stat"><span className="planner-stat-value">{pct}%</span><span className="muted small">Done</span></div>
-          <div className="planner-stat"><span className="planner-stat-value">{totalPlannedMin}m</span><span className="muted small">Planned</span></div>
-          <div className="planner-stat"><span className="planner-stat-value">{formatTime(totalSpentMs)}</span><span className="muted small">Spent</span></div>
-          <div style={{ flex: 1, minWidth: 120 }}><div className="planner-progress-bar"><div className="planner-progress-fill" style={{ width: `${pct}%` }} /></div></div>
-        </div>
-      )}
-
-      {!editingAllowed && !loadingPlans && !hasAnyEntry && (
-        <p className="muted" style={{ marginBottom: '0.75rem' }}>
-          No entries logged {showingSingleDay ? 'today' : 'this week'} for {selectedStudent?.name ?? 'this student'}.
-        </p>
-      )}
-      {!editingAllowed && noStartTimeDays.length > 0 && (
-        <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
-          ⚠ No start time logged: {noStartTimeDays.map(formatDayDate).join(', ')}.
-        </p>
-      )}
-
-      {noScheduleToday ? (
-        <p className="muted" style={{ marginBottom: '0.75rem' }}>
-          No school day scheduled for Sunday — switch to <strong>Full Week</strong> or pick another day above.
-        </p>
-      ) : (
+      {!loadingOverride && (
         <PriorityScheduler
-          timetable={timetable}
-          electives={electives}
-          editingAllowed={editingAllowed}
+          timetable={effectiveTimetable}
+          electives={effectiveElectives}
+          editingAllowed
           saving={saving}
-          onSaveTimetable={saveTimetable}
-          onSaveElectives={saveElectives}
+          onSaveTimetable={isOverrideMode ? saveOverrideTimetable : saveTimetable}
+          onSaveElectives={isOverrideMode ? saveOverrideElectives : saveElectives}
           weekDates={weekDates}
-          weekPlans={weekPlans}
-          focusDay={focusDay}
+          weekPlans={{}}
           syllabusCourses={syllabusCourses}
           syllabusSessions={syllabusSessions}
           onAddSyllabusActivity={addSyllabusActivity}

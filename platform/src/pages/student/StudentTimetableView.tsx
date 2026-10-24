@@ -38,6 +38,11 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   const [mode, setMode] = useState<'today' | 'week'>('today')
   const [timetable, setTimetable] = useState<ClassTimetable | null>(null)
   const [electives, setElectives] = useState<ElectiveSchedule | null>(null)
+  // This student's own override, if staff (or the student themself, once one
+  // exists) have ever saved one — shown instead of the shared master when present.
+  const [timetableOverride, setTimetableOverride] = useState<ClassTimetable | null>(null)
+  const [electiveOverride, setElectiveOverride] = useState<ElectiveSchedule | null>(null)
+  const [hasOverride, setHasOverride] = useState(false)
   const [weekPlans, setWeekPlans] = useState<Record<string, DailyPlan | null>>({})
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -53,13 +58,18 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
     if (!uid) return
     void (async () => {
       try {
-        const [timetableSnap, electivesSnap, ...planSnaps] = await Promise.all([
+        const [timetableSnap, electivesSnap, overrideTimetableSnap, overrideElectivesSnap, ...planSnaps] = await Promise.all([
           getDoc(doc(db, 'class_timetable', 'master')),
           getDoc(doc(db, 'elective_sessions', 'master')),
+          getDoc(doc(db, 'student_timetables', uid)),
+          getDoc(doc(db, 'student_electives', uid)),
           ...weekDates.map((d) => getDoc(doc(db, 'student_daily_plans', `${uid}_${d}`))),
         ])
         setTimetable(normalizeTimetable(timetableSnap.exists() ? timetableSnap.data() : undefined))
         setElectives(normalizeElectives(electivesSnap.exists() ? electivesSnap.data() : undefined))
+        setHasOverride(overrideTimetableSnap.exists() || overrideElectivesSnap.exists())
+        setTimetableOverride(overrideTimetableSnap.exists() ? normalizeTimetable(overrideTimetableSnap.data()) : null)
+        setElectiveOverride(overrideElectivesSnap.exists() ? normalizeElectives(overrideElectivesSnap.data()) : null)
 
         const map: Record<string, DailyPlan | null> = {}
         planSnaps.forEach((snap, i) => {
@@ -89,11 +99,16 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
     // the current week, so keying off weekStart/uid (not the array) avoids refetching every render.
   }, [uid, weekStart]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // A student without an override still books straight into the shared master
+  // doc, same as always. One with a staff-set (or self-forked) override keeps
+  // writing to that instead — writing to master would be invisible to them,
+  // since the override is what they're actually shown below.
   async function saveTimetable(next: ClassTimetable) {
+    if (!uid) return
     setSaving(true); setError('')
-    setTimetable(next) // optimistic — same as the manager's own SchedulePage
+    if (hasOverride) setTimetableOverride(next); else setTimetable(next) // optimistic
     try {
-      await setDoc(doc(db, 'class_timetable', 'master'), next)
+      await setDoc(doc(db, hasOverride ? 'student_timetables' : 'class_timetable', hasOverride ? uid : 'master'), next)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save the class timetable')
     } finally {
@@ -102,10 +117,11 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   }
 
   async function saveElectives(next: ElectiveSchedule) {
+    if (!uid) return
     setSaving(true); setError('')
-    setElectives(next)
+    if (hasOverride) setElectiveOverride(next); else setElectives(next)
     try {
-      await setDoc(doc(db, 'elective_sessions', 'master'), next)
+      await setDoc(doc(db, hasOverride ? 'student_electives' : 'elective_sessions', hasOverride ? uid : 'master'), next)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save elective sessions')
     } finally {
@@ -114,6 +130,9 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   }
 
   if (loading || !timetable || !electives) return <p className="muted">Loading…</p>
+
+  const effectiveTimetable = hasOverride ? (timetableOverride ?? timetable) : timetable
+  const effectiveElectives = hasOverride ? (electiveOverride ?? electives) : electives
 
   const content = (
     <div className="schedule-page">
@@ -132,8 +151,8 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
         </p>
       ) : (
         <PriorityScheduler
-          timetable={timetable}
-          electives={electives}
+          timetable={effectiveTimetable}
+          electives={effectiveElectives}
           editingAllowed
           saving={saving}
           onSaveTimetable={saveTimetable}

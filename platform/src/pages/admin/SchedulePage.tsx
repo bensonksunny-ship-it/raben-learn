@@ -68,6 +68,12 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   const [loadingElectives, setLoadingElectives] = useState(true)
   const [saving, setSaving] = useState(false)
 
+  // "Copy to Whole Week" — duplicates one day's periods+electives onto every
+  // other day of the same shared template (there's no per-calendar-week data
+  // to copy "into next week"; every week already renders this one template).
+  const [copyWeekOpen, setCopyWeekOpen] = useState(false)
+  const [copyWeekSourceDay, setCopyWeekSourceDay] = useState<Weekday>('Mon')
+
   const [error, setError] = useState('')
 
   // Syllabus data (Priority 2's "Add elective" title autocomplete draws suggestions
@@ -234,6 +240,23 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     void saveTimetable({ ...timetable, ...patch })
   }
 
+  function confirmCopyWeek() {
+    if (!timetable || !electives) return
+    if (!window.confirm(`Copy ${copyWeekSourceDay}'s schedule to every other day this week? This replaces whatever is already scheduled on those days.`)) return
+    const sourcePeriods = timetable.days[copyWeekSourceDay].periods
+    const sourceSessions = electives.days[copyWeekSourceDay]?.sessions ?? []
+    let nextTimetableDays = timetable.days
+    let nextElectiveDays = electives.days
+    for (const d of WEEKDAYS) {
+      if (d === copyWeekSourceDay) continue
+      nextTimetableDays = { ...nextTimetableDays, [d]: { periods: sourcePeriods.map((p) => ({ ...p, id: crypto.randomUUID() })) } }
+      nextElectiveDays = { ...nextElectiveDays, [d]: { sessions: sourceSessions.map((s) => ({ ...s, id: crypto.randomUUID() })) } }
+    }
+    void saveTimetable({ ...timetable, days: nextTimetableDays })
+    void saveElectives({ ...electives, days: nextElectiveDays })
+    setCopyWeekOpen(false)
+  }
+
   if (loadingTimetable || loadingElectives || !timetable || !electives) return <p className="muted">Loading…</p>
 
   const selectedStudent = students.find((s) => s.id === selectedStudentId) ?? null
@@ -273,6 +296,27 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     <div className="schedule-page">
       {promptVisible && <LandscapePrompt onSwitch={enterLandscape} onStay={dismissPrompt} />}
       {isLandscapeFullscreen && <LandscapeExitButton onExit={exitLandscape} />}
+      {copyWeekOpen && (
+        <div className="modal-backdrop" onClick={() => setCopyWeekOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 1rem' }}>Copy to Whole Week</h3>
+            <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
+              Copies every school period and elective session from the day you pick onto every other day — replacing whatever's already scheduled there.
+            </p>
+            <div className="form">
+              <label>Copy from
+                <select value={copyWeekSourceDay} onChange={(e) => setCopyWeekSourceDay(e.target.value as Weekday)}>
+                  {WEEKDAYS.map((d) => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </label>
+              <div className="row">
+                <button type="button" className="btn primary" disabled={saving} onClick={confirmCopyWeek}>{saving ? 'Saving…' : 'Copy'}</button>
+                <button type="button" className="btn secondary" onClick={() => setCopyWeekOpen(false)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="diary-toolbar">
         <h1 style={{ margin: 0 }}>🗓️ Schedule</h1>
         <div className="diary-toolbar-controls">
@@ -287,6 +331,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
             <button type="button" className="btn small ghost" onClick={() => setDate(addDays(weekStart, 7))} aria-label="Next week">›</button>
           </div>
           <WeekDaySelect options={dayOptions} value={date} onChange={setDate} />
+          {editingAllowed && (
+            <button type="button" className="btn small secondary" onClick={() => { setCopyWeekSourceDay('Mon'); setCopyWeekOpen(true) }}>
+              📋 Copy to Whole Week
+            </button>
+          )}
           {!editingAllowed && (
             <div className="row" style={{ gap: '0.4rem' }}>
               <button

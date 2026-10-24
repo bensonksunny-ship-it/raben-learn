@@ -182,6 +182,9 @@ type ModalState =
    *  fill — just a title (mentors also confirm their name). Nothing else on the grid
    *  is editable in claim mode, so this is the only modal shape claiming ever opens. */
   | { kind: 'claim'; day: Weekday; sessionId: string; title: string; mentorName: string; role: 'student' | 'mentor' }
+  /** Duplicates one day's whole schedule (locked periods + electives) onto another
+   *  day, or every other day at once — replacing whatever that target already has. */
+  | { kind: 'copyDay'; fromDay: Weekday; target: Weekday | 'all' }
 
 export interface PrioritySchedulerProps {
   /** Priority 1 — the shared, mandatory class timetable. */
@@ -269,6 +272,11 @@ export function PriorityScheduler({
     setModalError('')
     setModal({ kind: 'claim', day, sessionId: session.id, title: '', mentorName: role === 'mentor' ? (claimerName ?? '') : '', role })
   }
+  function openCopyDayModal(day: Weekday) {
+    setModalError('')
+    const nextDay = WEEKDAYS[(WEEKDAYS.indexOf(day) + 1) % WEEKDAYS.length]!
+    setModal({ kind: 'copyDay', fromDay: day, target: nextDay })
+  }
   function closeModal() { setModal(null); setModalError('') }
   /** New section defaults to starting exactly when the previous one ends — the chaining behavior. */
   function addElectiveSection() {
@@ -292,6 +300,24 @@ export function PriorityScheduler({
   function submitModal(e: FormEvent) {
     e.preventDefault()
     if (!modal) return
+
+    if (modal.kind === 'copyDay') {
+      const targets = modal.target === 'all' ? WEEKDAYS.filter((d) => d !== modal.fromDay) : [modal.target]
+      const label = modal.target === 'all' ? 'every other day' : modal.target
+      if (!window.confirm(`Copy ${modal.fromDay}'s schedule to ${label}? This replaces whatever is already scheduled there.`)) return
+      const sourcePeriods = timetable.days[modal.fromDay].periods
+      const sourceSessions = electives.days[modal.fromDay]?.sessions ?? []
+      let nextTimetableDays = timetable.days
+      let nextElectiveDays = electives.days
+      for (const t of targets) {
+        nextTimetableDays = { ...nextTimetableDays, [t]: { periods: sourcePeriods.map((p) => ({ ...p, id: crypto.randomUUID() })) } }
+        nextElectiveDays = { ...nextElectiveDays, [t]: { sessions: sourceSessions.map((s) => ({ ...s, id: crypto.randomUUID() })) } }
+      }
+      onSaveTimetable({ ...timetable, days: nextTimetableDays })
+      onSaveElectives({ ...electives, days: nextElectiveDays })
+      closeModal()
+      return
+    }
 
     if (modal.kind === 'claim') {
       const title = modal.title.trim()
@@ -384,7 +410,7 @@ export function PriorityScheduler({
   }
 
   function deleteModalEntry() {
-    if (!modal || modal.kind === 'claim' || modal.mode !== 'edit') return
+    if (!modal || modal.kind === 'claim' || modal.kind === 'copyDay' || modal.mode !== 'edit') return
     if (!window.confirm(modal.kind === 'locked' ? 'Delete this school period?' : 'Delete this elective session?')) return
     if (modal.kind === 'locked') {
       const day = timetable.days[modal.day]
@@ -468,6 +494,18 @@ export function PriorityScheduler({
             return (
               <div key={d} className="timetable-grid-day-header" style={{ gridColumn: 1, gridRow: di + 2, background: colors.bg, color: colors.text }}>
                 {d}
+                {editingAllowed && (
+                  <button
+                    type="button"
+                    className="timetable-day-copy-btn"
+                    style={{ color: colors.text }}
+                    onClick={() => openCopyDayModal(d)}
+                    title={`Copy ${d}'s schedule to another day`}
+                    aria-label={`Copy ${d}'s schedule to another day`}
+                  >
+                    📋
+                  </button>
+                )}
               </div>
             )
           })}
@@ -635,14 +673,28 @@ export function PriorityScheduler({
         <div className="modal-backdrop" onClick={closeModal}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 1rem' }}>
-              {modal.kind === 'claim'
-                ? (modal.role === 'student' ? 'Claim your slot' : 'Claim this mentor spot')
-                : modal.kind === 'locked'
-                  ? (modal.mode === 'add' ? 'Add school period' : `Edit school period — ${modal.day}`)
-                  : (modal.mode === 'add' ? `Add elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
+              {modal.kind === 'copyDay'
+                ? `Copy ${modal.fromDay}'s Schedule`
+                : modal.kind === 'claim'
+                  ? (modal.role === 'student' ? 'Claim your slot' : 'Claim this mentor spot')
+                  : modal.kind === 'locked'
+                    ? (modal.mode === 'add' ? 'Add school period' : `Edit school period — ${modal.day}`)
+                    : (modal.mode === 'add' ? `Add elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
             </h3>
             <form className="form" onSubmit={submitModal}>
-              {modal.kind === 'claim' ? (
+              {modal.kind === 'copyDay' ? (
+                <>
+                  <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
+                    Copies every school period and elective session from <strong>{modal.fromDay}</strong> onto the day(s) you pick — replacing whatever's already scheduled there.
+                  </p>
+                  <label>Copy to
+                    <select value={modal.target} onChange={(e) => setModal({ ...modal, target: e.target.value as Weekday | 'all' })}>
+                      {WEEKDAYS.filter((d) => d !== modal.fromDay).map((d) => <option key={d} value={d}>{d}</option>)}
+                      <option value="all">All days (whole week)</option>
+                    </select>
+                  </label>
+                </>
+              ) : modal.kind === 'claim' ? (
                 <>
                   <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
                     {modal.role === 'student'
@@ -781,9 +833,9 @@ export function PriorityScheduler({
               )}
               {modalError ? <p className="error" style={{ margin: 0 }}>⚠ {modalError}</p> : null}
               <div className="row">
-                <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+                <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : modal.kind === 'copyDay' ? 'Copy' : 'Save'}</button>
                 <button type="button" className="btn secondary" onClick={closeModal}>Cancel</button>
-                {modal.kind !== 'claim' && modal.mode === 'edit' && (
+                {modal.kind !== 'claim' && modal.kind !== 'copyDay' && modal.mode === 'edit' && (
                   <button type="button" className="btn secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={deleteModalEntry}>Delete</button>
                 )}
               </div>

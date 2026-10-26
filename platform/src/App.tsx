@@ -34,6 +34,10 @@ const StudentPreviewPage = lazy(() =>
 const ConsultantPreviewPage = lazy(() =>
   import('./pages/admin/ConsultantPreviewPage').then((m) => ({ default: m.ConsultantPreviewPage })),
 )
+const LiveClassPage = lazy(() =>
+  import('./pages/admin/LiveClassPage').then((m) => ({ default: m.LiveClassPage })),
+)
+const ScanPage = lazy(() => import('./pages/ScanPage'))
 const ExamPrintView = lazy(() => import('./pages/admin/ExamPrintView'))
 const ExamInstructions = lazy(() => import('./pages/exam/ExamInstructions'))
 const ExamRunner = lazy(() => import('./pages/exam/ExamRunner'))
@@ -53,6 +57,15 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/change-password" element={<ChangePassword />} />
+        {/* Public-ish, outside <AppShell> on purpose — this is where an ID-card QR
+            scan lands, and that can't wait on nav chrome or a role-gated dashboard.
+            Still requires being signed in (ScanPage handles that itself, with its
+            own "please sign in" state) — see firestore.rules' `attendance` match
+            for how a scan is authorized without needing a staff role. */}
+        <Route
+          path="/scan/:studentId/:qrToken"
+          element={<Suspense fallback={<AdminRouteFallback />}><ScanPage /></Suspense>}
+        />
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomeRedirect />} />
           <Route
@@ -109,6 +122,16 @@ export default function App() {
               <RequireCapability cap="managerArea">
                 <Suspense fallback={<AdminRouteFallback />}>
                   <ConsultantPreviewPage />
+                </Suspense>
+              </RequireCapability>
+            }
+          />
+          <Route
+            path="live-class"
+            element={
+              <RequireCapability cap="liveClassArea">
+                <Suspense fallback={<AdminRouteFallback />}>
+                  <LiveClassPage />
                 </Suspense>
               </RequireCapability>
             }

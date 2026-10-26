@@ -13,6 +13,7 @@ export function mapUserDoc(docSnap: QueryDocumentSnapshot<DocumentData>): UserPr
     firstLogin: Boolean(d.firstLogin),
     createdAt: d.createdAt,
     courseIds: (d.courseIds as string[]) ?? [],
+    qrToken: typeof d.qrToken === 'string' ? d.qrToken : undefined,
   }
 }
 

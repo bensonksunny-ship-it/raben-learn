@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
 import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
+import QRCode from 'qrcode'
 import { db } from '../../firebase/config'
 import { callCreateUser, callDeleteUser, callDisableUser, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
@@ -32,6 +33,9 @@ export function StudentsPage() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null)
   const [timetableStudentId, setTimetableStudentId] = useState<string | null>(null)
+  const [idCardStudentId, setIdCardStudentId] = useState<string | null>(null)
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [generatingQr, setGeneratingQr] = useState(false)
   const [selectedCourseForSyllabus, setSelectedCourseForSyllabus] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [syllabusLoading, setSyllabusLoading] = useState(false)
@@ -187,6 +191,36 @@ export function StudentsPage() {
 
   const courseLabel = (cids: string[]) =>
     cids.map((cid) => courses.find((c) => c.id === cid)?.title).filter(Boolean).join(', ')
+
+  const idCardStudent = students.find((s) => s.id === idCardStudentId) ?? null
+
+  /** The QR itself is just this URL — scanning it opens the Live Class check-in
+   *  page already carrying both the student's id and their token, no login
+   *  prompt needed first (see `/scan/:studentId/:qrToken` in App.tsx). */
+  function scanUrl(studentId: string, qrToken: string): string {
+    return `${window.location.origin}/scan/${studentId}/${qrToken}`
+  }
+
+  useEffect(() => {
+    if (!idCardStudent?.qrToken) { setQrDataUrl(null); return }
+    let cancelled = false
+    void QRCode.toDataURL(scanUrl(idCardStudent.id, idCardStudent.qrToken), { width: 240, margin: 1 })
+      .then((url) => { if (!cancelled) setQrDataUrl(url) })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to render QR code') })
+    return () => { cancelled = true }
+  }, [idCardStudent?.id, idCardStudent?.qrToken])
+
+  async function generateQrToken(u: UserProfile) {
+    setGeneratingQr(true); setError('')
+    try {
+      await callUpdateUser({ uid: u.id, generateQrToken: true })
+      await load()
+    } catch (err: unknown) {
+      setError(formatFirebaseError(err, 'Failed to generate QR code'))
+    } finally {
+      setGeneratingQr(false)
+    }
+  }
 
   const activeStudents = students.filter((s) => s.status === 'active')
   const inactiveStudents = students.filter((s) => s.status !== 'active')
@@ -388,6 +422,11 @@ export function StudentsPage() {
               <button type="button" className="btn small secondary" onClick={() => setTimetableStudentId(selectedStudent.id)}>
                 🗓️ Timetable
               </button>
+              {canManage && (
+                <button type="button" className="btn small secondary" onClick={() => setIdCardStudentId(selectedStudent.id)}>
+                  🪪 ID Card
+                </button>
+              )}
               <button type="button" className="btn small secondary" onClick={() => setSelectedStudent(null)}>✕ Close</button>
             </div>
           </div>
@@ -501,6 +540,43 @@ export function StudentsPage() {
             </div>
           )}
         </section>
+      )}
+
+      {idCardStudentId && idCardStudent && (
+        <div className="modal-backdrop" onClick={() => setIdCardStudentId(null)}>
+          <div className="modal" style={{ maxWidth: 360, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>🪪 ID Card — {idCardStudent.name}</h3>
+              <button type="button" className="btn small ghost" onClick={() => setIdCardStudentId(null)}>✕</button>
+            </div>
+            {!idCardStudent.qrToken ? (
+              <>
+                <p className="muted small" style={{ marginBottom: '1rem' }}>
+                  No QR code yet for this student — accounts created before Live Class
+                  don't have one until it's generated once.
+                </p>
+                <button type="button" className="btn primary" disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
+                  {generatingQr ? 'Generating…' : 'Generate QR Code'}
+                </button>
+              </>
+            ) : (
+              <>
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt={`QR code for ${idCardStudent.name}`} width={240} height={240} style={{ borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
+                ) : (
+                  <p className="muted">Rendering…</p>
+                )}
+                <p className="muted small" style={{ marginTop: '0.75rem', marginBottom: '1rem' }}>
+                  Print this onto the student's ID card. Scanning it marks login, each
+                  period's punctuality, and logout on the Live Class page.
+                </p>
+                <button type="button" className="btn secondary small" disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
+                  {generatingQr ? 'Generating…' : '🔄 Regenerate (invalidates the old card)'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {timetableStudentId && (

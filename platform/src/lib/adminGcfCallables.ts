@@ -33,6 +33,8 @@ export type UpdateUserPayload = {
   courseId?: string | null
   courseIds?: string[]
   status?: 'active' | 'disabled'
+  /** Regenerates this student's ID-card QR token — see the Students page's "ID Card" button. */
+  generateQrToken?: boolean
 }
 
 /**

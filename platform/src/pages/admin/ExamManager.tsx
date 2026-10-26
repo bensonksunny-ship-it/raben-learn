@@ -8,7 +8,17 @@ import { useAuth } from '../../context/AuthContext'
 import { parseMcqPaste, parseWrittenPaste } from '../../lib/examUtils'
 import type { Exam, ExamAttempt, ExamQuestionItem, ExamSection, ExamType, SectionTemplate, UserProfile } from '../../types'
 
-interface Props { courseId: string }
+interface Props {
+  courseId: string
+  /** Which syllabus topic this panel is scoped to — omitted/null means the
+   *  general, whole-subject view (the course's "Main Exam(s)"), not tied to
+   *  any one topic. Every exam created here is tagged with it (or left
+   *  untagged in Main Exam mode), and the list only ever shows exams that
+   *  match. The question picker below still pools from every exam in the
+   *  course regardless of this filter, so a topic exam can reuse a question
+   *  already written for the Main Exam, and vice versa. */
+  topic?: { id: string; title: string } | null
+}
 
 type View = 'list' | 'edit' | 'templates'
 
@@ -27,12 +37,14 @@ function examTypeLabel(type: ExamType): string {
   return type === 'written' ? 'Paper Exm' : 'Dig Exm'
 }
 
-function blankDraft(type: ExamType, courseId: string): Exam {
+function blankDraft(type: ExamType, courseId: string, topic?: { id: string; title: string } | null): Exam {
   return {
     id: '',
     courseId,
     type,
     title: '',
+    topicId: topic?.id ?? null,
+    topicTitle: topic?.title ?? null,
     sections: [],
     questions: [],
     totalQuestions: 0,
@@ -43,7 +55,7 @@ function blankDraft(type: ExamType, courseId: string): Exam {
   }
 }
 
-export default function ExamManager({ courseId }: Props) {
+export default function ExamManager({ courseId, topic }: Props) {
   const { firebaseUser, profile } = useAuth()
   const printPrefix = profile?.roles.includes('admin') ? 'admin' : 'mentor'
   const [view, setView] = useState<View>('list')
@@ -55,6 +67,15 @@ export default function ExamManager({ courseId }: Props) {
   const [draft, setDraft] = useState<Exam | null>(null)
   const [pasteText, setPasteText] = useState<Record<string, string>>({})
   const [parseErrors, setParseErrors] = useState<Record<string, string[]>>({})
+
+  // "+ Pick Existing Questions" — reuse a question already written for another
+  // exam in this course (a topic exam borrowing from the Main Exam's bank, or
+  // the reverse) instead of retyping it. Copies the picked questions in with
+  // fresh ids; it's a copy, not a live link, so editing one later never moves
+  // the other.
+  const [pickerForSectionId, setPickerForSectionId] = useState<string | null>(null)
+  const [pickerFilter, setPickerFilter] = useState('')
+  const [pickerSelected, setPickerSelected] = useState<Set<string>>(new Set())
 
   const [resultsForExamId, setResultsForExamId] = useState<string | null>(null)
   const [attempts, setAttempts] = useState<ExamAttempt[]>([])
@@ -94,8 +115,20 @@ export default function ExamManager({ courseId }: Props) {
 
   // ─── Create / Edit ──────────────────────────────────────────────────────
 
+  // The exam list/question-pool query itself isn't topic-scoped — `exams` always
+  // holds every exam in the course, so the question picker below can pull from
+  // any of them. Only the list view filters down to this panel's own scope.
+  const visibleExams = exams.filter((e) => (topic ? e.topicId === topic.id : !e.topicId))
+  // Excludes the exam currently open in the editor (if any) — picking a question
+  // from itself would just duplicate it into the same section pointlessly.
+  // Same-type only (mcq questions carry options/correctAnswer a written exam
+  // has no use for, and vice versa) — the picker below never mixes the two.
+  const allQuestions = exams
+    .filter((e) => e.id !== draft?.id && e.type === draft?.type)
+    .flatMap((e) => e.questions.map((q) => ({ ...q, examTitle: e.title })))
+
   function openNew(type: ExamType) {
-    setDraft(blankDraft(type, courseId))
+    setDraft(blankDraft(type, courseId, topic))
     setPasteText({}); setParseErrors({}); setError('')
     setView('edit')
   }
@@ -179,6 +212,34 @@ export default function ExamManager({ courseId }: Props) {
     setDraft({ ...draft, questions: [...draft.questions, item] })
   }
 
+  function openPicker(sectionId: string) {
+    setPickerForSectionId(sectionId); setPickerFilter(''); setPickerSelected(new Set())
+  }
+
+  function togglePicked(id: string) {
+    setPickerSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function confirmPicker() {
+    if (!draft || !pickerForSectionId) return
+    const sectionId = pickerForSectionId
+    const picked = allQuestions.filter((q) => pickerSelected.has(q.id))
+    // Same shape the question was written in (mcq keeps its options/correctAnswer,
+    // written stays text-only) — only `id`/`sectionId` change, pointing it at this
+    // draft's section instead of wherever it was copied from.
+    const items: ExamQuestionItem[] = picked.map((q) => ({
+      id: newId(), sectionId, text: q.text,
+      ...(q.options ? { options: [...q.options] } : {}),
+      ...(q.correctAnswer ? { correctAnswer: q.correctAnswer } : {}),
+    }))
+    setDraft({ ...draft, questions: [...draft.questions, ...items] })
+    setPickerForSectionId(null)
+  }
+
   async function saveExam() {
     if (!draft) return
     const title = draft.title.trim()
@@ -198,6 +259,8 @@ export default function ExamManager({ courseId }: Props) {
         courseId: draft.courseId,
         type: draft.type,
         title,
+        topicId: draft.topicId ?? null,
+        topicTitle: draft.topicTitle ?? null,
         sections: draft.sections,
         questions: draft.questions,
         totalQuestions: draft.totalQuestions,
@@ -520,6 +583,9 @@ export default function ExamManager({ courseId }: Props) {
               <div className="row" style={{ marginTop: '0.5rem' }}>
                 <button type="button" className="btn small primary" onClick={() => parseSection(s.id)}>Parse & Add to Section</button>
                 <button type="button" className="btn small ghost" onClick={() => addBlankQuestion(s.id)}>+ Add One Manually</button>
+                <button type="button" className="btn small ghost" onClick={() => openPicker(s.id)} disabled={allQuestions.length === 0} title={allQuestions.length === 0 ? 'No other exams in this course have questions yet' : undefined}>
+                  🔗 Pick Existing Questions
+                </button>
               </div>
               {errs.length > 0 && (
                 <div style={{ marginTop: '0.5rem' }}>
@@ -563,6 +629,50 @@ export default function ExamManager({ courseId }: Props) {
           <button type="button" className="btn primary" disabled={saving} onClick={() => void saveExam()}>{saving ? 'Saving…' : 'Save Exam'}</button>
           <button type="button" className="btn ghost" onClick={() => { setView('list'); setDraft(null) }}>Cancel</button>
         </div>
+
+        {pickerForSectionId && (
+          <div className="modal-backdrop" onClick={() => setPickerForSectionId(null)}>
+            <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                <h3 style={{ margin: 0 }}>🔗 Pick Existing Questions</h3>
+                <button type="button" className="btn small ghost" onClick={() => setPickerForSectionId(null)}>✕</button>
+              </div>
+              <p className="muted small" style={{ marginBottom: '0.6rem' }}>
+                From every other {draft.type === 'mcq' ? 'MCQ' : 'written'} exam in this course — a Main Exam can reuse a topic exam's question, or the reverse. Picking copies it in; editing the copy later never changes the original.
+              </p>
+              <input
+                value={pickerFilter}
+                onChange={(e) => setPickerFilter(e.target.value)}
+                placeholder="Filter by question text or exam name…"
+                style={{ marginBottom: '0.6rem' }}
+              />
+              <div style={{ maxHeight: 320, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+                {allQuestions
+                  .filter((q) => {
+                    const f = pickerFilter.trim().toLowerCase()
+                    if (!f) return true
+                    return q.text.toLowerCase().includes(f) || q.examTitle.toLowerCase().includes(f)
+                  })
+                  .map((q) => (
+                    <label key={q.id} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', padding: '0.5rem', borderRadius: 8, background: pickerSelected.has(q.id) ? 'var(--primary-soft)' : 'var(--surface-soft)', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={pickerSelected.has(q.id)} onChange={() => togglePicked(q.id)} style={{ marginTop: '0.2rem' }} />
+                      <span>
+                        <span style={{ display: 'block', fontSize: '0.9rem' }}>{q.text || <em className="muted">(untitled)</em>}</span>
+                        <span className="muted small">from {q.examTitle}</span>
+                      </span>
+                    </label>
+                  ))}
+                {allQuestions.length === 0 && <p className="muted small">No questions in other exams yet.</p>}
+              </div>
+              <div className="row" style={{ marginTop: '1rem', justifyContent: 'flex-end' }}>
+                <button type="button" className="btn ghost" onClick={() => setPickerForSectionId(null)}>Cancel</button>
+                <button type="button" className="btn primary" disabled={pickerSelected.size === 0} onClick={confirmPicker}>
+                  Add {pickerSelected.size || ''} Selected
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     )
   }
@@ -571,17 +681,26 @@ export default function ExamManager({ courseId }: Props) {
 
   return (
     <div>
+      {topic ? (
+        <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+          Exams for topic <strong style={{ color: 'var(--text)' }}>{topic.title}</strong> only — not the course's Main Exam(s).
+        </p>
+      ) : (
+        <p className="muted small" style={{ marginBottom: '0.75rem' }}>
+          Main Exam(s) for the whole subject — not tied to any one topic.
+        </p>
+      )}
       <div className="row" style={{ marginBottom: '1rem' }}>
         <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New {examTypeLabel('written')}</button>
         <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New {examTypeLabel('mcq')}</button>
         <button type="button" className="btn small ghost" onClick={() => { setTemplateForm(blankTemplateForm()); setView('templates') }}>📑 Sub-Section Library</button>
       </div>
       {error && <p className="error">{error}</p>}
-      {exams.length === 0 ? (
-        <p className="muted small">No exams yet for this course.</p>
+      {visibleExams.length === 0 ? (
+        <p className="muted small">No exams yet for this {topic ? 'topic' : 'course'}.</p>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
-          {exams.map((exam) => {
+          {visibleExams.map((exam) => {
             const sumQuestions = exam.sections.reduce((s, sec) => s + sec.questionCount, 0)
             const sumMarks = exam.sections.reduce((s, sec) => s + sec.questionCount * sec.marksPerQuestion, 0)
             return (

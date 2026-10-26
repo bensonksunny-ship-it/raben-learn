@@ -84,6 +84,21 @@ service cloud.firestore {
       allow update: if isSignedIn() && resource.data.studentId == request.auth.uid;
     }
 
+    // Live Class attendance — one doc per student per day (id: "{studentId}_{date}").
+    // A scan writes through whatever signed-in device holds the card (the
+    // student's own account on their phone, or a staff kiosk) — but only once
+    // the submitted `qrToken` matches *that* student's own stored token, so a
+    // scan can only ever mark the card that was actually scanned. Staff can
+    // also write directly (no token), for manual corrections from the Live
+    // Class roster.
+    match /attendance/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdminOrMentor() || hasRole('manager')
+        || (isSignedIn()
+            && request.resource.data.studentId is string
+            && request.resource.data.qrToken == get(/databases/$(database)/documents/users/$(request.resource.data.studentId)).data.qrToken);
+    }
+
     match /course_history/{id} {
       allow read: if isSignedIn();
       allow create: if isAdminOrMentor();

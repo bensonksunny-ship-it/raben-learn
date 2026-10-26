@@ -27,7 +27,9 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
 
   const [sessions, setSessions] = useState<Session[]>([])
   const [newRowTitle, setNewRowTitle] = useState('')
-  const [examModalOpen, setExamModalOpen] = useState(false)
+  // null = closed; 'main' = the course's whole-subject exam(s), no topic; an
+  // object = scoped to that one topic row's exam(s).
+  const [examModalTopic, setExamModalTopic] = useState<'main' | { id: string; title: string } | null>(null)
   const [editingCourseInfo, setEditingCourseInfo] = useState(false)
   const [courseMenuOpen, setCourseMenuOpen] = useState(false)
   const [editCourseTitle, setEditCourseTitle] = useState('')
@@ -93,7 +95,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   }, [selectedCourseId])
 
   useEffect(() => { setSelectedCourseId(null) }, [selectedLevel])
-  useEffect(() => { setExamModalOpen(false); setEditingSyllabus(true); setEditingCourseInfo(false); setCourseMenuOpen(false) }, [selectedCourseId])
+  useEffect(() => { setExamModalTopic(null); setEditingSyllabus(true); setEditingCourseInfo(false); setCourseMenuOpen(false) }, [selectedCourseId])
 
   async function createCourse(e: FormEvent) {
     e.preventDefault()
@@ -412,13 +414,20 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                   </>
                 )}
               </div>
-              {!readOnly && (editingSyllabus ? (
-                <button type="button" className="btn primary" disabled={saving} onClick={() => void saveSyllabus()} style={{ flexShrink: 0 }}>
-                  {saving ? 'Saving…' : 'Save Syllabus'}
-                </button>
-              ) : (
-                <button type="button" className="btn secondary" onClick={() => setEditingSyllabus(true)} style={{ flexShrink: 0 }}>Edit</button>
-              ))}
+              <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                {isAdminOrMentor && (
+                  <button type="button" className="btn secondary" title="This subject's whole-course exam(s) — not tied to any one topic" onClick={() => setExamModalTopic('main')}>
+                    🎓 Main Exam
+                  </button>
+                )}
+                {!readOnly && (editingSyllabus ? (
+                  <button type="button" className="btn primary" disabled={saving} onClick={() => void saveSyllabus()}>
+                    {saving ? 'Saving…' : 'Save Syllabus'}
+                  </button>
+                ) : (
+                  <button type="button" className="btn secondary" onClick={() => setEditingSyllabus(true)}>Edit</button>
+                ))}
+              </div>
             </div>
 
             {editingSyllabus ? (
@@ -449,7 +458,14 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                         <td className="session-topics-actions">
                           <div className="session-topics-actions-inner">
                             {isAdminOrMentor && (
-                              <button type="button" className="btn small secondary" title="Open exam configuration for this course" onClick={() => setExamModalOpen(true)}>Exam</button>
+                              <button
+                                type="button"
+                                className="btn small secondary"
+                                title="Open exams for this topic"
+                                onClick={() => setExamModalTopic({ id: row.topic.id, title: row.topic.title })}
+                              >
+                                Exam
+                              </button>
                             )}
                             <button type="button" className="btn small ghost" title="Move up" disabled={idx === 0 || saving} onClick={() => void moveRow(idx, -1)}>↑</button>
                             <button type="button" className="btn small ghost" title="Move down" disabled={idx === flatRows.length - 1 || saving} onClick={() => void moveRow(idx, 1)}>↓</button>
@@ -502,14 +518,16 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
       </div>
 
 
-      {examModalOpen && selectedCourseId && (
-        <div className="modal-backdrop" onClick={() => setExamModalOpen(false)}>
+      {examModalTopic && selectedCourseId && (
+        <div className="modal-backdrop" onClick={() => setExamModalTopic(null)}>
           <div className="modal" style={{ maxWidth: 960, width: '95%' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>📝 Exam — {selectedCourse?.title}</h3>
-              <button type="button" className="btn small ghost" onClick={() => setExamModalOpen(false)}>✕</button>
+              <h3 style={{ margin: 0 }}>
+                📝 {examModalTopic === 'main' ? `Main Exam — ${selectedCourse?.title}` : `Exam — ${examModalTopic.title}`}
+              </h3>
+              <button type="button" className="btn small ghost" onClick={() => setExamModalTopic(null)}>✕</button>
             </div>
-            <ExamManager courseId={selectedCourseId} />
+            <ExamManager courseId={selectedCourseId} topic={examModalTopic === 'main' ? null : examModalTopic} />
           </div>
         </div>
       )}

@@ -144,6 +144,7 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 .mobile-topbar-home { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; transition: background 0.15s; }
 .mobile-topbar-home:hover { background: rgba(255,255,255,0.12); }
 .mobile-topbar-icon { width: 28px; height: 28px; flex-shrink: 0; }
+.mobile-topbar-left { display: flex; align-items: center; gap: 0.5rem; }
 .mobile-topbar-actions { display: flex; align-items: center; gap: 0.6rem; }
 .mobile-topbar-btn {
   width: 36px; height: 36px; border-radius: 10px; border: none; background: rgba(255,255,255,0.08);
@@ -158,6 +159,27 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
    markup, just repositioned for this ancestor. */
 .mobile-topbar .profile-menu-wrap { margin-top: 0; }
 .mobile-topbar .profile-menu-dropdown { left: auto; right: 0; top: calc(100% + 10px); bottom: auto; }
+
+/* Mobile drawer — the hamburger's target. Same look as the desktop `.sidebar`
+   rail (reuses `.sidebar-brand-home`/`.sidebar-rail-links`/`.sidebar-rail-link`
+   for Home + Manager/Preview), but fixed+off-canvas and slid in with a
+   transform instead of sitting in the page's normal flow. Only reachable via
+   the hamburger inside `.mobile-topbar`, which is itself `display: none` on
+   desktop, so `.open` can never be triggered above the 768px breakpoint. */
+.mobile-drawer {
+  width: 64px; min-width: 64px; background: var(--midnight); color: #fff;
+  display: flex; flex-direction: column; align-items: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 1rem) 0.5rem 1rem; gap: 0.75rem;
+  position: fixed; top: 0; left: 0; height: 100dvh; z-index: 330;
+  box-shadow: 10px 0 36px rgba(10,18,40,0.35);
+  transform: translateX(-100%); transition: transform 0.22s ease;
+}
+.mobile-drawer.open { transform: translateX(0); }
+.mobile-drawer-backdrop {
+  position: fixed; inset: 0; z-index: 329; background: rgba(10,18,40,0.45);
+  opacity: 0; pointer-events: none; transition: opacity 0.22s ease;
+}
+.mobile-drawer-backdrop.open { opacity: 1; pointer-events: auto; }
 
 .form { display: flex; flex-direction: column; gap: 0.75rem; }
 .form.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
@@ -321,9 +343,26 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .manager-view-fullscreen-body { flex: 1; min-height: 0; overflow-y: auto; padding-top: 3.75rem; }
 .manager-view-fullscreen-body > * { min-height: 100%; }
 /* The grid gets the remaining vertical space in the page once its toolbar/panel/
-   messages take what they need — see `.schedule-page .timetable-grid-wrap` below. */
-.schedule-page { display: flex; flex-direction: column; }
+   messages take what they need — see `.schedule-page .timetable-grid-wrap` below.
+   `flex: 1` only actually does something once an ancestor hands it real height to
+   grow into — see the `:has()` rule right below, which does that specifically for
+   the bare (non-modal) /schedule page; a modal popup's own fullscreen body already
+   provides it another way. */
+.schedule-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .schedule-page .timetable-grid-wrap { flex: 1; min-height: 320px; overflow-y: auto; }
+/* Bare /schedule route only (not the Timetable popups, which get their height from
+   .manager-view-fullscreen-body instead) — stretches .main/.kid-theme down to the
+   real viewport height so the grid's own `flex: 1` above has actual leftover space
+   to fill, instead of the page just sizing to its content and leaving blank
+   background below. Narrower side padding too, so the grid gets closer to the
+   screen edges — this page wants the width, most others don't. */
+.main:has(.schedule-page) {
+  display: flex; flex-direction: column;
+  padding-left: 1rem; padding-right: 1rem;
+}
+.main:has(.schedule-page) > .kid-theme {
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+}
 
 /* ─── Mobile landscape prompt (centered modal) + fullscreen grid — see useLandscapeFullscreen() ── */
 .landscape-prompt-backdrop {
@@ -875,10 +914,19 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
 
 .timetable-grid-wrap { overflow-x: auto; }
 .timetable-grid { display: grid; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; position: relative; }
-/* Transposed: days as rows, hours as columns — each day is a long horizontal strip,
-   so the grid is typically wider than the viewport and scrolls sideways on purpose
-   (.timetable-grid-wrap above) rather than being squeezed down to fit. */
-.timetable-grid.transposed { min-width: max-content; }
+/* Transposed: days as rows, hours as columns — each day is a long horizontal strip.
+   `width: 100%` lets the hour columns' own `minmax(SLOT_PX, 1fr)` tracks (set inline
+   in PriorityScheduler.tsx) expand to fill a desktop-width container edge to edge.
+   Deliberately NOT `min-width: max-content` — a grid's own max-content size is
+   computed from its *content's* natural (unwrapped) width, and every card's
+   title/meta text is `white-space: nowrap` for its own ellipsis-truncation, so
+   that content can be arbitrarily wide (a long course title) and would balloon
+   the whole grid past the viewport regardless of the 100% width above — that was
+   the actual cause of the grid still overflowing. Leaving `min-width` at its
+   default lets each column still floor out at its own `minmax(SLOT_PX, …)`
+   minimum (so very narrow screens correctly fall back to scrolling via
+   .timetable-grid-wrap above), without text content inflating that floor. */
+.timetable-grid.transposed { width: 100%; }
 .timetable-grid-corner { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface-soft); }
 .timetable-grid-day-header {
   display: flex; align-items: center; justify-content: center; padding: 0.6rem 0.4rem;
@@ -928,9 +976,9 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
    trickery. Accent is a top stripe, not a left one, now that cards are wide/short
    horizontal blocks rather than narrow/tall ones. */
 .timetable-grid-card {
-  cursor: pointer; border: none; border-top: 4px solid; border-radius: 10px; padding: 0.3rem 0.45rem;
-  margin: 2px; display: flex; flex-direction: column; gap: 0.1rem; min-width: 0; text-align: left;
-  font-family: var(--font-body); box-shadow: var(--shadow); overflow: hidden;
+  cursor: pointer; border: none; border-top: 4px solid; border-radius: 10px; padding: 0.4rem 0.5rem;
+  margin: 1px; display: flex; flex-direction: column; justify-content: center; gap: 0.2rem; min-width: 0;
+  text-align: left; font-family: var(--font-body); box-shadow: var(--shadow); overflow: hidden;
 }
 .timetable-grid-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; }
 /* Priority badge — marks a card as either a manager-locked school period or a
@@ -947,8 +995,8 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
   min-width: 0;
 }
 .timetable-grid-card-lock-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.timetable-grid-card-title { font-size: 0.78rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timetable-grid-card-meta { font-size: 0.68rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timetable-grid-card-title { font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timetable-grid-card-meta { font-size: 0.64rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The shared schedule rendered as backdrop context (a student is selected, so this
    card is non-interactive) — faded and dashed so it reads as "behind," not the focus. */
 .timetable-grid-card.ghost { cursor: default; opacity: 0.55; border-top-style: dashed; box-shadow: none; }

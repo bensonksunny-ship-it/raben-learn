@@ -13,6 +13,13 @@ export interface UserProfile {
   firstLogin: boolean
   createdAt: unknown
   courseIds?: string[]
+  /** A student's ID-card QR payload — opaque, random, generated once (server-side
+   *  on account creation, or backfilled from the Students page's "ID Card"
+   *  button). Not a secret in the security sense (it's printed on a card anyone
+   *  can read), but unguessable enough that scanning someone else's actual card
+   *  is the only way to mark them present — see `attendance.rules` and
+   *  `lib/attendance.ts`. */
+  qrToken?: string
 }
 
 /** Weekday key for the class timetable — Monday through Saturday, no Sunday. */
@@ -228,6 +235,12 @@ export interface Exam {
   courseId: string
   type: ExamType
   title: string
+  /** Which syllabus topic (flat SL No./Title row) this exam is for — null/absent
+   *  means a general, whole-subject exam (e.g. the course's "Main Exam"), not
+   *  tied to any one topic. `topicTitle` is denormalized alongside it so lists
+   *  can show it without a lookup. */
+  topicId?: string | null
+  topicTitle?: string | null
   sections: ExamSection[]
   questions: ExamQuestionItem[]
   totalQuestions: number     // target entered up front, for the mismatch check
@@ -251,4 +264,28 @@ export interface ExamAttempt {
   answers: Record<string, string>    // questionId → chosen option text
   score: number
   totalMarks: number
+}
+
+/** One scan event — the Live Class page's whole job is turning a day's worth of
+ *  these, per student, into a live roster. `kind: 'period'` carries `periodId`
+ *  (a `TimetablePeriod.id` from that weekday's locked schedule); login/logout
+ *  don't need one, there's only ever one of each per day. */
+export type AttendanceCheckpointKind = 'login' | 'period' | 'logout'
+
+export interface AttendanceCheckpoint {
+  kind: AttendanceCheckpointKind
+  periodId?: string
+  /** ISO timestamp, client clock — see `lib/attendance.ts` for the known caveat
+   *  (no server-side time source without a Cloud Function). */
+  scannedAt: string
+  status: 'on-time' | 'late'
+}
+
+/** One student's whole day — doc id is `${studentId}_${date}` (`date` = "YYYY-MM-DD"),
+ *  same composite-key convention as `DailyPlan`/`student_daily_plans`. */
+export interface AttendanceRecord {
+  id: string
+  studentId: string
+  date: string
+  checkpoints: AttendanceCheckpoint[]
 }

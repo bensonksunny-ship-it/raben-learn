@@ -13,9 +13,10 @@ export default function AppShell() {
   // Shared with the mobile top bar's own avatar button below md (CSS alone
   // decides which of the two trigger/dropdown pairs is actually visible).
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
-  // The mobile top bar's "☰" — only rendered for admin/manager, stands in for
-  // the sidebar's Manager/Preview rail links below md.
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  // The mobile top bar's "☰" — only rendered for admin/manager, opens a
+  // slide-out drawer (not a dropdown) standing in for the sidebar's
+  // Manager/Preview rail links below md.
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
   if (!firebaseUser) return <Navigate to="/login" replace />
@@ -133,36 +134,28 @@ export default function AppShell() {
 
       {/* Mobile-only compact top bar — hidden on desktop via CSS, and the sidebar
           above hides itself below the same breakpoint, so exactly one of the two
-          is ever visible. Collapses the sidebar's three jobs (Home, Manager/
-          Preview, "You") into a slim fixed header instead of a 64px column
-          eating into `.main`'s width on a phone screen. */}
+          is ever visible. Left cluster: hamburger (admin/manager only) + Home,
+          grouped together at top-left. Right side: just the "You" avatar, kept
+          isolated so it's never mistaken for part of the menu trigger. */}
       <header className="mobile-topbar">
-        <NavLink to={homeTo} end className="mobile-topbar-home" title="Home" aria-label="Home — go to Dashboard">
-          <AppIcon className="mobile-topbar-icon" />
-        </NavLink>
-        <div className="mobile-topbar-actions">
+        <div className="mobile-topbar-left">
           {(isAdmin || isManager) && (
-            <div className="profile-menu-wrap">
-              {mobileMenuOpen && <div className="profile-menu-backdrop" onClick={() => setMobileMenuOpen(false)} />}
-              <button
-                type="button"
-                className="mobile-topbar-btn"
-                onClick={() => setMobileMenuOpen((v) => !v)}
-                aria-label="Menu"
-                aria-haspopup="menu"
-                aria-expanded={mobileMenuOpen}
-              >
-                ☰
-              </button>
-              {mobileMenuOpen && (
-                <div className="profile-menu-dropdown" role="menu">
-                  <NavLink to="/manager" end className="profile-menu-item" role="menuitem" onClick={() => setMobileMenuOpen(false)}>🧑‍💼 Manager</NavLink>
-                  <NavLink to="/manager/student-preview" className="profile-menu-item" role="menuitem" onClick={() => setMobileMenuOpen(false)}>👁️ Preview Student View</NavLink>
-                  <NavLink to="/manager/consultant-preview" className="profile-menu-item" role="menuitem" onClick={() => setMobileMenuOpen(false)}>📖 Preview Consultant View</NavLink>
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              className="mobile-topbar-btn mobile-topbar-hamburger"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open menu"
+              aria-haspopup="menu"
+              aria-expanded={drawerOpen}
+            >
+              ☰
+            </button>
           )}
+          <NavLink to={homeTo} end className="mobile-topbar-home" title="Home" aria-label="Home — go to Dashboard">
+            <AppIcon className="mobile-topbar-icon" />
+          </NavLink>
+        </div>
+        <div className="mobile-topbar-actions">
           <div className="profile-menu-wrap">
             {profileMenuOpen && <div className="profile-menu-backdrop" onClick={() => setProfileMenuOpen(false)} />}
             <button
@@ -194,6 +187,26 @@ export default function AppShell() {
           </div>
         </div>
       </header>
+
+      {/* Mobile drawer — the hamburger's target. Slides out from the left edge
+          over the page content (not a dropdown); mirrors the desktop sidebar
+          rail's Home + Manager/Preview links. Only reachable via the hamburger
+          above, so it never opens on desktop. */}
+      {(isAdmin || isManager) && (
+        <>
+          <div className={`mobile-drawer-backdrop${drawerOpen ? ' open' : ''}`} onClick={() => setDrawerOpen(false)} />
+          <aside className={`mobile-drawer${drawerOpen ? ' open' : ''}`}>
+            <NavLink to={homeTo} end className={({ isActive }) => `sidebar-brand-home${isActive ? ' active' : ''}`} title="Home" aria-label="Home — go to Dashboard" onClick={() => setDrawerOpen(false)}>
+              <AppIcon className="sidebar-brand-icon" />
+            </NavLink>
+            <div className="sidebar-rail-links">
+              <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager" onClick={() => setDrawerOpen(false)}>🧑‍💼</NavLink>
+              <NavLink to="/manager/student-preview" className={srl} title="Preview Student View" aria-label="Preview Student View" onClick={() => setDrawerOpen(false)}>👁️</NavLink>
+              <NavLink to="/manager/consultant-preview" className={srl} title="Preview Consultant View" aria-label="Preview Consultant View" onClick={() => setDrawerOpen(false)}>📖</NavLink>
+            </div>
+          </aside>
+        </>
+      )}
 
       {/* .kid-theme here (not on individual pages) re-themes every view in one place —
           pastel background, rounded corners, playful fonts — via the shared CSS custom

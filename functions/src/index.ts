@@ -1,4 +1,5 @@
 import * as admin from 'firebase-admin'
+import { randomUUID } from 'crypto'
 import { setGlobalOptions } from 'firebase-functions/v2'
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { FieldValue } from 'firebase-admin/firestore'
@@ -260,6 +261,10 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
       centreId: roles.includes('student') ? centreId : null,
       courseId: roles.includes('student') ? courseId : null,
       ...(roles.includes('student') && courseId ? { courseIds: [courseId] } : {}),
+      // ID-card QR payload — generated once here (student accounts only), never
+      // client-supplied, so it's not trivially guessable. See adminUpdateUser's
+      // `generateQrToken` for backfilling an account created before this existed.
+      qrToken: roles.includes('student') ? randomUUID() : null,
     })
 
     if (roles.includes('mentor')) {
@@ -317,6 +322,9 @@ export const adminUpdateUser = onCall(callableOpts, async (request) => {
     courseId?: unknown
     courseIds?: unknown
     status?: unknown
+    /** True to (re)generate this student's ID-card QR token — the Students page's
+     *  "ID Card" button sends this for an account created before `qrToken` existed. */
+    generateQrToken?: unknown
   }
 
   if (!isNonEmptyString(payload.uid, 128)) {
@@ -378,6 +386,9 @@ export const adminUpdateUser = onCall(callableOpts, async (request) => {
     const cid = payload.courseId === null ? null : typeof payload.courseId === 'string' ? payload.courseId : null
     nextPatch.courseId = cid
     nextPatch.courseIds = cid ? [cid] : []
+  }
+  if (payload.generateQrToken === true) {
+    nextPatch.qrToken = randomUUID()
   }
 
   nextPatch.role = FieldValue.delete()

@@ -15,8 +15,10 @@ const ELECTIVE_COLOR = { bg: '#d0ebff', text: '#1971c2' }
 /** Width of one 15-minute column — hours run left→right now, days top→bottom, so a
  *  day reads as one long horizontal strip ("lengthier" view of how its day flows). */
 const SLOT_PX = 26
-/** Height of one day's row. */
-const DAY_ROW_PX = 80
+/** Minimum height of one day's row — it stretches taller than this to fill
+ *  leftover vertical space (see the `1fr` in gridTemplateRows below), so this is
+ *  a floor, not the typical size. */
+const DAY_ROW_PX = 96
 const DAY_LABEL_COL_PX = 88
 const SLOTS_PER_HOUR = 4
 /** Operational hours — the grid always renders exactly this range, never wider. */
@@ -177,7 +179,13 @@ type ModalState =
   | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number }
   | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number }
   | { kind: 'elective'; mode: 'add'; day: Weekday; sections: ElectiveSectionDraft[] }
-  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string }
+  /** `viewMode` starts true for an already-claimed session (plain-text "View
+   *  Elective" card) and false for a still-open/pending one (nothing real to
+   *  view yet, so it opens straight into the editable form). The pencil
+   *  button flips it to false; Cancel from there flips it back (restoring the
+   *  session's saved values) rather than closing the whole modal — but only
+   *  when the session was claimed to begin with. */
+  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean }
   /** The minimal claim form a student/mentor sees on an open slot that's theirs to
    *  fill — just a title (mentors also confirm their name). Nothing else on the grid
    *  is editable in claim mode, so this is the only modal shape claiming ever opens. */
@@ -263,7 +271,30 @@ export function PriorityScheduler({
   }
   function openElectiveEditModal(day: Weekday, session: ElectiveSession) {
     setModalError('')
-    setModal({ kind: 'elective', mode: 'edit', day, sessionId: session.id, title: session.title, startTime: session.startTime, durationMinutes: session.durationMinutes, mentorName: session.mentorName ?? '' })
+    setModal({
+      kind: 'elective', mode: 'edit', day, sessionId: session.id, title: session.title,
+      startTime: session.startTime, durationMinutes: session.durationMinutes, mentorName: session.mentorName ?? '',
+      viewMode: Boolean(session.claimed),
+    })
+  }
+  function enterElectiveEditMode() {
+    if (!modal || modal.kind !== 'elective' || modal.mode !== 'edit') return
+    setModal({ ...modal, viewMode: false })
+  }
+  /** Discards any unsaved edits and either returns to the view card (session
+   *  was claimed when the modal opened) or just closes (a still-open session
+   *  never had a view card to return to). */
+  function cancelElectiveEdit() {
+    if (!modal || modal.kind !== 'elective' || modal.mode !== 'edit') { closeModal(); return }
+    const original = electives.days[modal.day]?.sessions.find((s) => s.id === modal.sessionId)
+    if (original?.claimed) {
+      setModal({
+        ...modal, viewMode: true, title: original.title, startTime: original.startTime,
+        durationMinutes: original.durationMinutes, mentorName: original.mentorName ?? '',
+      })
+    } else {
+      closeModal()
+    }
   }
   /** The one action available from a student's/mentor's own view — fill in an open
    *  slot that's theirs to claim. Pre-fills the mentor name from `claimerName` so a
@@ -485,6 +516,10 @@ export function PriorityScheduler({
           className="timetable-grid transposed"
           style={{
             gridTemplateColumns: `${DAY_LABEL_COL_PX}px repeat(${totalSlots}, minmax(${SLOT_PX}px, 1fr))`,
+            // `1fr` on the max side — rows stretch to fill whatever vertical space
+            // the page actually has (see .schedule-page's own flex chain in
+            // index.css) instead of shrink-wrapping to DAY_ROW_PX and leaving
+            // blank space below on a tall screen.
             gridTemplateRows: `auto repeat(${rowDays.length}, minmax(${DAY_ROW_PX}px, 1fr))`,
           }}
         >
@@ -679,7 +714,7 @@ export function PriorityScheduler({
                   ? (modal.role === 'student' ? 'Claim your slot' : 'Claim this mentor spot')
                   : modal.kind === 'locked'
                     ? (modal.mode === 'add' ? 'Add school period' : `Edit school period — ${modal.day}`)
-                    : (modal.mode === 'add' ? `Add elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
+                    : (modal.mode === 'add' ? `Add elective — ${modal.day}` : modal.viewMode ? `View Elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
             </h3>
             <form className="form" onSubmit={submitModal}>
               {modal.kind === 'copyDay' ? (
@@ -784,6 +819,34 @@ export function PriorityScheduler({
                     ) : null
                   })()}
                 </>
+              ) : modal.kind === 'elective' && modal.mode === 'edit' && modal.viewMode ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  <div>
+                    <div className="muted small">Title</div>
+                    <div style={{ fontWeight: 600 }}>{modal.title || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="muted small">Time range</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {(() => {
+                        const startMin = timeStrToMinutes(modal.startTime)
+                        return startMin != null
+                          ? `${formatClockLabel(startMin)} – ${formatClockLabel(startMin + modal.durationMinutes)}`
+                          : modal.startTime
+                      })()}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="muted small">Mentor</div>
+                    <div style={{ fontWeight: 600 }}>{modal.mentorName || '—'}</div>
+                  </div>
+                  <div>
+                    <div className="muted small">Duration</div>
+                    <div style={{ fontWeight: 600 }}>
+                      {modal.durationMinutes < 60 ? `${modal.durationMinutes} mins` : `${modal.durationMinutes / 60} hour${modal.durationMinutes > 60 ? 's' : ''}`}
+                    </div>
+                  </div>
+                </div>
               ) : (
                 <>
                   {modal.kind === 'locked' && (
@@ -833,10 +896,19 @@ export function PriorityScheduler({
               )}
               {modalError ? <p className="error" style={{ margin: 0 }}>⚠ {modalError}</p> : null}
               <div className="row">
-                <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : modal.kind === 'copyDay' ? 'Copy' : 'Save'}</button>
-                <button type="button" className="btn secondary" onClick={closeModal}>Cancel</button>
-                {modal.kind !== 'claim' && modal.kind !== 'copyDay' && modal.mode === 'edit' && (
-                  <button type="button" className="btn secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={deleteModalEntry}>Delete</button>
+                {modal.kind === 'elective' && modal.mode === 'edit' && modal.viewMode ? (
+                  <>
+                    <button type="button" className="btn primary" onClick={enterElectiveEditMode}>✏️ Edit</button>
+                    <button type="button" className="btn secondary" onClick={closeModal}>Close</button>
+                  </>
+                ) : (
+                  <>
+                    <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : modal.kind === 'copyDay' ? 'Copy' : 'Save'}</button>
+                    <button type="button" className="btn secondary" onClick={modal.kind === 'elective' && modal.mode === 'edit' ? cancelElectiveEdit : closeModal}>Cancel</button>
+                    {modal.kind !== 'claim' && modal.kind !== 'copyDay' && modal.mode === 'edit' && (
+                      <button type="button" className="btn secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={deleteModalEntry}>Delete</button>
+                    )}
+                  </>
                 )}
               </div>
             </form>

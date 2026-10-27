@@ -166,6 +166,20 @@ service cloud.firestore {
     // too, not just admin). The kiosk link itself never reads this doc
     // directly — the `resolveLiveClassKiosk` Cloud Function checks it with the
     // Admin SDK (which bypasses these rules entirely) before minting anything.
+    // "Class started" marker for the day (id: YYYY-MM-DD), pressed on the Live
+    // Class kiosk TV (signed in via the `liveClassKiosk` custom-token claim) or
+    // by staff. Create-only, with a server-stamped `startedAt`, so a second tap
+    // can't move the start time later; delete is the kiosk's "Undo".
+    match /class_runs/{date} {
+      allow read: if isSignedIn();
+      allow create: if (request.auth.token.liveClassKiosk == true || isAdminOrMentor() || hasRole('manager'))
+        && request.resource.data.keys().hasOnly(['date', 'scheduledStart', 'startedAt'])
+        && request.resource.data.date == date
+        && request.resource.data.scheduledStart is string
+        && request.resource.data.startedAt == request.time;
+      allow delete: if request.auth.token.liveClassKiosk == true || isAdminOrMentor() || hasRole('manager');
+    }
+
     match /settings/{id} {
       allow read, write: if isAdminOrMentor() || hasRole('manager');
     }

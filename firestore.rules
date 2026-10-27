@@ -148,6 +148,18 @@ service cloud.firestore {
       allow write: if hasRole('manager') || hasRole('admin') || isOwner(studentId);
     }
 
+    // Custom non-subject activity categories (Lunch, Assembly, Travel, …) offered
+    // alongside syllabus subjects in the period/elective title dropdown — managed
+    // from the Schedule page's "Manage Activity Types" panel. Readable by anyone
+    // signed in (students/mentors see the same colored cards on the grid), but
+    // only manager/admin define the categories themselves — narrower than
+    // `class_timetable`'s student exception, since this is an org-wide setting,
+    // not a specific booking.
+    match /activity_types/{id} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager') || hasRole('admin');
+    }
+
     // Live Class kiosk link's secret token (`settings/liveClassKiosk`, field
     // `token`) — generated/rotated from the Schedule page, same role shape as
     // `class_timetable`/`elective_sessions` above (manager reaches /schedule

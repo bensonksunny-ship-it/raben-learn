@@ -16,3 +16,4 @@ functions/lib/
 
 # Subagent-driven-development scratch workspace
 .superpowers/
+.vercel

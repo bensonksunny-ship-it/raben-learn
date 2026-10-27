@@ -34,6 +34,11 @@ export interface TimetablePeriod {
   /** "HH:MM" — this period's own start time (not derived from any other period). */
   startTime: string
   durationMinutes: number
+  /** Set when this period was created by picking a custom Activity Type (Lunch,
+   *  Assembly, …) from the title autocomplete — drives its card color/icon on the
+   *  grid (see `ActivityType`). Null/omitted falls back to the plain school-period
+   *  look, same as before this existed. */
+  activityTypeId?: string | null
 }
 
 export interface TimetableDay {
@@ -70,6 +75,10 @@ export interface ElectiveSession {
    *  in. Defaults to true for any session that doesn't carry the field (every
    *  session created before this existed always had a title). */
   claimed?: boolean
+  /** Same Activity Type link as `TimetablePeriod.activityTypeId` — set when this
+   *  session was created from a non-subject activity (Lunch, Travel, …) rather
+   *  than a syllabus subject or free text. */
+  activityTypeId?: string | null
 }
 
 export interface ElectiveDay {
@@ -81,6 +90,23 @@ export interface ElectiveDay {
  *  locked `ClassTimetable` (Priority 1) on the same scheduler grid. */
 export interface ElectiveSchedule {
   days: Record<Weekday, ElectiveDay>
+}
+
+/**
+ * A custom, non-subject recurring activity (Lunch, Break, Assembly, Travel,
+ * Library, Sports, Chores, …) — managed from the Schedule page's "Manage
+ * Activity Types" panel (`activity_types/{id}`), and offered alongside real
+ * syllabus subjects in the same title-search dropdown when adding/editing a
+ * school period or elective. Picking one auto-fills `defaultDurationMinutes`
+ * and tags the saved period/session with this type's id, so its card renders
+ * in `color`/`icon` instead of the plain Priority-1/2 look.
+ */
+export interface ActivityType {
+  id: string
+  name: string
+  icon: string
+  color: { bg: string; text: string }
+  defaultDurationMinutes: number
 }
 
 /** Grade/class level — 0 ("Basement") through 10. Fixed range, not Firestore-backed

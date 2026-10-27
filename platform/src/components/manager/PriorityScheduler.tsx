@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { LockIcon, FlexIcon } from './StatIcons'
 import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, formatTime } from './schedulerShared'
 import type {
-  ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, ElectiveSession,
+  ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, ElectiveSession,
   LessonItemType, Session, TimetableDay, TimetablePeriod, Topic, TopicType, Weekday,
 } from '../../types'
 
@@ -138,19 +138,26 @@ interface ElectiveSectionDraft {
    *  Cleared whenever the title is hand-edited, so it never points at a session
    *  whose name no longer matches what's actually in the field. */
   linkedSessionId: string | null
+  /** Set when `title` was picked from a custom Activity Type instead — drives this
+   *  section's card color/icon on the grid. Cleared on any hand-edit, same as
+   *  `linkedSessionId` (and mutually exclusive with it). */
+  activityTypeId: string | null
 }
 
-/** One row in the "Add elective" title autocomplete — a Course, a Session (the
- *  syllabus's "module" unit), or one Session's Topic, all searched together. */
+/** One row in the title autocomplete — a syllabus Course/Session/Topic, or a
+ *  custom non-subject Activity Type (Lunch, Assembly, …), all searched together. */
 interface SyllabusSuggestion {
   key: string
   title: string
-  kind: 'course' | 'session' | 'topic'
+  kind: 'course' | 'session' | 'topic' | 'activity'
   detail: string
   /** Set for 'session' and 'topic' rows — the Session the activities panel should
    *  show when this suggestion is picked. A bare Course has no activities of its
-   *  own (only its sessions do), so it's null there. */
+   *  own (only its sessions do), so it's null there. Always null for 'activity'. */
   sessionId: string | null
+  /** 'activity' rows only — carried through so `onPick` can auto-fill duration
+   *  and tag the saved period/session with this type (for its card color/icon). */
+  activityType?: ActivityType
 }
 
 /**
@@ -184,9 +191,21 @@ function buildSyllabusSuggestions(courses: Course[], sessions: Session[]): Sylla
   return out
 }
 
+/** Custom non-subject activities (Lunch, Assembly, Travel, …) as title-autocomplete
+ *  rows, listed first — picking one is a fixed-duration shortcut, not something to
+ *  dig for among dozens of syllabus topics. */
+function buildActivityTypeSuggestions(activityTypes: ActivityType[]): SyllabusSuggestion[] {
+  return activityTypes
+    .filter((a) => a.name.trim())
+    .map((a) => ({
+      key: `activity_${a.id}`, title: a.name, kind: 'activity' as const,
+      detail: `Activity · ${a.defaultDurationMinutes} min`, sessionId: null, activityType: a,
+    }))
+}
+
 type ModalState =
-  | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number }
-  | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number }
+  | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null }
+  | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null }
   | { kind: 'elective'; mode: 'add'; day: Weekday; sections: ElectiveSectionDraft[] }
   /** `viewMode` starts true for an already-claimed session (plain-text "View
    *  Elective" card) and false for a still-open/pending one (nothing real to
@@ -194,7 +213,7 @@ type ModalState =
    *  button flips it to false; Cancel from there flips it back (restoring the
    *  session's saved values) rather than closing the whole modal — but only
    *  when the session was claimed to begin with. */
-  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean }
+  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean; activityTypeId: string | null }
   /** The minimal claim form a student/mentor sees on an open slot that's theirs to
    *  fill — just a title (mentors also confirm their name). Nothing else on the grid
    *  is editable in claim mode, so this is the only modal shape claiming ever opens. */
@@ -241,6 +260,11 @@ export interface PrioritySchedulerProps {
   /** Appends a topic to a syllabus session — wired to the "+ Add activity" quick
    *  action under a Title field once it's linked to a session. */
   onAddSyllabusActivity?: (sessionId: string, topic: Topic) => Promise<void>
+  /** Custom non-subject categories (Lunch, Assembly, …) — offered alongside
+   *  syllabus suggestions in the same title field, and looked up by id to color
+   *  a period's/session's card once one's been picked. Omitted (or empty)
+   *  degrades gracefully to the plain Priority-1/2 look, same as the syllabus props. */
+  activityTypes?: ActivityType[]
 }
 
 /**
@@ -262,25 +286,38 @@ export function PriorityScheduler({
   onSaveTimetable, onSaveElectives, weekDates, weekPlans,
   claimRole, claimerName, focusDay = null,
   syllabusCourses = [], syllabusSessions = [], onAddSyllabusActivity,
+  activityTypes = [],
 }: PrioritySchedulerProps) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
-  const syllabusSuggestions = buildSyllabusSuggestions(syllabusCourses, syllabusSessions)
+  // Activity types first — a fixed-duration shortcut, not something to hunt for
+  // among dozens of syllabus topics.
+  const syllabusSuggestions = [...buildActivityTypeSuggestions(activityTypes), ...buildSyllabusSuggestions(syllabusCourses, syllabusSessions)]
+  const activityTypeById = new Map(activityTypes.map((a) => [a.id, a]))
+  /** A period's/session's own Activity Type color if it has one, else the plain
+   *  Priority-1/2 fallback — every card color usage below goes through this. */
+  function colorFor(activityTypeId: string | null | undefined, fallback: { bg: string; text: string }) {
+    if (!activityTypeId) return fallback
+    return activityTypeById.get(activityTypeId)?.color ?? fallback
+  }
 
   function openLockedAddModal(day: Weekday = WEEKDAYS[0]) {
     setModalError('')
-    setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45 })
+    setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45, activityTypeId: null })
   }
   function openLockedEditModal(day: Weekday, period: TimetablePeriod) {
     setModalError('')
-    setModal({ kind: 'locked', mode: 'edit', day, periodId: period.id, title: period.title, startTime: period.startTime, durationMinutes: period.durationMinutes })
+    setModal({
+      kind: 'locked', mode: 'edit', day, periodId: period.id, title: period.title,
+      startTime: period.startTime, durationMinutes: period.durationMinutes, activityTypeId: period.activityTypeId ?? null,
+    })
   }
   /** `gapMinutes` suggests a duration that fills the whole gap, capped to the field's 5–240 range. */
   function openElectiveAddModal(day: Weekday, startMin: number, gapMinutes: number) {
     setModalError('')
     setModal({
       kind: 'elective', mode: 'add', day,
-      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), linkedSessionId: null }],
+      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), linkedSessionId: null, activityTypeId: null }],
     })
   }
   function openElectiveEditModal(day: Weekday, session: ElectiveSession) {
@@ -288,7 +325,7 @@ export function PriorityScheduler({
     setModal({
       kind: 'elective', mode: 'edit', day, sessionId: session.id, title: session.title,
       startTime: session.startTime, durationMinutes: session.durationMinutes, mentorName: session.mentorName ?? '',
-      viewMode: Boolean(session.claimed),
+      viewMode: Boolean(session.claimed), activityTypeId: session.activityTypeId ?? null,
     })
   }
   function enterElectiveEditMode() {
@@ -305,6 +342,7 @@ export function PriorityScheduler({
       setModal({
         ...modal, viewMode: true, title: original.title, startTime: original.startTime,
         durationMinutes: original.durationMinutes, mentorName: original.mentorName ?? '',
+        activityTypeId: original.activityTypeId ?? null,
       })
     } else {
       closeModal()
@@ -334,7 +372,7 @@ export function PriorityScheduler({
     const lastStartMin = timeStrToMinutes(last.startTime) ?? 0
     setModal({
       ...modal,
-      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, linkedSessionId: null }],
+      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, linkedSessionId: null, activityTypeId: null }],
     })
   }
   function removeElectiveSection(index: number) {
@@ -414,6 +452,7 @@ export function PriorityScheduler({
           // Not collected here — assigned afterward from the session's own card on the grid.
           mentorName: null,
           claimed: !isOpen,
+          activityTypeId: section.activityTypeId,
         })
       }
 
@@ -439,8 +478,8 @@ export function PriorityScheduler({
       if (electiveClash) { setModalError(`Overlaps the elective "${electiveClash.session.title}" (${minutesToTimeStr(electiveClash.startMin)}–${minutesToTimeStr(electiveClash.endMin)}). Move or remove it first.`); return }
 
       const nextPeriods = modal.mode === 'add'
-        ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes }]
-        : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes } : p))
+        ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId }]
+        : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId } : p))
       onSaveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: nextPeriods } } })
     } else {
       const lockedClash = overlapsAny(startMin, endMin, timedPeriodsOf(timetable.days[modal.day]), () => false)
@@ -452,7 +491,7 @@ export function PriorityScheduler({
       const mentorName = modal.mentorName.trim() || null
       // A manager filling this in via the full edit modal counts as claimed, whether
       // it started out filled or open.
-      const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true } : s))
+      const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true, activityTypeId: modal.activityTypeId } : s))
       onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: nextSessions } } })
       // Saving an edit lands back on the read-only view card rather than closing.
       setModal({ ...modal, title, mentorName: mentorName ?? '', viewMode: true })
@@ -944,8 +983,13 @@ export function PriorityScheduler({
                             value={section.title}
                             suggestions={syllabusSuggestions}
                             placeholder="Search or enter title"
-                            onChange={(title) => updateElectiveSection(i, { title, linkedSessionId: null })}
-                            onPick={(s) => updateElectiveSection(i, { title: s.title, linkedSessionId: s.sessionId })}
+                            onChange={(title) => updateElectiveSection(i, { title, linkedSessionId: null, activityTypeId: null })}
+                            onPick={(s) => (s.kind === 'activity' && s.activityType
+                              ? updateElectiveSection(i, {
+                                  title: s.title, durationMinutes: s.activityType.defaultDurationMinutes,
+                                  activityTypeId: s.activityType.id, linkedSessionId: null,
+                                })
+                              : updateElectiveSection(i, { title: s.title, linkedSessionId: s.sessionId, activityTypeId: null }))}
                           />
                         </label>
                         {section.linkedSessionId && (
@@ -1043,8 +1087,10 @@ export function PriorityScheduler({
                       value={modal.title}
                       suggestions={syllabusSuggestions}
                       placeholder={modal.kind === 'locked' ? 'Search a subject or enter a title' : 'Search or enter title'}
-                      onChange={(title) => setModal({ ...modal, title })}
-                      onPick={(s) => setModal({ ...modal, title: s.title })}
+                      onChange={(title) => setModal({ ...modal, title, activityTypeId: null })}
+                      onPick={(s) => (s.kind === 'activity' && s.activityType
+                        ? setModal({ ...modal, title: s.title, durationMinutes: s.activityType.defaultDurationMinutes, activityTypeId: s.activityType.id })
+                        : setModal({ ...modal, title: s.title, activityTypeId: null }))}
                     />
                   </label>
                   {modal.kind === 'elective' && (

@@ -559,6 +559,13 @@ export const resolveLiveClassKiosk = onCall(callableOpts, async (request) => {
     throw new HttpsError('permission-denied', 'This link is invalid or has been replaced with a newer one.')
   }
 
-  const customToken = await auth.createCustomToken('live-class-kiosk', { liveClassKiosk: true })
-  return { customToken }
+  try {
+    const customToken = await auth.createCustomToken('live-class-kiosk', { liveClassKiosk: true })
+    return { customToken }
+  } catch (e) {
+    // Usually IAM: the function's service account needs "Service Account Token
+    // Creator" on itself to sign custom tokens (iam.serviceAccounts.signBlob).
+    console.error('resolveLiveClassKiosk: createCustomToken failed', e)
+    throw new HttpsError('failed-precondition', 'The Live Class link is not set up on the server yet — ask an admin to enable kiosk sign-in.')
+  }
 })

@@ -39,6 +39,12 @@ export interface TimetablePeriod {
    *  grid (see `ActivityType`). Null/omitted falls back to the plain school-period
    *  look, same as before this existed. */
   activityTypeId?: string | null
+  /** Which syllabus `Course` this period is teaching — set when the title was
+   *  picked from the syllabus side of the autocomplete rather than an Activity
+   *  Type or free text. Null/omitted = not attributed to any subject (every
+   *  period saved before this existed, or a period for a non-subject activity).
+   *  Drives the subject-wise hours summary on the Schedule page. */
+  courseId?: string | null
 }
 
 export interface TimetableDay {
@@ -79,6 +85,10 @@ export interface ElectiveSession {
    *  session was created from a non-subject activity (Lunch, Travel, …) rather
    *  than a syllabus subject or free text. */
   activityTypeId?: string | null
+  /** Same subject link as `TimetablePeriod.courseId` — set when this elective
+   *  was created by picking a syllabus course/session/topic from the title
+   *  autocomplete, rather than an Activity Type or free text. */
+  courseId?: string | null
 }
 
 export interface ElectiveDay {
@@ -152,6 +162,11 @@ export interface Topic {
   title: string
   remark?: string
   completed?: boolean
+  /** Minutes of class time this topic is expected to take — set per-row in the
+   *  Syllabus Builder's flattened grid. Summed across a course's topics to show
+   *  that subject's "required hours total" (there's no separate per-session
+   *  duration field in the UI — sessions aren't shown as their own rows there). */
+  durationMinutes?: number
 }
 
 /** @deprecated Use `Topic`. Kept as a type alias so older call sites keep compiling. */

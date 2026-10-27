@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
-import { collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { useEffect, useState, type FormEvent } from 'react'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
 import { mapCourseDoc } from '../../lib/courses'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
+import { mapActivityTypeDoc, ACTIVITY_TYPE_COLOR_PRESETS } from '../../lib/activityTypes'
 import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
 import { LandscapePrompt } from '../../components/LandscapePrompt'
@@ -15,9 +16,10 @@ import {
   WEEKDAYS, DAY_COLORS,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
+  computeSubjectWeeklyHours,
 } from '../../components/manager/schedulerShared'
 import type {
-  ClassTimetable, Course, ElectiveSchedule, Session, Topic, UserProfile, Weekday,
+  ActivityType, ClassTimetable, Course, ElectiveSchedule, Session, Topic, UserProfile, Weekday,
 } from '../../types'
 
 /**
@@ -27,6 +29,11 @@ import type {
  */
 function studentLabel(s: UserProfile): string {
   return s.name || s.email || s.id
+}
+
+/** Minutes → hours, rounded to 1 decimal for display (e.g. "4.5 hrs"). */
+function fmtHrs(minutes: number): number {
+  return Math.round((minutes / 60) * 10) / 10
 }
 
 /** Sentinel `selectedStudentId` value standing in for "no student" — an explicit,
@@ -78,6 +85,10 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   // from here) — loaded once, independent of the student/week selection above.
   const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
   const [syllabusSessions, setSyllabusSessions] = useState<Session[]>([])
+  // Custom non-subject activities (Lunch, Assembly, …) — same title autocomplete,
+  // managed from the "Manage Activity Types" panel below.
+  const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
+  const [showActivityTypesModal, setShowActivityTypesModal] = useState(false)
 
   const weekStart = mondayOf(date)
   // Mon–Sat only — no Sunday column. Index-aligned with WEEKDAYS (both start Monday),
@@ -163,6 +174,18 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   }
 
   useEffect(() => { void loadSyllabus() }, [])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const snap = await getDocs(collection(db, 'activity_types'))
+        setActivityTypes(snap.docs.map(mapActivityTypeDoc))
+      } catch {
+        // Non-critical, same as the syllabus load above — the title field just
+        // falls back to syllabus-only suggestions.
+      }
+    })()
+  }, [])
 
   /** Appends one topic to a syllabus session's activity list — used by the "+ Add
    *  activity" quick action inside the "Add elective" modal's title autocomplete,
@@ -380,6 +403,41 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         </div>
       </div>
 
+      {(() => {
+        const subjectHours = computeSubjectWeeklyHours(effectiveTimetable, effectiveElectives, syllabusCourses)
+        if (subjectHours.length === 0) return null
+        const weeklyTotal = subjectHours.reduce((sum, s) => sum + s.scheduledMinutes, 0)
+        return (
+          <div className="panel" style={{ marginBottom: '1.25rem' }}>
+            <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.6rem' }}>
+              <strong style={{ fontSize: '0.88rem' }}>📊 Subject Hours{isOverrideMode ? ` — ${selectedStudent?.name ?? 'this student'}` : ''}</strong>
+              <span className="muted small">Weekly Total: {fmtHrs(weeklyTotal)} hrs</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {subjectHours.map((s) => (
+                <span key={s.courseId} className="tag" title="Completed = hours already elapsed so far this week, not an attendance-confirmed count">
+                  {s.courseTitle}: {fmtHrs(s.completedMinutes)} / {fmtHrs(s.scheduledMinutes)} hrs this wk
+                </span>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      <div className="row" style={{ marginBottom: '1.25rem' }}>
+        <button type="button" className="btn small secondary" onClick={() => setShowActivityTypesModal(true)}>
+          ⚙️ Manage Activity Types
+        </button>
+      </div>
+
+      {showActivityTypesModal && (
+        <ActivityTypesPanel
+          activityTypes={activityTypes}
+          setActivityTypes={setActivityTypes}
+          onClose={() => setShowActivityTypesModal(false)}
+        />
+      )}
+
       <LiveClassLinkPanel />
 
       {error ? <p className="error">{error}</p> : null}
@@ -397,6 +455,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           syllabusCourses={syllabusCourses}
           syllabusSessions={syllabusSessions}
           onAddSyllabusActivity={addSyllabusActivity}
+          activityTypes={activityTypes}
         />
       )}
     </div>
@@ -493,6 +552,122 @@ function LiveClassLinkPanel() {
         )}
       </div>
       {error ? <p className="error small" style={{ margin: '0.5rem 0 0' }}>{error}</p> : null}
+    </div>
+  )
+}
+
+/**
+ * CRUD for custom non-subject Activity Types (Lunch, Break, Assembly, Travel,
+ * Library, Sports, Chores, …) — `activity_types/{id}`, one flat collection, no
+ * per-day/per-week structure (unlike the timetable itself) since these are
+ * reusable categories, not bookings. Deleting one doesn't touch any period/
+ * elective that already used it — those just keep rendering with the color
+ * they were saved with (`activityTypeId` on the item, not a live join).
+ */
+function ActivityTypesPanel({ activityTypes, setActivityTypes, onClose }: {
+  activityTypes: ActivityType[]
+  setActivityTypes: (next: ActivityType[]) => void
+  onClose: () => void
+}) {
+  const [name, setName] = useState('')
+  const [icon, setIcon] = useState('📌')
+  const [color, setColor] = useState(ACTIVITY_TYPE_COLOR_PRESETS[0]!)
+  const [duration, setDuration] = useState(30)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  async function addType(e: FormEvent) {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setSaving(true); setError('')
+    try {
+      const data = { name: trimmed, icon: icon.trim() || '📌', color, defaultDurationMinutes: duration }
+      const ref = await addDoc(collection(db, 'activity_types'), data)
+      setActivityTypes([...activityTypes, { id: ref.id, ...data }])
+      setName(''); setIcon('📌'); setColor(ACTIVITY_TYPE_COLOR_PRESETS[0]!); setDuration(30)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add this activity type')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeType(a: ActivityType) {
+    if (!window.confirm(`Delete "${a.name}"? Periods/electives already using it keep their own color — it just won't show up in search anymore.`)) return
+    setError('')
+    try {
+      await deleteDoc(doc(db, 'activity_types', a.id))
+      setActivityTypes(activityTypes.filter((x) => x.id !== a.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete this activity type')
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 480 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <h3 style={{ margin: 0 }}>⚙️ Manage Activity Types</h3>
+          <button type="button" className="btn small ghost" onClick={onClose}>✕</button>
+        </div>
+        <p className="muted small" style={{ margin: '0 0 1rem' }}>
+          Non-subject activities (Lunch, Break, Assembly, Travel, …) — these show up
+          alongside syllabus subjects when searching a period's or elective's title,
+          and picking one auto-fills its duration and card color.
+        </p>
+
+        {error ? <p className="error small" style={{ margin: '0 0 0.75rem' }}>{error}</p> : null}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem', maxHeight: 220, overflowY: 'auto' }}>
+          {activityTypes.length === 0 ? <p className="muted small" style={{ margin: 0 }}>No activity types yet — add one below.</p> : null}
+          {activityTypes.map((a) => (
+            <div key={a.id} className="row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <span className="tag" style={{ background: a.color.bg, color: a.color.text, borderColor: a.color.text }}>
+                {a.icon} {a.name} · {a.defaultDurationMinutes}m
+              </span>
+              <button type="button" className="btn small ghost" title={`Delete ${a.name}`} aria-label={`Delete ${a.name}`} onClick={() => void removeType(a)}>🗑️</button>
+            </div>
+          ))}
+        </div>
+
+        <form className="form" onSubmit={(e) => void addType(e)}>
+          <div className="row">
+            <label style={{ flex: '0 0 64px' }}>Icon
+              <input value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🍽️" maxLength={4} />
+            </label>
+            <label style={{ flex: 1 }}>Name
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lunch" required />
+            </label>
+            <label style={{ flex: '0 0 120px' }}>Duration (min)
+              <input type="number" min={5} max={240} step={5} value={duration} onChange={(e) => setDuration(Number(e.target.value))} />
+            </label>
+          </div>
+          <div>
+            <div style={{ fontWeight: 600, fontSize: '0.85rem', marginBottom: '0.35rem' }}>Color</div>
+            <div className="row" style={{ gap: '0.4rem' }}>
+              {ACTIVITY_TYPE_COLOR_PRESETS.map((c, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setColor(c)}
+                  aria-label={`Color option ${i + 1}`}
+                  aria-pressed={color.bg === c.bg}
+                  style={{
+                    width: 28, height: 28, borderRadius: '50%', background: c.bg, cursor: 'pointer',
+                    border: color.bg === c.bg ? `2px solid ${c.text}` : '2px solid transparent',
+                  }}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="full">
+            <button type="submit" className="btn primary small" disabled={saving}>
+              {saving ? 'Adding…' : '+ Add Activity Type'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   )
 }

@@ -1,10 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import type { Course, LevelId, Session, Topic, TopicType } from '../../types'
+import type { ClassTimetable, Course, ElectiveSchedule, LevelId, Session, Topic, TopicType } from '../../types'
 import { LEVELS, levelName } from '../../lib/levels'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { mapCourseDoc } from '../../lib/courses'
+import { computeSubjectWeeklyHours, normalizeTimetable, normalizeElectives } from '../../components/manager/schedulerShared'
 import ExamManager from './ExamManager'
 import { useAuth } from '../../context/AuthContext'
 
@@ -14,6 +15,11 @@ import { useAuth } from '../../context/AuthContext'
 interface FlatRow {
   sessionId: string
   topic: Topic
+}
+
+/** Minutes → hours, rounded to 1 decimal for display (e.g. "4.5 hrs"). */
+function fmtHrs(minutes: number): number {
+  return Math.round((minutes / 60) * 10) / 10
 }
 
 export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) {
@@ -26,6 +32,17 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   const [addingCourse, setAddingCourse] = useState(false)
 
   const [sessions, setSessions] = useState<Session[]>([])
+  // Every session across every course, loaded once — not filtered to the selected
+  // course like `sessions` above. Only used to show each OTHER course's "required
+  // hours" total in the course list; the selected course's own total is computed
+  // straight from `flatRows` below instead, so it stays live between edits without
+  // needing a reload of this.
+  const [allSessions, setAllSessions] = useState<Session[]>([])
+  // Loaded once for the "completed this week" half of the hours badge — the same
+  // shared schedule the Schedule page edits, read here purely to tally scheduled/
+  // completed minutes per subject via `computeSubjectWeeklyHours`.
+  const [scheduleTimetable, setScheduleTimetable] = useState<ClassTimetable | null>(null)
+  const [scheduleElectives, setScheduleElectives] = useState<ElectiveSchedule | null>(null)
   const [newRowTitle, setNewRowTitle] = useState('')
   // null = closed; 'main' = the course's whole-subject exam(s), no topic; an
   // object = scoped to that one topic row's exam(s).
@@ -89,7 +106,51 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
     setSessions(list)
   }
 
+  async function loadAllSessions() {
+    const snap = await getDocs(collection(db, 'sessions'))
+    const list: Session[] = []
+    snap.forEach((d) => {
+      const x = d.data()
+      list.push({
+        id: d.id,
+        title: (x.title as string) ?? '',
+        subtitle: (x.subtitle as string) ?? '',
+        courseName: (x.courseName as string) ?? '',
+        courseId: (x.courseId as string) ?? null,
+        order: Number(x.order ?? 0),
+        durationMinutes: Number(x.durationMinutes ?? 0),
+        activities: readTopicsFromSessionDoc(x.activities),
+      })
+    })
+    setAllSessions(list)
+  }
+
+  /** Sum of every topic's `durationMinutes` across every session of `courseId`,
+   *  in whole hours (rounded to 1 decimal) — the "required hours" badge. */
+  function courseHours(courseId: string): number {
+    const list = courseId === selectedCourseId ? sessions : allSessions.filter((s) => s.courseId === courseId)
+    const minutes = list.reduce((sum, s) => sum + s.activities.reduce((a, t) => a + (t.durationMinutes ?? 0), 0), 0)
+    return Math.round((minutes / 60) * 10) / 10
+  }
+
+  async function loadScheduleForHours() {
+    const [tSnap, eSnap] = await Promise.all([
+      getDoc(doc(db, 'class_timetable', 'master')),
+      getDoc(doc(db, 'elective_sessions', 'master')),
+    ])
+    setScheduleTimetable(normalizeTimetable(tSnap.exists() ? tSnap.data() : undefined))
+    setScheduleElectives(normalizeElectives(eSnap.exists() ? eSnap.data() : undefined))
+  }
+
+  // courseId -> { scheduledMinutes, completedMinutes } this week, from the shared
+  // schedule — null entries (not yet loaded, or nothing scheduled) just mean no badge.
+  const weeklyHoursByCourse = scheduleTimetable && scheduleElectives
+    ? new Map(computeSubjectWeeklyHours(scheduleTimetable, scheduleElectives, courses).map((h) => [h.courseId, h]))
+    : new Map<string, ReturnType<typeof computeSubjectWeeklyHours>[number]>()
+
   useEffect(() => { void loadCourses().catch((e) => setError(String(e))) }, [])
+  useEffect(() => { void loadAllSessions().catch((e) => setError(String(e))) }, [])
+  useEffect(() => { void loadScheduleForHours().catch(() => { /* non-critical — badge just stays hidden */ }) }, [])
   useEffect(() => {
     if (selectedCourseId) { setSessions([]); void loadSessions(selectedCourseId).catch((e) => setError(String(e))) }
   }, [selectedCourseId])
@@ -207,6 +268,15 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
    *  round trip per keystroke. `commitRowTitle` below is what actually saves it. */
   function setLocalTopicTitle(topicId: string, title: string) {
     setSessions((prev) => prev.map((s) => ({ ...s, activities: s.activities.map((t) => (t.id === topicId ? { ...t, title } : t)) })))
+  }
+
+  function setLocalTopicDuration(topicId: string, durationMinutes: number) {
+    setSessions((prev) => prev.map((s) => ({ ...s, activities: s.activities.map((t) => (t.id === topicId ? { ...t, durationMinutes } : t)) })))
+  }
+
+  async function commitRowDuration() {
+    if (!selectedCourseId) return
+    await commitFlatTopics(flatRows.map((r) => r.topic))
   }
 
   async function commitRowTitle(topicId: string) {
@@ -342,6 +412,15 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                 <span className="course-row-body">
                   <span className="course-row-title">{c.title}</span>
                   {c.description ? <span className="course-row-tag">{c.description}</span> : null}
+                  {courseHours(c.id) > 0 && <span className="course-row-tag">⏱ {courseHours(c.id)} hrs total</span>}
+                  {weeklyHoursByCourse.get(c.id) && (() => {
+                    const h = weeklyHoursByCourse.get(c.id)!
+                    return (
+                      <span className="course-row-tag" title="Completed = hours already elapsed so far this week, not an attendance-confirmed count">
+                        📅 {fmtHrs(h.completedMinutes)}/{courseHours(c.id)} hrs completed · Scheduled: {fmtHrs(h.scheduledMinutes)} hrs/wk
+                      </span>
+                    )
+                  })()}
                 </span>
               </button>
             ))}
@@ -411,6 +490,17 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     </h2>
                     {selectedCourse?.description ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>{selectedCourse.description}</p> : null}
                     {selectedCourse?.coreOutcome ? <p className="muted small" style={{ margin: '0.2rem 0 0' }}>🎯 {selectedCourse.coreOutcome}</p> : null}
+                    {selectedCourseId && courseHours(selectedCourseId) > 0 && (
+                      <p className="muted small" style={{ margin: '0.2rem 0 0' }}>⏱ {courseHours(selectedCourseId)} hrs total</p>
+                    )}
+                    {selectedCourseId && weeklyHoursByCourse.get(selectedCourseId) && (() => {
+                      const h = weeklyHoursByCourse.get(selectedCourseId)!
+                      return (
+                        <p className="muted small" style={{ margin: '0.2rem 0 0' }} title="Completed = hours already elapsed so far this week, not an attendance-confirmed count">
+                          📅 {fmtHrs(h.completedMinutes)} / {courseHours(selectedCourseId)} hrs completed · Scheduled: {fmtHrs(h.scheduledMinutes)} hrs/wk
+                        </p>
+                      )
+                    })()}
                   </>
                 )}
               </div>
@@ -437,6 +527,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     <tr>
                       <th className="session-topics-index">SL No.</th>
                       <th>Title</th>
+                      <th style={{ width: 90 }}>Min</th>
                       <th aria-hidden="true" />
                     </tr>
                   </thead>
@@ -452,6 +543,17 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                             onBlur={() => void commitRowTitle(row.topic.id)}
                             onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                             onPaste={(e) => { e.preventDefault(); void handleGridPaste(idx, e.clipboardData.getData('text/plain')) }}
+                            disabled={saving}
+                          />
+                        </td>
+                        <td className="session-topics-title">
+                          <input
+                            type="number" min={0} step={5}
+                            className="syllabus-grid-input"
+                            value={row.topic.durationMinutes ?? 0}
+                            onChange={(e) => setLocalTopicDuration(row.topic.id, Number(e.target.value))}
+                            onBlur={() => void commitRowDuration()}
+                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
                             disabled={saving}
                           />
                         </td>
@@ -488,6 +590,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                           disabled={saving}
                         />
                       </td>
+                      <td className="session-topics-title" />
                       <td className="session-topics-actions" />
                     </tr>
                   </tbody>
@@ -499,15 +602,17 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                   <tr>
                     <th className="session-topics-index">SL No.</th>
                     <th>Title</th>
+                    <th style={{ width: 90 }}>Min</th>
                   </tr>
                 </thead>
                 <tbody>
                   {flatRows.length === 0 ? (
-                    <tr><td colSpan={2} className="muted small">No topics yet.</td></tr>
+                    <tr><td colSpan={3} className="muted small">No topics yet.</td></tr>
                   ) : flatRows.map((row, idx) => (
                     <tr key={row.topic.id}>
                       <td className="session-topics-index muted small">{idx + 1}</td>
                       <td className="session-topics-title">{row.topic.title}</td>
+                      <td className="session-topics-title muted small">{row.topic.durationMinutes || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -142,6 +142,10 @@ interface ElectiveSectionDraft {
    *  section's card color/icon on the grid. Cleared on any hand-edit, same as
    *  `linkedSessionId` (and mutually exclusive with it). */
   activityTypeId: string | null
+  /** Which syllabus Course `title` resolved to, when picked from a course/session/
+   *  topic suggestion — feeds the subject-wise hours summary. Cleared on hand-edit
+   *  or when an Activity Type is picked instead, same as `linkedSessionId`. */
+  courseId: string | null
 }
 
 /** One row in the title autocomplete — a syllabus Course/Session/Topic, or a
@@ -155,6 +159,9 @@ interface SyllabusSuggestion {
    *  show when this suggestion is picked. A bare Course has no activities of its
    *  own (only its sessions do), so it's null there. Always null for 'activity'. */
   sessionId: string | null
+  /** The Course this row belongs to — set for 'course'/'session'/'topic', always
+   *  null for 'activity'. Feeds the subject-wise hours summary once picked. */
+  courseId: string | null
   /** 'activity' rows only — carried through so `onPick` can auto-fill duration
    *  and tag the saved period/session with this type (for its card color/icon). */
   activityType?: ActivityType
@@ -173,19 +180,19 @@ function buildSyllabusSuggestions(courses: Course[], sessions: Session[]): Sylla
   for (const c of courses) {
     if (c.levelId === null) continue
     if (!c.title.trim()) continue
-    out.push({ key: `course_${c.id}`, title: c.title, kind: 'course', detail: 'Course', sessionId: null })
+    out.push({ key: `course_${c.id}`, title: c.title, kind: 'course', detail: 'Course', sessionId: null, courseId: c.id })
   }
   for (const s of sessions) {
     if (!s.courseId || !leveledCourseIds.has(s.courseId)) continue
     if (s.title.trim()) {
       out.push({
         key: `session_${s.id}`, title: s.title, kind: 'session',
-        detail: s.courseName ? `Session · ${s.courseName}` : 'Session', sessionId: s.id,
+        detail: s.courseName ? `Session · ${s.courseName}` : 'Session', sessionId: s.id, courseId: s.courseId,
       })
     }
     for (const t of s.activities) {
       if (!t.title.trim()) continue
-      out.push({ key: `topic_${s.id}_${t.id}`, title: t.title, kind: 'topic', detail: `Topic · ${s.title}`, sessionId: s.id })
+      out.push({ key: `topic_${s.id}_${t.id}`, title: t.title, kind: 'topic', detail: `Topic · ${s.title}`, sessionId: s.id, courseId: s.courseId })
     }
   }
   return out
@@ -199,13 +206,13 @@ function buildActivityTypeSuggestions(activityTypes: ActivityType[]): SyllabusSu
     .filter((a) => a.name.trim())
     .map((a) => ({
       key: `activity_${a.id}`, title: a.name, kind: 'activity' as const,
-      detail: `Activity · ${a.defaultDurationMinutes} min`, sessionId: null, activityType: a,
+      detail: `Activity · ${a.defaultDurationMinutes} min`, sessionId: null, courseId: null, activityType: a,
     }))
 }
 
 type ModalState =
-  | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null }
-  | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null }
+  | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null; courseId: string | null }
+  | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null; courseId: string | null }
   | { kind: 'elective'; mode: 'add'; day: Weekday; sections: ElectiveSectionDraft[] }
   /** `viewMode` starts true for an already-claimed session (plain-text "View
    *  Elective" card) and false for a still-open/pending one (nothing real to
@@ -213,7 +220,7 @@ type ModalState =
    *  button flips it to false; Cancel from there flips it back (restoring the
    *  session's saved values) rather than closing the whole modal — but only
    *  when the session was claimed to begin with. */
-  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean; activityTypeId: string | null }
+  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean; activityTypeId: string | null; courseId: string | null }
   /** The minimal claim form a student/mentor sees on an open slot that's theirs to
    *  fill — just a title (mentors also confirm their name). Nothing else on the grid
    *  is editable in claim mode, so this is the only modal shape claiming ever opens. */
@@ -303,13 +310,14 @@ export function PriorityScheduler({
 
   function openLockedAddModal(day: Weekday = WEEKDAYS[0]) {
     setModalError('')
-    setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45, activityTypeId: null })
+    setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45, activityTypeId: null, courseId: null })
   }
   function openLockedEditModal(day: Weekday, period: TimetablePeriod) {
     setModalError('')
     setModal({
       kind: 'locked', mode: 'edit', day, periodId: period.id, title: period.title,
       startTime: period.startTime, durationMinutes: period.durationMinutes, activityTypeId: period.activityTypeId ?? null,
+      courseId: period.courseId ?? null,
     })
   }
   /** `gapMinutes` suggests a duration that fills the whole gap, capped to the field's 5–240 range. */
@@ -317,7 +325,7 @@ export function PriorityScheduler({
     setModalError('')
     setModal({
       kind: 'elective', mode: 'add', day,
-      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), linkedSessionId: null, activityTypeId: null }],
+      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), linkedSessionId: null, activityTypeId: null, courseId: null }],
     })
   }
   function openElectiveEditModal(day: Weekday, session: ElectiveSession) {
@@ -325,7 +333,7 @@ export function PriorityScheduler({
     setModal({
       kind: 'elective', mode: 'edit', day, sessionId: session.id, title: session.title,
       startTime: session.startTime, durationMinutes: session.durationMinutes, mentorName: session.mentorName ?? '',
-      viewMode: Boolean(session.claimed), activityTypeId: session.activityTypeId ?? null,
+      viewMode: Boolean(session.claimed), activityTypeId: session.activityTypeId ?? null, courseId: session.courseId ?? null,
     })
   }
   function enterElectiveEditMode() {
@@ -342,7 +350,7 @@ export function PriorityScheduler({
       setModal({
         ...modal, viewMode: true, title: original.title, startTime: original.startTime,
         durationMinutes: original.durationMinutes, mentorName: original.mentorName ?? '',
-        activityTypeId: original.activityTypeId ?? null,
+        activityTypeId: original.activityTypeId ?? null, courseId: original.courseId ?? null,
       })
     } else {
       closeModal()
@@ -372,7 +380,7 @@ export function PriorityScheduler({
     const lastStartMin = timeStrToMinutes(last.startTime) ?? 0
     setModal({
       ...modal,
-      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, linkedSessionId: null, activityTypeId: null }],
+      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, linkedSessionId: null, activityTypeId: null, courseId: null }],
     })
   }
   function removeElectiveSection(index: number) {
@@ -453,6 +461,7 @@ export function PriorityScheduler({
           mentorName: null,
           claimed: !isOpen,
           activityTypeId: section.activityTypeId,
+          courseId: section.courseId,
         })
       }
 
@@ -478,8 +487,8 @@ export function PriorityScheduler({
       if (electiveClash) { setModalError(`Overlaps the elective "${electiveClash.session.title}" (${minutesToTimeStr(electiveClash.startMin)}–${minutesToTimeStr(electiveClash.endMin)}). Move or remove it first.`); return }
 
       const nextPeriods = modal.mode === 'add'
-        ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId }]
-        : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId } : p))
+        ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId }]
+        : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId } : p))
       onSaveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: nextPeriods } } })
     } else {
       const lockedClash = overlapsAny(startMin, endMin, timedPeriodsOf(timetable.days[modal.day]), () => false)
@@ -491,7 +500,7 @@ export function PriorityScheduler({
       const mentorName = modal.mentorName.trim() || null
       // A manager filling this in via the full edit modal counts as claimed, whether
       // it started out filled or open.
-      const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true, activityTypeId: modal.activityTypeId } : s))
+      const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true, activityTypeId: modal.activityTypeId, courseId: modal.courseId } : s))
       onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: nextSessions } } })
       // Saving an edit lands back on the read-only view card rather than closing.
       setModal({ ...modal, title, mentorName: mentorName ?? '', viewMode: true })
@@ -605,9 +614,10 @@ export function PriorityScheduler({
     }
 
     if (row.type === 'locked') {
+      const periodColor = colorFor(row.period.activityTypeId, PERIOD_COLOR)
       const content = (
         <>
-          <span className="timetable-grid-card-lock"><LockIcon color={PERIOD_COLOR.text} />School period</span>
+          <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />School period</span>
           <strong className="timetable-grid-card-title">{row.period.title}</strong>
           <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
         </>
@@ -616,11 +626,11 @@ export function PriorityScheduler({
         <div key={row.period.id} style={{ display: 'flex', gap: '0.65rem' }}>
           {timeLabel}
           {editingAllowed ? (
-            <button type="button" className="timetable-grid-card" style={{ flex: 1, margin: 0, background: PERIOD_COLOR.bg, borderTopColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }} onClick={() => { closeModal(); openLockedEditModal(day, row.period) }}>
+            <button type="button" className="timetable-grid-card" style={{ flex: 1, margin: 0, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }} onClick={() => { closeModal(); openLockedEditModal(day, row.period) }}>
               {content}
             </button>
           ) : (
-            <div className="timetable-grid-card ghost" style={{ flex: 1, margin: 0, background: PERIOD_COLOR.bg, borderTopColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }}>
+            <div className="timetable-grid-card ghost" style={{ flex: 1, margin: 0, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }}>
               {content}
             </div>
           )}
@@ -631,6 +641,7 @@ export function PriorityScheduler({
     if (row.type === 'elective') {
       const session = row.session
       const isPending = !session.claimed
+      const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR)
       const clickable = editingAllowed || (isPending && !!claimRole)
       const onClick = () => {
         closeModal()
@@ -644,15 +655,15 @@ export function PriorityScheduler({
         </>
       ) : (
         <>
-          <span className="timetable-grid-card-lock"><FlexIcon color={ELECTIVE_COLOR.text} /><span className="timetable-grid-card-lock-text">Elective{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
+          <span className="timetable-grid-card-lock"><FlexIcon color={electiveColor.text} /><span className="timetable-grid-card-lock-text">Elective{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
           <strong className="timetable-grid-card-title">{session.title}</strong>
           <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
         </>
       )
       const cardStyle = {
-        flex: 1, margin: 0, color: ELECTIVE_COLOR.text,
-        background: isPending ? 'transparent' : ELECTIVE_COLOR.bg,
-        borderTopColor: ELECTIVE_COLOR.text, borderTopStyle: isPending ? ('dashed' as const) : ('solid' as const),
+        flex: 1, margin: 0, color: electiveColor.text,
+        background: isPending ? 'transparent' : electiveColor.bg,
+        borderTopColor: electiveColor.text, borderTopStyle: isPending ? ('dashed' as const) : ('solid' as const),
       }
       return (
         <div key={session.id} style={{ display: 'flex', gap: '0.65rem' }}>
@@ -777,18 +788,19 @@ export function PriorityScheduler({
               const startSlot = Math.round((startMin - gridTopMin) / slotMin)
               const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
               const gridPos = { gridRow: di + 2, gridColumn: `${2 + startSlot} / span ${span}` }
+              const periodColor = colorFor(period.activityTypeId, PERIOD_COLOR)
               if (editingAllowed) {
                 return (
-                  <button key={period.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: PERIOD_COLOR.bg, borderTopColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }} onClick={() => openLockedEditModal(d, period)}>
-                    <span className="timetable-grid-card-lock"><LockIcon color={PERIOD_COLOR.text} />School period</span>
+                  <button key={period.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }} onClick={() => openLockedEditModal(d, period)}>
+                    <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />School period</span>
                     <strong className="timetable-grid-card-title">{period.title}</strong>
                     <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
                   </button>
                 )
               }
               return (
-                <div key={period.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: PERIOD_COLOR.bg, borderTopColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }}>
-                  <span className="timetable-grid-card-lock"><LockIcon color={PERIOD_COLOR.text} />School period</span>
+                <div key={period.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }}>
+                  <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />School period</span>
                   <strong className="timetable-grid-card-title">{period.title}</strong>
                   <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
                 </div>
@@ -838,15 +850,16 @@ export function PriorityScheduler({
                 )
               }
 
+              const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR)
               const badge = (
                 <span className="timetable-grid-card-lock">
-                  <FlexIcon color={ELECTIVE_COLOR.text} />
+                  <FlexIcon color={electiveColor.text} />
                   <span className="timetable-grid-card-lock-text">Elective{session.mentorName ? ` · ${session.mentorName}` : ''}</span>
                 </span>
               )
               if (editingAllowed) {
                 return (
-                  <button key={session.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: ELECTIVE_COLOR.bg, borderTopColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }} onClick={() => openElectiveEditModal(d, session)}>
+                  <button key={session.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: electiveColor.bg, borderTopColor: electiveColor.text, color: electiveColor.text }} onClick={() => openElectiveEditModal(d, session)}>
                     {badge}
                     <strong className="timetable-grid-card-title">{session.title}</strong>
                     <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
@@ -854,7 +867,7 @@ export function PriorityScheduler({
                 )
               }
               return (
-                <div key={session.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: ELECTIVE_COLOR.bg, borderTopColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }}>
+                <div key={session.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: electiveColor.bg, borderTopColor: electiveColor.text, color: electiveColor.text }}>
                   {badge}
                   <strong className="timetable-grid-card-title">{session.title}</strong>
                   <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
@@ -983,13 +996,13 @@ export function PriorityScheduler({
                             value={section.title}
                             suggestions={syllabusSuggestions}
                             placeholder="Search or enter title"
-                            onChange={(title) => updateElectiveSection(i, { title, linkedSessionId: null, activityTypeId: null })}
+                            onChange={(title) => updateElectiveSection(i, { title, linkedSessionId: null, activityTypeId: null, courseId: null })}
                             onPick={(s) => (s.kind === 'activity' && s.activityType
                               ? updateElectiveSection(i, {
                                   title: s.title, durationMinutes: s.activityType.defaultDurationMinutes,
-                                  activityTypeId: s.activityType.id, linkedSessionId: null,
+                                  activityTypeId: s.activityType.id, linkedSessionId: null, courseId: null,
                                 })
-                              : updateElectiveSection(i, { title: s.title, linkedSessionId: s.sessionId, activityTypeId: null }))}
+                              : updateElectiveSection(i, { title: s.title, linkedSessionId: s.sessionId, activityTypeId: null, courseId: s.courseId }))}
                           />
                         </label>
                         {section.linkedSessionId && (
@@ -1087,10 +1100,10 @@ export function PriorityScheduler({
                       value={modal.title}
                       suggestions={syllabusSuggestions}
                       placeholder={modal.kind === 'locked' ? 'Search a subject or enter a title' : 'Search or enter title'}
-                      onChange={(title) => setModal({ ...modal, title, activityTypeId: null })}
+                      onChange={(title) => setModal({ ...modal, title, activityTypeId: null, courseId: null })}
                       onPick={(s) => (s.kind === 'activity' && s.activityType
-                        ? setModal({ ...modal, title: s.title, durationMinutes: s.activityType.defaultDurationMinutes, activityTypeId: s.activityType.id })
-                        : setModal({ ...modal, title: s.title, activityTypeId: null }))}
+                        ? setModal({ ...modal, title: s.title, durationMinutes: s.activityType.defaultDurationMinutes, activityTypeId: s.activityType.id, courseId: null })
+                        : setModal({ ...modal, title: s.title, activityTypeId: null, courseId: s.courseId }))}
                     />
                   </label>
                   {modal.kind === 'elective' && (
@@ -1167,7 +1180,7 @@ interface SyllabusTitleFieldProps {
   onPick: (suggestion: SyllabusSuggestion) => void
 }
 
-const SYLLABUS_KIND_ICON: Record<SyllabusSuggestion['kind'], string> = { course: '📚', session: '🗂️', topic: '📝' }
+const SYLLABUS_KIND_ICON: Record<SyllabusSuggestion['kind'], string> = { course: '📚', session: '🗂️', topic: '📝', activity: '📌' }
 
 /**
  * Searchable dropdown over the syllabus (courses, sessions, topics) for an elective's
@@ -1209,7 +1222,7 @@ function SyllabusTitleField({ value, suggestions, placeholder, onChange, onPick 
               className="syllabus-autocomplete-item"
               onClick={() => { onPick(s); setOpen(false) }}
             >
-              <span aria-hidden>{SYLLABUS_KIND_ICON[s.kind]}</span>
+              <span aria-hidden>{s.kind === 'activity' && s.activityType ? s.activityType.icon : SYLLABUS_KIND_ICON[s.kind]}</span>
               <span className="syllabus-autocomplete-item-text">
                 <span className="syllabus-autocomplete-item-title">{s.title}</span>
                 <span className="muted small">{s.detail}</span>

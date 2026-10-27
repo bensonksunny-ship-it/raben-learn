@@ -4,7 +4,7 @@
  * `PriorityScheduler.tsx` itself — a component file may only export components, or
  * Fast Refresh stops working for it.
  */
-import type { ClassTimetable, ElectiveSchedule, Weekday } from '../../types'
+import type { ClassTimetable, Course, ElectiveSchedule, Weekday } from '../../types'
 
 export const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -90,6 +90,8 @@ export function normalizeTimetable(data: Record<string, unknown> | undefined): C
         title: typeof p.title === 'string' ? p.title : '',
         startTime: typeof p.startTime === 'string' ? p.startTime : '',
         durationMinutes: Number(p.durationMinutes ?? 0),
+        activityTypeId: typeof p.activityTypeId === 'string' ? p.activityTypeId : null,
+        courseId: typeof p.courseId === 'string' ? p.courseId : null,
       }))
       .filter((p) => p.title && timeStrToMinutes(p.startTime) != null && p.durationMinutes > 0)
     days[d] = { periods }
@@ -131,6 +133,8 @@ export function normalizeElectives(data: Record<string, unknown> | undefined): E
           durationMinutes: Number(s.durationMinutes ?? 0),
           mentorName: typeof s.mentorName === 'string' ? s.mentorName : null,
           claimed,
+          activityTypeId: typeof s.activityTypeId === 'string' ? s.activityTypeId : null,
+          courseId: typeof s.courseId === 'string' ? s.courseId : null,
         }
       })
       // A real session always needs a valid time + duration — but an *unclaimed*
@@ -140,4 +144,59 @@ export function normalizeElectives(data: Record<string, unknown> | undefined): E
     days[d] = { sessions }
   }
   return { days }
+}
+
+// ─── Subject-wise hours summary ────────────────────────────────────────────────
+
+export interface SubjectWeeklyHours {
+  courseId: string
+  courseTitle: string
+  /** Total minutes/week this subject is scheduled, across every period + elective
+   *  tagged with its courseId (Mon–Sat). */
+  scheduledMinutes: number
+  /** Portion of `scheduledMinutes` whose slot has already ended as of `now` —
+   *  resets every Monday. There's no persisted log of which classes actually
+   *  happened (no attendance data this draws on), so this is "time elapsed so
+   *  far this week," not a true cumulative attendance count. */
+  completedMinutes: number
+}
+
+/** Minutes from this Monday 00:00 to `now`, in the grid's own Mon–Sat week frame
+ *  (Sunday has no row, so it's treated as falling after Saturday — anything
+ *  scheduled Mon–Sat already reads as fully "completed" by then). */
+function minutesSinceMonday(now: Date): number {
+  const dow = now.getDay() // 0=Sun..6=Sat
+  const daysSinceMonday = dow === 0 ? 6 : dow - 1
+  return daysSinceMonday * 24 * 60 + now.getHours() * 60 + now.getMinutes()
+}
+
+/** Groups every courseId-tagged period/elective by subject, for the Schedule
+ *  page's summary bar and the Syllabus page's "completed vs required" badge.
+ *  Untagged entries (no courseId — free text, or an Activity Type) aren't
+ *  attributable to any subject and are left out entirely. */
+export function computeSubjectWeeklyHours(
+  timetable: ClassTimetable, electives: ElectiveSchedule, courses: Course[], now: Date = new Date(),
+): SubjectWeeklyHours[] {
+  const courseById = new Map(courses.map((c) => [c.id, c]))
+  const byId = new Map<string, SubjectWeeklyHours>()
+  const nowOffset = minutesSinceMonday(now)
+
+  function add(courseId: string | null | undefined, weekday: Weekday, startTime: string, durationMinutes: number) {
+    if (!courseId) return
+    const dayIndex = WEEKDAYS.indexOf(weekday)
+    const startMin = timeStrToMinutes(startTime)
+    if (dayIndex < 0 || startMin == null) return
+    const slotEndOffset = dayIndex * 24 * 60 + startMin + durationMinutes
+    const entry = byId.get(courseId) ?? { courseId, courseTitle: courseById.get(courseId)?.title ?? 'Unknown subject', scheduledMinutes: 0, completedMinutes: 0 }
+    entry.scheduledMinutes += durationMinutes
+    if (slotEndOffset <= nowOffset) entry.completedMinutes += durationMinutes
+    byId.set(courseId, entry)
+  }
+
+  for (const d of WEEKDAYS) {
+    for (const p of timetable.days[d]?.periods ?? []) add(p.courseId, d, p.startTime, p.durationMinutes)
+    for (const s of electives.days[d]?.sessions ?? []) add(s.courseId, d, s.startTime, s.durationMinutes)
+  }
+
+  return [...byId.values()].sort((a, b) => a.courseTitle.localeCompare(b.courseTitle))
 }

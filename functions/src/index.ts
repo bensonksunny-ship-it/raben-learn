@@ -530,3 +530,35 @@ export const adminResetPassword = onCall(callableOpts, async (request) => {
 
   return { temporaryPassword: password }
 })
+
+/**
+ * No-login "Live Class" kiosk link (opened from the Schedule page, meant for a
+ * classroom TV/projector). Deliberately takes no `request.auth` — the caller
+ * hasn't signed in yet, that's the whole point. Security lives entirely here:
+ * the URL's `:token` must match `settings/liveClassKiosk.token` (written by an
+ * admin/mentor from the Schedule page), or no custom token is minted. On a
+ * match it mints a Firebase custom auth token for a fixed synthetic uid, which
+ * `firestore.rules` never needs to special-case — every collection the kiosk
+ * page reads already allows any *signed-in* account, custom-token or not; this
+ * function's own token check is the actual gate, not a Firestore rule.
+ *
+ * Deliberately doesn't use Firebase Anonymous Auth for this: turning that
+ * provider on would let anyone self-sign-in and pass every other `isSignedIn()`
+ * rule in this project too, far beyond just Live Class. A custom token needs no
+ * such project-wide toggle.
+ */
+export const resolveLiveClassKiosk = onCall(callableOpts, async (request) => {
+  const { token } = request.data as { token?: unknown }
+  if (!isNonEmptyString(token, 200)) {
+    throw new HttpsError('invalid-argument', 'This link is missing its token.')
+  }
+
+  const snap = await db.doc('settings/liveClassKiosk').get()
+  const stored = snap.data()?.token
+  if (typeof stored !== 'string' || stored.length === 0 || stored !== token.trim()) {
+    throw new HttpsError('permission-denied', 'This link is invalid or has been replaced with a newer one.')
+  }
+
+  const customToken = await auth.createCustomToken('live-class-kiosk', { liveClassKiosk: true })
+  return { customToken }
+})

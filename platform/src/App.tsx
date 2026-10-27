@@ -34,10 +34,10 @@ const StudentPreviewPage = lazy(() =>
 const ConsultantPreviewPage = lazy(() =>
   import('./pages/admin/ConsultantPreviewPage').then((m) => ({ default: m.ConsultantPreviewPage })),
 )
-const LiveClassPage = lazy(() =>
-  import('./pages/admin/LiveClassPage').then((m) => ({ default: m.LiveClassPage })),
-)
 const ScanPage = lazy(() => import('./pages/ScanPage'))
+const LiveClassKioskPage = lazy(() =>
+  import('./pages/LiveClassKioskPage').then((m) => ({ default: m.LiveClassKioskPage })),
+)
 const ExamPrintView = lazy(() => import('./pages/admin/ExamPrintView'))
 const ExamInstructions = lazy(() => import('./pages/exam/ExamInstructions'))
 const ExamRunner = lazy(() => import('./pages/exam/ExamRunner'))
@@ -65,6 +65,16 @@ export default function App() {
         <Route
           path="/scan/:studentId/:qrToken"
           element={<Suspense fallback={<AdminRouteFallback />}><ScanPage /></Suspense>}
+        />
+        {/* No login, no AppShell, no role check — opened from its own secret link
+            (generated on the Schedule page), meant for a classroom TV/projector.
+            `LiveClassKioskPage` resolves `:token` itself against the
+            `resolveLiveClassKiosk` Cloud Function and signs into an isolated
+            secondary Firebase app, so it never disturbs a staff member's own
+            session if opened in the same browser. */}
+        <Route
+          path="/live-class/:token"
+          element={<Suspense fallback={<AdminRouteFallback />}><LiveClassKioskPage /></Suspense>}
         />
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomeRedirect />} />
@@ -122,16 +132,6 @@ export default function App() {
               <RequireCapability cap="managerArea">
                 <Suspense fallback={<AdminRouteFallback />}>
                   <ConsultantPreviewPage />
-                </Suspense>
-              </RequireCapability>
-            }
-          />
-          <Route
-            path="live-class"
-            element={
-              <RequireCapability cap="liveClassArea">
-                <Suspense fallback={<AdminRouteFallback />}>
-                  <LiveClassPage />
                 </Suspense>
               </RequireCapability>
             }

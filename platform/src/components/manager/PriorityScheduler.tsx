@@ -105,6 +105,15 @@ function computeGaps(windowStartMin: number, windowEndMin: number, occupied: { s
   return gaps.filter((g) => g.endMin > g.startMin)
 }
 
+/** One chronological row in the "Day View" popup — the merge of locked periods,
+ *  electives, free gaps, and (view-only) logged diary items for a single day,
+ *  sorted by `startMin` so the popup reads top-to-bottom like a real day planner. */
+type DayAgendaRow =
+  | { type: 'locked'; startMin: number; endMin: number; period: TimetablePeriod }
+  | { type: 'elective'; startMin: number; endMin: number; session: ElectiveSession }
+  | { type: 'free'; startMin: number; endMin: number }
+  | { type: 'item'; startMin: number; endMin: number; item: DailyPlanItem }
+
 interface TimedItem { item: DailyPlanItem; startMin: number; endMin: number }
 function timedItemsOf(plan: DailyPlan | null | undefined): TimedItem[] {
   const planStartMin = plan?.startTime ? timeStrToMinutes(plan.startTime) : null
@@ -193,6 +202,11 @@ type ModalState =
   /** Duplicates one day's whole schedule (locked periods + electives) onto another
    *  day, or every other day at once — replacing whatever that target already has. */
   | { kind: 'copyDay'; fromDay: Weekday; target: Weekday | 'all' }
+  /** The "Day View" popup — opened by clicking a day's name in the grid header.
+   *  Read-only agenda of just that one day; items inside stay clickable through to
+   *  their own edit/claim modal (closing this one first), same as clicking them
+   *  directly on the grid. */
+  | { kind: 'dayView'; day: Weekday }
 
 export interface PrioritySchedulerProps {
   /** Priority 1 — the shared, mandatory class timetable. */
@@ -308,6 +322,10 @@ export function PriorityScheduler({
     const nextDay = WEEKDAYS[(WEEKDAYS.indexOf(day) + 1) % WEEKDAYS.length]!
     setModal({ kind: 'copyDay', fromDay: day, target: nextDay })
   }
+  function openDayViewModal(day: Weekday) {
+    setModalError('')
+    setModal({ kind: 'dayView', day })
+  }
   function closeModal() { setModal(null); setModalError('') }
   /** New section defaults to starting exactly when the previous one ends — the chaining behavior. */
   function addElectiveSection() {
@@ -330,7 +348,7 @@ export function PriorityScheduler({
 
   function submitModal(e: FormEvent) {
     e.preventDefault()
-    if (!modal) return
+    if (!modal || modal.kind === 'dayView') return
 
     if (modal.kind === 'copyDay') {
       const targets = modal.target === 'all' ? WEEKDAYS.filter((d) => d !== modal.fromDay) : [modal.target]
@@ -436,12 +454,16 @@ export function PriorityScheduler({
       // it started out filled or open.
       const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true } : s))
       onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: nextSessions } } })
+      // Saving an edit lands back on the read-only view card rather than closing.
+      setModal({ ...modal, title, mentorName: mentorName ?? '', viewMode: true })
+      setModalError('')
+      return
     }
     closeModal()
   }
 
   function deleteModalEntry() {
-    if (!modal || modal.kind === 'claim' || modal.kind === 'copyDay' || modal.mode !== 'edit') return
+    if (!modal || modal.kind === 'claim' || modal.kind === 'copyDay' || modal.kind === 'dayView' || modal.mode !== 'edit') return
     if (!window.confirm(modal.kind === 'locked' ? 'Delete this school period?' : 'Delete this elective session?')) return
     if (modal.kind === 'locked') {
       const day = timetable.days[modal.day]
@@ -500,6 +522,131 @@ export function PriorityScheduler({
     }
   }
 
+  /** Merges that one day's locked periods, electives, free gaps (edit mode only),
+   *  and logged diary items (view mode only) into one chronological list — the
+   *  "Day View" popup's whole content. */
+  function dayAgendaRows(day: Weekday): DayAgendaRow[] {
+    const rows: DayAgendaRow[] = [
+      ...lockedByDay[day].map((t) => ({ type: 'locked' as const, startMin: t.startMin, endMin: t.endMin, period: t.period })),
+      ...electiveByDay[day].map((t) => ({ type: 'elective' as const, startMin: t.startMin, endMin: t.endMin, session: t.session })),
+    ]
+    if (editingAllowed) {
+      rows.push(...gapsByDay[day].map((g) => ({ type: 'free' as const, startMin: g.startMin, endMin: g.endMin })))
+    } else {
+      const dateStr = weekDates[WEEKDAYS.indexOf(day)]
+      if (dateStr) rows.push(...timedItemsOf(weekPlans[dateStr]).map((t) => ({ type: 'item' as const, startMin: t.startMin, endMin: t.endMin, item: t.item })))
+    }
+    return rows.sort((a, b) => a.startMin - b.startMin)
+  }
+
+  /** One row of the Day View agenda — locked/elective rows stay clickable through
+   *  to their own edit/claim modal (closing the Day View first); free gaps offer a
+   *  "+ Book elective" shortcut; diary items are always plain (view-only). */
+  function renderAgendaRow(day: Weekday, row: DayAgendaRow) {
+    const timeLabel = (
+      <div style={{ width: 72, flexShrink: 0, textAlign: 'right', paddingTop: '0.45rem' }}>
+        <span className="muted small">{formatClockLabel(row.startMin)}</span>
+      </div>
+    )
+
+    if (row.type === 'free') {
+      return (
+        <div key={`free_${row.startMin}`} style={{ display: 'flex', gap: '0.65rem' }}>
+          {timeLabel}
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', border: '1px dashed var(--border)', borderRadius: 10, padding: '0.5rem 0.65rem' }}>
+            <span className="muted small">Free · {row.endMin - row.startMin} min</span>
+            {editingAllowed && (
+              <button type="button" className="btn small secondary" onClick={() => { closeModal(); openElectiveAddModal(day, row.startMin, row.endMin - row.startMin) }}>
+                + Book elective
+              </button>
+            )}
+          </div>
+        </div>
+      )
+    }
+
+    if (row.type === 'locked') {
+      const content = (
+        <>
+          <span className="timetable-grid-card-lock"><LockIcon color={PERIOD_COLOR.text} />School period</span>
+          <strong className="timetable-grid-card-title">{row.period.title}</strong>
+          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
+        </>
+      )
+      return (
+        <div key={row.period.id} style={{ display: 'flex', gap: '0.65rem' }}>
+          {timeLabel}
+          {editingAllowed ? (
+            <button type="button" className="timetable-grid-card" style={{ flex: 1, margin: 0, background: PERIOD_COLOR.bg, borderTopColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }} onClick={() => { closeModal(); openLockedEditModal(day, row.period) }}>
+              {content}
+            </button>
+          ) : (
+            <div className="timetable-grid-card ghost" style={{ flex: 1, margin: 0, background: PERIOD_COLOR.bg, borderTopColor: PERIOD_COLOR.text, color: PERIOD_COLOR.text }}>
+              {content}
+            </div>
+          )}
+        </div>
+      )
+    }
+
+    if (row.type === 'elective') {
+      const session = row.session
+      const isPending = !session.claimed
+      const clickable = editingAllowed || (isPending && !!claimRole)
+      const onClick = () => {
+        closeModal()
+        if (editingAllowed) openElectiveEditModal(day, session)
+        else if (isPending && claimRole) openClaimModal(day, session, claimRole)
+      }
+      const content = isPending ? (
+        <>
+          <span className="timetable-grid-card-lock">🔓 Open Slot</span>
+          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}{clickable ? ' · Tap to claim' : ''}</span>
+        </>
+      ) : (
+        <>
+          <span className="timetable-grid-card-lock"><FlexIcon color={ELECTIVE_COLOR.text} /><span className="timetable-grid-card-lock-text">Elective{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
+          <strong className="timetable-grid-card-title">{session.title}</strong>
+          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
+        </>
+      )
+      const cardStyle = {
+        flex: 1, margin: 0, color: ELECTIVE_COLOR.text,
+        background: isPending ? 'transparent' : ELECTIVE_COLOR.bg,
+        borderTopColor: ELECTIVE_COLOR.text, borderTopStyle: isPending ? ('dashed' as const) : ('solid' as const),
+      }
+      return (
+        <div key={session.id} style={{ display: 'flex', gap: '0.65rem' }}>
+          {timeLabel}
+          {clickable ? (
+            <button type="button" className="timetable-grid-card" style={cardStyle} onClick={onClick}>{content}</button>
+          ) : (
+            <div className="timetable-grid-card ghost" style={cardStyle}>{content}</div>
+          )}
+        </div>
+      )
+    }
+
+    // row.type === 'item' — a student's logged diary entry, always view-only.
+    const colors = itemTypeColors(row.item.activityType)
+    const overTime = row.item.timeSpentMs > row.item.plannedMinutes * 60000
+    return (
+      <div key={row.item.id} style={{ display: 'flex', gap: '0.65rem' }}>
+        {timeLabel}
+        <div className="timetable-grid-card" style={{ flex: 1, margin: 0, background: colors.bg, borderTopColor: colors.text, color: colors.text, opacity: row.item.done ? 0.65 : 1 }}>
+          <div className="timetable-grid-card-head">
+            <span className="tag" style={{ background: 'rgba(255,255,255,0.6)', color: colors.text, border: 'none', fontSize: '0.65rem' }}>{itemTypeLabel(row.item.activityType)}</span>
+            {row.item.done ? <span aria-hidden>✓</span> : null}
+          </div>
+          <strong className="timetable-grid-card-title" style={{ textDecoration: row.item.done ? 'line-through' : 'none' }}>{row.item.activityTitle}</strong>
+          <span className="timetable-grid-card-meta">
+            {minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)} · {formatTime(row.item.timeSpentMs)}{overTime ? ' ⚠' : ''}
+          </span>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <>
       {editingAllowed && (
@@ -527,14 +674,24 @@ export function PriorityScheduler({
           {rowDays.map((d, di) => {
             const colors = DAY_COLORS[d]
             return (
-              <div key={d} className="timetable-grid-day-header" style={{ gridColumn: 1, gridRow: di + 2, background: colors.bg, color: colors.text }}>
-                {d}
+              <div
+                key={d}
+                className="timetable-grid-day-header clickable"
+                style={{ gridColumn: 1, gridRow: di + 2, background: colors.bg, color: colors.text }}
+                role="button"
+                tabIndex={0}
+                onClick={() => openDayViewModal(d)}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDayViewModal(d) } }}
+                title={`View ${d}'s full schedule`}
+                aria-label={`View ${d}'s full schedule`}
+              >
+                <span className="timetable-day-name">{d}</span>
                 {editingAllowed && (
                   <button
                     type="button"
                     className="timetable-day-copy-btn"
                     style={{ color: colors.text }}
-                    onClick={() => openCopyDayModal(d)}
+                    onClick={(e) => { e.stopPropagation(); openCopyDayModal(d) }}
                     title={`Copy ${d}'s schedule to another day`}
                     aria-label={`Copy ${d}'s schedule to another day`}
                   >
@@ -706,17 +863,41 @@ export function PriorityScheduler({
 
       {modal && (
         <div className="modal-backdrop" onClick={closeModal}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3 style={{ margin: '0 0 1rem' }}>
-              {modal.kind === 'copyDay'
-                ? `Copy ${modal.fromDay}'s Schedule`
-                : modal.kind === 'claim'
-                  ? (modal.role === 'student' ? 'Claim your slot' : 'Claim this mentor spot')
-                  : modal.kind === 'locked'
-                    ? (modal.mode === 'add' ? 'Add school period' : `Edit school period — ${modal.day}`)
-                    : (modal.mode === 'add' ? `Add elective — ${modal.day}` : modal.viewMode ? `View Elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
-            </h3>
-            <form className="form" onSubmit={submitModal}>
+          <div className="modal" style={modal.kind === 'dayView' ? { maxWidth: 460 } : undefined} onClick={(e) => e.stopPropagation()}>
+            {modal.kind === 'dayView' ? (
+              <>
+                <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                  <h3 style={{ margin: 0, color: DAY_COLORS[modal.day].text }}>{modal.day}'s Schedule</h3>
+                  <button type="button" className="btn small secondary" onClick={closeModal}>✕ Close</button>
+                </div>
+                {(() => {
+                  const rows = dayAgendaRows(modal.day)
+                  return rows.length === 0 ? (
+                    <p className="muted small">Nothing scheduled yet.</p>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                      {rows.map((row) => renderAgendaRow(modal.day, row))}
+                    </div>
+                  )
+                })()}
+                {editingAllowed && (
+                  <div className="row" style={{ marginTop: '1rem' }}>
+                    <button type="button" className="btn small secondary" onClick={() => { const day = modal.day; closeModal(); openLockedAddModal(day) }}>+ Add school period</button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h3 style={{ margin: '0 0 1rem' }}>
+                  {modal.kind === 'copyDay'
+                    ? `Copy ${modal.fromDay}'s Schedule`
+                    : modal.kind === 'claim'
+                      ? (modal.role === 'student' ? 'Claim your slot' : 'Claim this mentor spot')
+                      : modal.kind === 'locked'
+                        ? (modal.mode === 'add' ? 'Add school period' : `Edit school period — ${modal.day}`)
+                        : (modal.mode === 'add' ? `Add elective — ${modal.day}` : modal.viewMode ? `View Elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
+                </h3>
+                <form className="form" onSubmit={submitModal}>
               {modal.kind === 'copyDay' ? (
                 <>
                   <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
@@ -857,7 +1038,15 @@ export function PriorityScheduler({
                     </label>
                   )}
                   <label>Start time<input type="time" value={modal.startTime} onChange={(e) => setModal({ ...modal, startTime: e.target.value })} required autoFocus /></label>
-                  <label>Title<input value={modal.title} onChange={(e) => setModal({ ...modal, title: e.target.value })} placeholder={modal.kind === 'locked' ? 'e.g. Math' : 'e.g. Chess Club'} required /></label>
+                  <label>Title
+                    <SyllabusTitleField
+                      value={modal.title}
+                      suggestions={syllabusSuggestions}
+                      placeholder={modal.kind === 'locked' ? 'Search a subject or enter a title' : 'Search or enter title'}
+                      onChange={(title) => setModal({ ...modal, title })}
+                      onPick={(s) => setModal({ ...modal, title: s.title })}
+                    />
+                  </label>
                   {modal.kind === 'elective' && (
                     <label>Mentor <span className="muted small">(optional)</span>
                       <input value={modal.mentorName} onChange={(e) => setModal({ ...modal, mentorName: e.target.value })} placeholder="e.g. Ms. Alvarez" />
@@ -898,13 +1087,16 @@ export function PriorityScheduler({
               <div className="row">
                 {modal.kind === 'elective' && modal.mode === 'edit' && modal.viewMode ? (
                   <>
-                    <button type="button" className="btn primary" onClick={enterElectiveEditMode}>✏️ Edit</button>
-                    <button type="button" className="btn secondary" onClick={closeModal}>Close</button>
+                    {/* Distinct keys + preventDefault: without them React reuses this
+                        same <button> node and flips it to type="submit" mid-click,
+                        so the browser submits the form and the modal closes. */}
+                    <button key="view-edit" type="button" className="btn primary" onClick={(e) => { e.preventDefault(); enterElectiveEditMode() }}>✏️ Edit</button>
+                    <button key="view-close" type="button" className="btn secondary" onClick={closeModal}>Close</button>
                   </>
                 ) : (
                   <>
-                    <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : modal.kind === 'copyDay' ? 'Copy' : 'Save'}</button>
-                    <button type="button" className="btn secondary" onClick={modal.kind === 'elective' && modal.mode === 'edit' ? cancelElectiveEdit : closeModal}>Cancel</button>
+                    <button key="form-save" type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : modal.kind === 'copyDay' ? 'Copy' : 'Save'}</button>
+                    <button key="form-cancel" type="button" className="btn secondary" onClick={modal.kind === 'elective' && modal.mode === 'edit' ? cancelElectiveEdit : closeModal}>Cancel</button>
                     {modal.kind !== 'claim' && modal.kind !== 'copyDay' && modal.mode === 'edit' && (
                       <button type="button" className="btn secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={deleteModalEntry}>Delete</button>
                     )}
@@ -912,6 +1104,8 @@ export function PriorityScheduler({
                 )}
               </div>
             </form>
+              </>
+            )}
           </div>
         </div>
       )}

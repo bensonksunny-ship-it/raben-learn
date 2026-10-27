@@ -60,12 +60,10 @@ export default function AppShell() {
       { to: '/admin/users', label: 'Users', icon: '👤' },
       { to: '/admin/syllabus', label: 'Syllabus', icon: '📚' },
       { to: '/schedule', label: 'Schedule', icon: '🗓️' },
-      { to: '/live-class', label: 'Live Class', icon: '🟢' },
       { to: '/admin/reports', label: 'Reports', icon: '📊' },
     ] : []),
     ...(isMentor ? [
       { to: '/mentor/syllabus', label: 'Syllabus', icon: '📚' },
-      { to: '/live-class', label: 'Live Class', icon: '🟢' },
       { to: '/mentor/reports', label: 'Reports', icon: '📊' },
     ] : []),
     ...(isStudent ? [
@@ -77,7 +75,6 @@ export default function AppShell() {
       { to: '/manager?view=users', label: 'Users', icon: '👤' },
       { to: '/manager?view=students', label: 'Students', icon: '🎓' },
       { to: '/manager?view=schedule', label: 'Schedule', icon: '🗓️' },
-      { to: '/live-class', label: 'Live Class', icon: '🟢' },
     ] : []),
   ]
 

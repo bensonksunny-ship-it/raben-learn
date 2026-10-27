@@ -148,6 +148,16 @@ service cloud.firestore {
       allow write: if hasRole('manager') || hasRole('admin') || isOwner(studentId);
     }
 
+    // Live Class kiosk link's secret token (`settings/liveClassKiosk`, field
+    // `token`) — generated/rotated from the Schedule page, same role shape as
+    // `class_timetable`/`elective_sessions` above (manager reaches /schedule
+    // too, not just admin). The kiosk link itself never reads this doc
+    // directly — the `resolveLiveClassKiosk` Cloud Function checks it with the
+    // Admin SDK (which bypasses these rules entirely) before minting anything.
+    match /settings/{id} {
+      allow read, write: if isAdminOrMentor() || hasRole('manager');
+    }
+
     // Legacy collections for Cloud Functions
     match /centres/{id} { allow read, write: if hasRole('admin'); }
     match /mentor_centres/{id} { allow read, write: if isAdminOrMentor(); }

@@ -79,7 +79,10 @@ function isLocalDevPageOrigin(): boolean {
   }
 }
 
-function callableHttpUrl(name: string): string {
+/** Exported for `lib/liveClassKiosk.ts` — the kiosk's `resolveLiveClassKiosk` call
+ *  needs the same dev-proxy/prod-URL resolution, but (being public/no-login) can't
+ *  go through `invokeCallable` below, which requires a signed-in Bearer token. */
+export function callableHttpUrl(name: string): string {
   if (typeof window === 'undefined') {
     const region = import.meta.env.VITE_FIREBASE_FUNCTIONS_REGION
     const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID

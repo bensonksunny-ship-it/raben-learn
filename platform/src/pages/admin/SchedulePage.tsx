@@ -10,6 +10,7 @@ import { LandscapePrompt } from '../../components/LandscapePrompt'
 import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
+import { liveClassKioskUrl } from '../../lib/liveClassKiosk'
 import {
   WEEKDAYS, DAY_COLORS,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
@@ -379,6 +380,8 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         </div>
       </div>
 
+      <LiveClassLinkPanel />
+
       {error ? <p className="error">{error}</p> : null}
 
       {!loadingOverride && (
@@ -404,4 +407,92 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   // comment. Self-contained wrapper, independent of whatever ancestor layout
   // (plain /schedule route vs. any of the Timetable popups) this ends up inside.
   return useCssRotate ? <div className="landscape-css-rotate-wrap">{content}</div> : content
+}
+
+/**
+ * Manages the "Live Class" kiosk link's secret token (`settings/liveClassKiosk`)
+ * so staff can copy/open/rotate it without touching Firestore by hand. The kiosk
+ * page itself never reads this doc — only the `resolveLiveClassKiosk` Cloud
+ * Function checks it (with the Admin SDK), server-side, before minting anything.
+ */
+function LiveClassLinkPanel() {
+  const [token, setToken] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'settings', 'liveClassKiosk'))
+        setToken(snap.exists() ? ((snap.data().token as string | undefined) ?? null) : null)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to load the Live Class link')
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [])
+
+  async function rotate(confirmMessage: string | null) {
+    if (confirmMessage && !window.confirm(confirmMessage)) return
+    setSaving(true)
+    setError('')
+    try {
+      const next = crypto.randomUUID()
+      await setDoc(doc(db, 'settings', 'liveClassKiosk'), { token: next, updatedAt: serverTimestamp() })
+      setToken(next)
+      setCopied(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to generate the Live Class link')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function copyLink() {
+    if (!token) return
+    try {
+      await navigator.clipboard.writeText(liveClassKioskUrl(token))
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setError('Could not copy — select and copy the link text manually.')
+    }
+  }
+
+  return (
+    <div className="panel" style={{ marginBottom: '1.25rem' }}>
+      <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' }}>
+        <div>
+          <strong style={{ fontSize: '0.88rem' }}>🟢 Live Class link</strong>
+          <p className="muted small" style={{ margin: '0.2rem 0 0' }}>
+            No login needed — open this on a classroom TV/projector to run the class and see who's checked in, live.
+          </p>
+        </div>
+        {!loading && token && (
+          <div className="row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+            <input readOnly value={liveClassKioskUrl(token)} style={{ minWidth: 260 }} onFocus={(e) => e.currentTarget.select()} />
+            <button type="button" className="btn small secondary" onClick={() => void copyLink()}>{copied ? '✓ Copied' : 'Copy'}</button>
+            <a className="btn small secondary" href={liveClassKioskUrl(token)} target="_blank" rel="noreferrer">Open ↗</a>
+            <button
+              type="button"
+              className="btn small secondary"
+              disabled={saving}
+              onClick={() => void rotate('Generate a new link? The old one stops working immediately — update it on any classroom device using it.')}
+            >
+              🔄 Rotate
+            </button>
+          </div>
+        )}
+        {!loading && !token && (
+          <button type="button" className="btn small primary" disabled={saving} onClick={() => void rotate(null)}>
+            {saving ? 'Generating…' : '+ Generate link'}
+          </button>
+        )}
+      </div>
+      {error ? <p className="error small" style={{ margin: '0.5rem 0 0' }}>{error}</p> : null}
+    </div>
+  )
 }

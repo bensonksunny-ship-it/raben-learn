@@ -928,12 +928,27 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
    .timetable-grid-wrap above), without text content inflating that floor. */
 .timetable-grid.transposed { width: 100%; }
 .timetable-grid-corner { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface-soft); }
+/* The whole box opens the "Day View" popup (that one day's full schedule) — not
+   just the day name text. `brightness` dims the header's own pastel fill on
+   hover/focus so the entire box reads as one clickable target; the copy button
+   (its own nested, stopPropagation'd button — see PriorityScheduler.tsx) still
+   works independently on top of it. */
 .timetable-grid-day-header {
   display: flex; align-items: center; justify-content: center; padding: 0.6rem 0.4rem;
   border-right: 1px solid var(--border); border-bottom: 1px solid var(--border);
   font-family: var(--font-display); font-weight: 700; font-size: 0.85rem; letter-spacing: 0.02em;
   position: relative;
 }
+.timetable-grid-day-header.clickable {
+  cursor: pointer; transition: filter 0.12s, box-shadow 0.12s; outline: none;
+}
+.timetable-grid-day-header.clickable:hover,
+.timetable-grid-day-header.clickable:focus-visible {
+  filter: brightness(0.95);
+  box-shadow: inset 0 0 0 2px rgba(0,0,0,0.12);
+}
+.timetable-day-name { pointer-events: none; }
+
 /* Copies one day's periods+electives onto another day — tucked into the day
    header's own corner so it doesn't compete with the centered day label. */
 .timetable-day-copy-btn {

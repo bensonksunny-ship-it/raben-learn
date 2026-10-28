@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { signInWithCustomToken } from 'firebase/auth'
-import { collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, type Timestamp } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, type Timestamp } from 'firebase/firestore'
 import { kioskAuth, kioskDb, resolveLiveClassKioskToken } from '../lib/liveClassKiosk'
 import { mapUserDoc } from '../lib/userUtils'
-import { todayStr, normalizeTimetable, timeStrToMinutes } from '../components/manager/schedulerShared'
+import { todayStr, weekKeyOf, loadEffectiveWeekSchedule, timeStrToMinutes } from '../components/manager/schedulerShared'
 import { GRACE_MINUTES, todaysPeriods, todayWeekday } from '../lib/attendance'
-import type { AttendanceCheckpoint, ClassTimetable, TimetablePeriod, UserProfile } from '../types'
+import type { AttendanceCheckpoint, ClassTimetable, ElectiveSchedule, TimetablePeriod, UserProfile } from '../types'
 
 type Phase = 'resolving' | 'ready' | 'error'
 
@@ -49,7 +49,10 @@ function useNow(): Date {
   return now
 }
 
-interface TimedPeriod { period: TimetablePeriod; startMin: number; endMin: number }
+/** One block on today's running timetable — a locked school period (`label`
+ *  "P1", "P2"… matching the roster's attendance columns) or an elective session
+ *  (`label` "Elective"), both placed purely by their scheduled clock time. */
+interface TimedPeriod { id: string; title: string; label: string; kind: 'period' | 'elective'; startTime: string; startMin: number; endMin: number }
 
 /** Where the wall clock sits within today's timetable. */
 type ClockState =
@@ -98,6 +101,7 @@ export function LiveClassKioskPage() {
 
   const [students, setStudents] = useState<UserProfile[]>([])
   const [timetable, setTimetable] = useState<ClassTimetable | null>(null)
+  const [electives, setElectives] = useState<ElectiveSchedule | null>(null)
   const [checkpointsByStudent, setCheckpointsByStudent] = useState<Record<string, AttendanceCheckpoint[]>>({})
   /** `class_runs/{date}.startedAt` — undefined while loading, null if not started yet. */
   const [startedAt, setStartedAt] = useState<Date | null | undefined>(undefined)
@@ -135,9 +139,9 @@ export function LiveClassKioskPage() {
     if (phase !== 'ready') return
     void (async () => {
       try {
-        const [usersSnap, timetableSnap] = await Promise.all([
+        const [usersSnap, effective] = await Promise.all([
           getDocs(collection(kioskDb, 'users')),
-          getDoc(doc(kioskDb, 'class_timetable', 'master')),
+          loadEffectiveWeekSchedule(kioskDb, weekKeyOf(todayStr())),
         ])
         const list: UserProfile[] = []
         usersSnap.forEach((d) => {
@@ -146,7 +150,8 @@ export function LiveClassKioskPage() {
         })
         list.sort((a, b) => a.name.localeCompare(b.name))
         setStudents(list)
-        setTimetable(normalizeTimetable(timetableSnap.exists() ? timetableSnap.data() : undefined))
+        setTimetable(effective.timetable)
+        setElectives(effective.electives)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load students')
         setPhase('error')
@@ -191,16 +196,24 @@ export function LiveClassKioskPage() {
     () => (timetable && weekday ? todaysPeriods(timetable, weekday) : []),
     [timetable, weekday],
   )
-  const timed: TimedPeriod[] = useMemo(
-    () => periods.flatMap((p) => {
+  // Locked periods + the master elective board, merged and run by clock time —
+  // a day with only electives (no locked periods) still has a timetable to run.
+  const timed: TimedPeriod[] = useMemo(() => {
+    const out: TimedPeriod[] = []
+    periods.forEach((p, i) => {
       const startMin = timeStrToMinutes(p.startTime)
-      return startMin == null ? [] : [{ period: p, startMin, endMin: startMin + p.durationMinutes }]
-    }),
-    [periods],
-  )
+      if (startMin != null) out.push({ id: p.id, title: p.title, label: `P${i + 1}`, kind: 'period', startTime: p.startTime, startMin, endMin: startMin + p.durationMinutes })
+    })
+    for (const e of (weekday && electives?.days[weekday]?.sessions) || []) {
+      const startMin = timeStrToMinutes(e.startTime)
+      if (startMin == null || !(e.durationMinutes > 0)) continue
+      out.push({ id: e.id, title: e.title || 'Open slot', label: 'Elective', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
+    }
+    return out.sort((a, b) => a.startMin - b.startMin)
+  }, [periods, electives, weekday])
   const scheduledStartMin = timed[0]?.startMin ?? null
   const state = clockState(timed, nowMin)
-  const currentPeriodId = state.kind === 'in' ? state.current.period.id : null
+  const currentPeriodId = state.kind === 'in' && state.current.kind === 'period' ? state.current.id : null
 
   async function startClass() {
     if (scheduledStartMin == null) return
@@ -209,7 +222,7 @@ export function LiveClassKioskPage() {
     try {
       await setDoc(doc(kioskDb, 'class_runs', date), {
         date,
-        scheduledStart: timed[0]!.period.startTime,
+        scheduledStart: timed[0]!.startTime,
         startedAt: serverTimestamp(),
       })
     } catch (e) {
@@ -258,7 +271,7 @@ export function LiveClassKioskPage() {
           <p className="muted" style={{ margin: 0, fontSize: '1.05rem' }}>
             {now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             {' · '}
-            {weekday ? `${periods.length} period${periods.length === 1 ? '' : 's'} today` : 'No school today.'}
+            {weekday ? `${timed.length} session${timed.length === 1 ? '' : 's'} today` : 'No school today.'}
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -406,19 +419,19 @@ function NowPanel({ state, nowMin }: { state: ClockState; nowMin: number }) {
         <>
           <p style={{ margin: '0 0 0.35rem', fontSize: '1.4rem', fontWeight: 700 }}>{state.kind === 'before' ? '🌅 Before class' : '☕ Break'}</p>
           <p style={{ margin: 0, fontSize: '1.1rem' }}>
-            Next: <strong>{state.next.period.title}</strong> at {formatClock(state.next.startMin)}
+            Next: <strong>{state.next.title}</strong> at {formatClock(state.next.startMin)}
             <span className="muted"> · in {formatSpan(state.next.startMin - nowMin)}</span>
           </p>
         </>
       )
       break
     case 'in': {
-      const { current, index, next } = state
+      const { current, next } = state
       const pct = Math.min(100, Math.max(0, ((nowMin - current.startMin) / (current.endMin - current.startMin)) * 100))
       body = (
         <>
           <p style={{ margin: '0 0 0.2rem', fontSize: '1.6rem', fontWeight: 700 }}>
-            <span className="muted" style={{ fontSize: '1rem', fontWeight: 600 }}>P{index + 1} · </span>{current.period.title}
+            <span className="muted" style={{ fontSize: '1rem', fontWeight: 600 }}>{current.label} · </span>{current.title}
           </p>
           <p className="muted" style={{ margin: '0 0 0.6rem', fontSize: '1.05rem' }}>
             {formatClock(current.startMin)} – {formatClock(current.endMin)} · <strong style={{ color: 'var(--text)' }}>ends in {formatSpan(current.endMin - nowMin)}</strong>
@@ -428,7 +441,7 @@ function NowPanel({ state, nowMin }: { state: ClockState; nowMin: number }) {
           </div>
           {next && (
             <p className="muted" style={{ margin: '0.6rem 0 0' }}>
-              Next: <strong style={{ color: 'var(--text)' }}>{next.period.title}</strong> at {formatClock(next.startMin)}
+              Next: <strong style={{ color: 'var(--text)' }}>{next.title}</strong> at {formatClock(next.startMin)}
             </p>
           )}
         </>
@@ -449,12 +462,12 @@ function NowPanel({ state, nowMin }: { state: ClockState; nowMin: number }) {
 function TimetableStrip({ timed, nowMin }: { timed: TimedPeriod[]; nowMin: number }) {
   return (
     <div style={{ display: 'flex', gap: '0.6rem', overflowX: 'auto', marginBottom: '1.5rem', paddingBottom: '0.25rem' }}>
-      {timed.map((t, i) => {
+      {timed.map((t) => {
         const done = nowMin >= t.endMin
         const current = nowMin >= t.startMin && nowMin < t.endMin
         return (
           <div
-            key={t.period.id}
+            key={t.id}
             className="panel"
             style={{
               flex: '0 0 auto', minWidth: 150, padding: '0.7rem 0.9rem', margin: 0,
@@ -464,8 +477,8 @@ function TimetableStrip({ timed, nowMin }: { timed: TimedPeriod[]; nowMin: numbe
               background: current ? 'var(--primary-soft)' : undefined,
             }}
           >
-            <div className="muted small" style={{ fontWeight: 700 }}>P{i + 1}{current ? ' · NOW' : done ? ' · done' : ''}</div>
-            <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{t.period.title}</div>
+            <div className="muted small" style={{ fontWeight: 700 }}>{t.label}{current ? ' · NOW' : done ? ' · done' : ''}</div>
+            <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{t.title}</div>
             <div className="muted small">{formatClock(t.startMin)} – {formatClock(t.endMin)}</div>
           </div>
         )

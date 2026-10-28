@@ -1,6 +1,5 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
-import QRCode from 'qrcode'
 import { db } from '../../firebase/config'
 import { callCreateUser, callDeleteUser, callDisableUser, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
@@ -10,6 +9,10 @@ import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { useAuth } from '../../context/AuthContext'
 import type { Course, Session, UserProfile } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
+import { StudentApplicationForm, ApplicationStatusTag } from '../../components/StudentApplicationForm'
+import { loadApplication, loadApplicationFile, moveApplicantToStudent, newApplicantId, normalizeApplication, validateApplication, type ApplicationStatus, type StudentApplication } from '../../lib/studentApplication'
+import { downloadDataUrl, renderIdCardBack, renderIdCardFront, studentCodeFor } from '../../lib/idCard'
+import { studentScanUrl } from '../../lib/publicUrl'
 
 // Lazy — pulls in the whole PriorityScheduler grid, which most visits to the
 // Students page never need.
@@ -29,24 +32,28 @@ export function StudentsPage() {
   const [error, setError] = useState('')
   const [createdPw, setCreatedPw] = useState('')
 
-  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive'>('active')
+  const [statusFilter, setStatusFilter] = useState<'active' | 'inactive' | 'applications'>('active')
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null)
   const [timetableStudentId, setTimetableStudentId] = useState<string | null>(null)
   const [idCardStudentId, setIdCardStudentId] = useState<string | null>(null)
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null)
+  const [cardFront, setCardFront] = useState<string | null>(null)
+  const [cardBack, setCardBack] = useState<string | null>(null)
+  const [cardNote, setCardNote] = useState('')
+  const [applicationStudentId, setApplicationStudentId] = useState<string | null>(null)
+  const [appStatuses, setAppStatuses] = useState<Record<string, ApplicationStatus>>({})
   const [generatingQr, setGeneratingQr] = useState(false)
   const [selectedCourseForSyllabus, setSelectedCourseForSyllabus] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Session[]>([])
   const [syllabusLoading, setSyllabusLoading] = useState(false)
   const [addCourseId, setAddCourseId] = useState('')
 
-  const [showCreate, setShowCreate] = useState(false)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [courseIds, setCourseIds] = useState<string[]>([])
-  const [tempPassword, setTempPassword] = useState('')
   const [saving, setSaving] = useState(false)
+  /** "+ New Student" / an applicant opened from the Applications tab — the full
+   *  application form, saved to `applicants` (no account until recruited). */
+  const [applicantFormId, setApplicantFormId] = useState<string | null>(null)
+  const [applicants, setApplicants] = useState<StudentApplication[]>([])
+  const [recruitingId, setRecruitingId] = useState<string | null>(null)
 
   async function load() {
     setLoading(true)
@@ -54,10 +61,18 @@ export function StudentsPage() {
       // Unfiltered fetch + filter by the normalized role below — a Firestore `array-contains`
       // query only matches when `roles` is literally an array, so it silently drops any legacy
       // doc that stores a single string role instead (see StudentDiaryPage for the same fix).
-      const [usersSnap, coursesSnap] = await Promise.all([
+      const [usersSnap, coursesSnap, appsSnap, applicantsSnap] = await Promise.all([
         getDocs(collection(db, 'users')),
         getDocs(query(collection(db, 'courses'), orderBy('title'))),
+        getDocs(collection(db, 'student_applications')).catch(() => null),
+        getDocs(collection(db, 'applicants')).catch(() => null),
       ])
+      const applicantList: StudentApplication[] = []
+      applicantsSnap?.forEach((d) => applicantList.push(normalizeApplication(d.id, d.data())))
+      setApplicants(applicantList.filter((a) => a.status !== 'recruited').sort((a, b) => a.fullName.localeCompare(b.fullName)))
+      const statuses: Record<string, ApplicationStatus> = {}
+      appsSnap?.forEach((d) => { statuses[d.id] = (d.data().status as ApplicationStatus | undefined) ?? 'draft' })
+      setAppStatuses(statuses)
       const list: UserProfile[] = []
       usersSnap.forEach((d) => {
         const profile = mapUserDoc(d)
@@ -116,34 +131,39 @@ export function StudentsPage() {
     }
   }
 
-  function toggleCourse(cid: string) {
-    setCourseIds((prev) => (prev.includes(cid) ? prev.filter((x) => x !== cid) : [...prev, cid]))
-  }
-
-  async function onCreate(e: FormEvent) {
-    e.preventDefault()
+  /**
+   * "Recruit Student": creates the login account (Cloud Function, same as the old
+   * direct "Add Student"), assigns the target courses, then carries the
+   * application + documents over to the new student and marks the applicant
+   * recruited — moving them into Active Students.
+   */
+  async function recruit(a: StudentApplication) {
     if (!canManage) return
-    setError(''); setCreatedPw('')
-    const pw = tempPassword.trim()
-    if (pw.length > 0 && pw.length < 8) {
-      setError('Password must be at least 8 characters.'); return
-    }
-    setSaving(true)
+    if (!a.fullName.trim() || !a.email.trim()) { setError('This application needs a full name and login email before recruiting.'); return }
+    const missing = validateApplication(a)
+    const prompt = missing.length > 0
+      ? `${a.fullName} is still missing:\n• ${missing.join('\n• ')}\n\nRecruit anyway? This creates their student login (${a.email}).`
+      : `Recruit ${a.fullName}? This creates their student login (${a.email}) and moves them to Active Students.`
+    if (!window.confirm(prompt)) return
+    setError(''); setCreatedPw(''); setRecruitingId(a.studentId)
     try {
       const res = await callCreateUser({
-        name, email, roles: ['student'],
+        name: a.fullName.trim(), email: a.email.trim(), roles: ['student'],
         centreIds: [], centreId: null,
-        courseId: courseIds[0] ?? null,
-        temporaryPassword: pw || null,
+        courseId: a.targetCourseIds[0] ?? null,
+        temporaryPassword: null,
       })
-      setCreatedPw(res.temporaryPassword)
-      setName(''); setEmail(''); setCourseIds([]); setTempPassword('')
-      setShowCreate(false)
+      if (a.targetCourseIds.length > 0) {
+        await updateDoc(doc(db, 'users', res.uid), { courseIds: a.targetCourseIds })
+      }
+      await moveApplicantToStudent(a, res.uid, profile?.id)
+      setCreatedPw(`${a.fullName} recruited — login ${a.email}, temporary password: ${res.temporaryPassword}`)
+      setStatusFilter('active')
       await load()
     } catch (err: unknown) {
-      setError(formatFirebaseError(err, 'Create failed'))
+      setError(formatFirebaseError(err, 'Recruit failed'))
     } finally {
-      setSaving(false)
+      setRecruitingId(null)
     }
   }
 
@@ -194,21 +214,40 @@ export function StudentsPage() {
 
   const idCardStudent = students.find((s) => s.id === idCardStudentId) ?? null
 
-  /** The QR itself is just this URL — scanning it opens the Live Class check-in
-   *  page already carrying both the student's id and their token, no login
-   *  prompt needed first (see `/scan/:studentId/:qrToken` in App.tsx). */
-  function scanUrl(studentId: string, qrToken: string): string {
-    return `${window.location.origin}/scan/${studentId}/${qrToken}`
-  }
-
+  // Builds both sides of the printable ID card (JPEG) from the student's
+  // application — photo, class, DOB, blood group on the front; the attendance
+  // QR (permanent production URL) and emergency contact on the back.
   useEffect(() => {
-    if (!idCardStudent?.qrToken) { setQrDataUrl(null); return }
+    setCardFront(null); setCardBack(null); setCardNote('')
+    if (!idCardStudent) return
     let cancelled = false
-    void QRCode.toDataURL(scanUrl(idCardStudent.id, idCardStudent.qrToken), { width: 240, margin: 1 })
-      .then((url) => { if (!cancelled) setQrDataUrl(url) })
-      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to render QR code') })
+    void (async () => {
+      try {
+        const { app, exists } = await loadApplication(idCardStudent.id, idCardStudent.name)
+        const photo = app.files.photo ? await loadApplicationFile(idCardStudent.id, 'photo') : null
+        const [front, back] = await Promise.all([
+          renderIdCardFront({
+            name: app.fullName || idCardStudent.name,
+            studentCode: studentCodeFor(idCardStudent.id),
+            grade: app.grade, dateOfBirth: app.dateOfBirth, bloodGroup: app.bloodGroup,
+            photoDataUrl: photo,
+          }),
+          renderIdCardBack({
+            scanUrl: idCardStudent.qrToken ? studentScanUrl(idCardStudent.id, idCardStudent.qrToken) : null,
+            emergencyName: app.emergencyName, emergencyPhone: app.emergencyPhone || app.fatherPhone || app.motherPhone,
+            address: app.address,
+          }),
+        ])
+        if (cancelled) return
+        setCardFront(front); setCardBack(back)
+        if (!exists) setCardNote('No application yet — the card only has the name. Ask the student to fill in their application (with photo).')
+        else if (!photo) setCardNote('No photo uploaded yet in the application.')
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to build the ID card')
+      }
+    })()
     return () => { cancelled = true }
-  }, [idCardStudent?.id, idCardStudent?.qrToken])
+  }, [idCardStudent?.id, idCardStudent?.qrToken, idCardStudent?.name])
 
   async function generateQrToken(u: UserProfile) {
     setGeneratingQr(true); setError('')
@@ -224,7 +263,7 @@ export function StudentsPage() {
 
   const activeStudents = students.filter((s) => s.status === 'active')
   const inactiveStudents = students.filter((s) => s.status !== 'active')
-  const visibleStudents = statusFilter === 'active' ? activeStudents : inactiveStudents
+  const visibleStudents = statusFilter === 'applications' ? [] : statusFilter === 'active' ? activeStudents : inactiveStudents
 
   return (
     <div>
@@ -234,14 +273,14 @@ export function StudentsPage() {
           <h1 style={{ marginBottom: '0.25rem' }}>Students</h1>
         </div>
         {canManage && (
-          <button className="btn primary" onClick={() => { setShowCreate(true); setError('') }}>
+          <button className="btn primary" onClick={() => { setApplicantFormId(newApplicantId()); setError('') }}>
             + New Student
           </button>
         )}
       </div>
 
       {error ? <p className="error" style={{ marginBottom: '1rem' }}>{error}</p> : null}
-      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Temporary password (copy now):</strong> {createdPw}</div> : null}
+      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Copy now:</strong> {createdPw}</div> : null}
 
       {!canManage && profile ? (
         <p className="notice" style={{ background: '#fffbeb', borderColor: '#fde68a', color: '#92400e', marginBottom: '1rem' }}>
@@ -249,50 +288,23 @@ export function StudentsPage() {
         </p>
       ) : null}
 
-      {/* Add Student — a compact floating modal rather than an inline panel, so
-          creating a student doesn't push the whole page layout around. */}
-      {canManage && showCreate && (
-        <div className="modal-backdrop glass" onClick={() => setShowCreate(false)}>
-          <div className="modal glass" onClick={(e) => e.stopPropagation()}>
-            <button type="button" className="modal-glass-close" aria-label="Close" onClick={() => setShowCreate(false)}>✕</button>
-            <div className="modal-glass-header">
-              <h2 className="modal-glass-title">Add Student</h2>
-              <p className="muted small modal-glass-subtitle">Create an account and assign their courses.</p>
+      {/* New Student — the full application form. Saves an applicant (no account
+          yet); they become a student only via "Recruit Student" under Applications. */}
+      {canManage && applicantFormId && (
+        <div className="modal-backdrop" onClick={() => { setApplicantFormId(null); void load() }}>
+          <div className="modal" style={{ maxWidth: 820 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>📝 Student Application</h3>
+              <button type="button" className="btn small ghost" onClick={() => { setApplicantFormId(null); void load() }}>✕</button>
             </div>
-            <form className="form grid" onSubmit={onCreate}>
-              <label>Name<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full name" required /></label>
-              <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@example.com" required /></label>
-              <div className="full">
-                <label>
-                  Initial password <span className="modal-glass-field-hint">(optional — leave blank to auto-generate)</span>
-                  <input
-                    type="password"
-                    autoComplete="new-password"
-                    value={tempPassword}
-                    onChange={(e) => setTempPassword(e.target.value)}
-                    placeholder="Min 8 characters or leave blank"
-                  />
-                </label>
-              </div>
-              <div className="full">
-                <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.35rem' }}>Assign Courses</div>
-                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-                  {courses.map((c) => (
-                    <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontSize: '0.9rem', fontWeight: 400 }}>
-                      <input type="checkbox" checked={courseIds.includes(c.id)} onChange={() => toggleCourse(c.id)} />
-                      {c.title}
-                    </label>
-                  ))}
-                  {courses.length === 0 && <span className="muted small">No courses yet.</span>}
-                </div>
-              </div>
-              <div className="full modal-glass-actions">
-                <button type="button" className="btn secondary" onClick={() => setShowCreate(false)}>Cancel</button>
-                <button className="btn primary" type="submit" disabled={saving}>
-                  {saving ? 'Saving…' : 'Save Student'}
-                </button>
-              </div>
-            </form>
+            <StudentApplicationForm
+              studentId={applicantFormId}
+              defaultName=""
+              mode="applicant"
+              reviewerId={profile?.id}
+              courses={courses}
+              onSaved={(status) => { if (status === 'submitted') { setStatusFilter('applications'); void load() } }}
+            />
           </div>
         </div>
       )}
@@ -315,7 +327,49 @@ export function StudentsPage() {
         >
           Inactive Students ({inactiveStudents.length})
         </button>
+        {canManage && (
+          <button
+            type="button"
+            className={`btn small ${statusFilter === 'applications' ? 'primary' : 'secondary'}`}
+            onClick={() => setStatusFilter('applications')}
+          >
+            Applications ({applicants.length})
+          </button>
+        )}
       </div>
+
+      {statusFilter === 'applications' && (
+        applicants.length === 0 ? (
+          <EmptyState title="No applications" subtitle="Use “+ New Student” to fill in an application — recruit them from here." />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
+            {applicants.map((a) => {
+              const missing = validateApplication(a)
+              const target = courseLabel(a.targetCourseIds)
+              return (
+                <div key={a.studentId} className="panel" style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', margin: 0 }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ fontWeight: 700 }}>{a.fullName || 'Unnamed applicant'}</div>
+                    <div className="muted small">{a.email || 'No login email yet'}{target ? ` · ${target}` : ''}</div>
+                    <div className="small" style={{ marginTop: '0.3rem', display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                      <ApplicationStatusTag status={a.status} />
+                      {missing.length > 0
+                        ? <span className="muted">Missing: {missing.slice(0, 3).join(', ')}{missing.length > 3 ? ` +${missing.length - 3} more` : ''}</span>
+                        : <span style={{ color: 'var(--green)', fontWeight: 600 }}>Complete</span>}
+                    </div>
+                  </div>
+                  <div className="row" style={{ gap: '0.5rem' }}>
+                    <button type="button" className="btn small secondary" onClick={() => setApplicantFormId(a.studentId)}>View / Edit</button>
+                    <button type="button" className="btn small primary" disabled={recruitingId !== null} onClick={() => void recruit(a)}>
+                      {recruitingId === a.studentId ? 'Recruiting…' : '✓ Recruit Student'}
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      )}
 
       {/* Student card grid */}
       {openMenuId && (
@@ -335,6 +389,7 @@ export function StudentsPage() {
                 <div className="user-card-info">
                   <div className="user-card-name">{s.name}</div>
                   <div className="user-card-email">{s.email}</div>
+                  <div style={{ marginTop: '0.25rem' }}><ApplicationStatusTag status={appStatuses[s.id] ?? null} /></div>
                 </div>
                 <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
                   {statusLabel(s.status)}
@@ -392,11 +447,11 @@ export function StudentsPage() {
             </div>
           </div>
         ))}
-        {visibleStudents.length === 0 && !loading && (
+        {visibleStudents.length === 0 && !loading && statusFilter !== 'applications' && (
           <div style={{ gridColumn: '1/-1' }}>
             <EmptyState
               title={statusFilter === 'active' ? 'No active students found' : 'No inactive students'}
-              subtitle={statusFilter === 'active' ? 'Add a student to get started.' : 'Students marked inactive will show up here.'}
+              subtitle={statusFilter === 'active' ? 'Use “+ New Student” to add an application, then recruit them.' : 'Students marked inactive will show up here.'}
             />
           </div>
         )}
@@ -422,6 +477,11 @@ export function StudentsPage() {
               <button type="button" className="btn small secondary" onClick={() => setTimetableStudentId(selectedStudent.id)}>
                 🗓️ Timetable
               </button>
+              {canManage && (
+                <button type="button" className="btn small secondary" onClick={() => setApplicationStudentId(selectedStudent.id)}>
+                  📋 Application
+                </button>
+              )}
               {canManage && (
                 <button type="button" className="btn small secondary" onClick={() => setIdCardStudentId(selectedStudent.id)}>
                   🪪 ID Card
@@ -542,38 +602,70 @@ export function StudentsPage() {
         </section>
       )}
 
+      {applicationStudentId && (() => {
+        const st = students.find((x) => x.id === applicationStudentId)
+        if (!st) return null
+        return (
+          <div className="modal-backdrop" onClick={() => setApplicationStudentId(null)}>
+            <div className="modal" style={{ maxWidth: 820 }} onClick={(e) => e.stopPropagation()}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                <h3 style={{ margin: 0 }}>📋 Application — {st.name}</h3>
+                <button type="button" className="btn small ghost" onClick={() => setApplicationStudentId(null)}>✕</button>
+              </div>
+              <StudentApplicationForm
+                studentId={st.id}
+                defaultName={st.name}
+                mode="staff"
+                reviewerId={profile?.id}
+                onSaved={(status) => setAppStatuses((prev) => ({ ...prev, [st.id]: status }))}
+              />
+            </div>
+          </div>
+        )
+      })()}
+
       {idCardStudentId && idCardStudent && (
         <div className="modal-backdrop" onClick={() => setIdCardStudentId(null)}>
-          <div className="modal" style={{ maxWidth: 360, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: 520, textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0 }}>🪪 ID Card — {idCardStudent.name}</h3>
               <button type="button" className="btn small ghost" onClick={() => setIdCardStudentId(null)}>✕</button>
             </div>
-            {!idCardStudent.qrToken ? (
-              <>
-                <p className="muted small" style={{ marginBottom: '1rem' }}>
+            {cardNote ? <p className="muted small" style={{ marginTop: 0 }}>{cardNote}</p> : null}
+            {!idCardStudent.qrToken && (
+              <div style={{ marginBottom: '1rem' }}>
+                <p className="muted small" style={{ marginTop: 0 }}>
                   No QR code yet for this student — accounts created before Live Class
                   don't have one until it's generated once.
                 </p>
-                <button type="button" className="btn primary" disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
+                <button type="button" className="btn primary small" disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
                   {generatingQr ? 'Generating…' : 'Generate QR Code'}
                 </button>
-              </>
-            ) : (
-              <>
-                {qrDataUrl ? (
-                  <img src={qrDataUrl} alt={`QR code for ${idCardStudent.name}`} width={240} height={240} style={{ borderRadius: 'var(--radius)', border: '1px solid var(--border)' }} />
-                ) : (
-                  <p className="muted">Rendering…</p>
-                )}
-                <p className="muted small" style={{ marginTop: '0.75rem', marginBottom: '1rem' }}>
-                  Print this onto the student's ID card. Scanning it marks login, each
-                  period's punctuality, and logout on the Live Class page.
-                </p>
-                <button type="button" className="btn secondary small" disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
-                  {generatingQr ? 'Generating…' : '🔄 Regenerate (invalidates the old card)'}
-                </button>
-              </>
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {([['Front', cardFront, 'front'], ['Back', cardBack, 'back']] as const).map(([label, url, side]) => (
+                <div key={side} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                  {url ? (
+                    <img src={url} alt={`ID card ${side}`} style={{ width: 200, borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow)' }} />
+                  ) : (
+                    <div className="muted small" style={{ width: 200, height: 318, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border)', borderRadius: 12 }}>Rendering…</div>
+                  )}
+                  <button
+                    type="button"
+                    className="btn small primary"
+                    disabled={!url}
+                    onClick={() => url && downloadDataUrl(url, `${(idCardStudent.name || 'student').replace(/[^\w-]+/g, '_')}-id-card-${side}.jpg`)}
+                  >
+                    ⬇ {label} (JPEG)
+                  </button>
+                </div>
+              ))}
+            </div>
+            {idCardStudent.qrToken && (
+              <button type="button" className="btn ghost small" style={{ marginTop: '1rem' }} disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
+                {generatingQr ? 'Generating…' : '🔄 Regenerate QR (invalidates the old card)'}
+              </button>
             )}
           </div>
         </div>

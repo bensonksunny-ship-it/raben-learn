@@ -1,16 +1,18 @@
 import { useEffect, useState } from 'react'
-import { doc, getDoc, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import { mapCourseDoc } from '../../lib/courses'
+import { mapActivityTypeDoc } from '../../lib/activityTypes'
 import { LandscapePrompt } from '../../components/LandscapePrompt'
 import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import {
-  todayStr, addDays, mondayOf,
+  todayStr, addDays, mondayOf, loadEffectiveWeekSchedule,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
 } from '../../components/manager/schedulerShared'
-import type { ClassTimetable, DailyPlan, DailyPlanItem, ElectiveSchedule, Weekday } from '../../types'
+import type { ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, Weekday } from '../../types'
 
 const JS_DAY_TO_WEEKDAY: (Weekday | null)[] = [null, 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -47,6 +49,27 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  // Feed the Elective Modal's structured Title dropdown (subjects + activities) —
+  // same source data as the manager's Schedule page, read-only here since a
+  // student can't manage activity types (no "Manage Activity Types" link passed
+  // to PriorityScheduler below).
+  const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
+  const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [coursesSnap, activityTypesSnap] = await Promise.all([
+          getDocs(collection(db, 'courses')),
+          getDocs(collection(db, 'activity_types')),
+        ])
+        setSyllabusCourses(coursesSnap.docs.map(mapCourseDoc))
+        setActivityTypes(activityTypesSnap.docs.map(mapActivityTypeDoc))
+      } catch {
+        // Non-critical — the Elective Modal's dropdown just has fewer options.
+      }
+    })()
+  }, [])
 
   const weekStart = mondayOf(todayStr())
   const weekDates = Array.from({ length: 6 }, (_, i) => addDays(weekStart, i))
@@ -58,15 +81,14 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
     if (!uid) return
     void (async () => {
       try {
-        const [timetableSnap, electivesSnap, overrideTimetableSnap, overrideElectivesSnap, ...planSnaps] = await Promise.all([
-          getDoc(doc(db, 'class_timetable', 'master')),
-          getDoc(doc(db, 'elective_sessions', 'master')),
+        const [effective, overrideTimetableSnap, overrideElectivesSnap, ...planSnaps] = await Promise.all([
+          loadEffectiveWeekSchedule(db, weekStart),
           getDoc(doc(db, 'student_timetables', uid)),
           getDoc(doc(db, 'student_electives', uid)),
           ...weekDates.map((d) => getDoc(doc(db, 'student_daily_plans', `${uid}_${d}`))),
         ])
-        setTimetable(normalizeTimetable(timetableSnap.exists() ? timetableSnap.data() : undefined))
-        setElectives(normalizeElectives(electivesSnap.exists() ? electivesSnap.data() : undefined))
+        setTimetable(effective.timetable)
+        setElectives(effective.electives)
         setHasOverride(overrideTimetableSnap.exists() || overrideElectivesSnap.exists())
         setTimetableOverride(overrideTimetableSnap.exists() ? normalizeTimetable(overrideTimetableSnap.data()) : null)
         setElectiveOverride(overrideElectivesSnap.exists() ? normalizeElectives(overrideElectivesSnap.data()) : null)
@@ -108,7 +130,7 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
     setSaving(true); setError('')
     if (hasOverride) setTimetableOverride(next); else setTimetable(next) // optimistic
     try {
-      await setDoc(doc(db, hasOverride ? 'student_timetables' : 'class_timetable', hasOverride ? uid : 'master'), next)
+      await setDoc(doc(db, hasOverride ? 'student_timetables' : 'class_timetable', hasOverride ? uid : weekStart), next)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save the class timetable')
     } finally {
@@ -121,7 +143,7 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
     setSaving(true); setError('')
     if (hasOverride) setElectiveOverride(next); else setElectives(next)
     try {
-      await setDoc(doc(db, hasOverride ? 'student_electives' : 'elective_sessions', hasOverride ? uid : 'master'), next)
+      await setDoc(doc(db, hasOverride ? 'student_electives' : 'elective_sessions', hasOverride ? uid : weekStart), next)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save elective sessions')
     } finally {
@@ -160,6 +182,8 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
           weekDates={weekDates}
           weekPlans={weekPlans}
           focusDay={mode === 'today' ? todayWeekday : null}
+          syllabusCourses={syllabusCourses}
+          activityTypes={activityTypes}
         />
       )}
     </div>

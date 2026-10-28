@@ -22,6 +22,9 @@ import { ConsultantDashboard } from './pages/consultant/ConsultantDashboard'
 const UserManagement = lazy(() =>
   import('./pages/admin/UserManagement').then((m) => ({ default: m.UserManagement })),
 )
+const StudentApplicationPage = lazy(() =>
+  import('./pages/student/StudentApplicationPage').then((m) => ({ default: m.StudentApplicationPage })),
+)
 const StudentsPage = lazy(() =>
   import('./pages/admin/StudentsPage').then((m) => ({ default: m.StudentsPage })),
 )
@@ -208,6 +211,7 @@ export default function App() {
             <Route index element={<StudentDashboard />} />
             <Route path="planner" element={<StudentDailyPlanner />} />
             <Route path="history" element={<StudentHistory />} />
+            <Route path="application" element={<Suspense fallback={<AdminRouteFallback />}><StudentApplicationPage /></Suspense>} />
           </Route>
           <Route path="profile" element={<ProfilePage />} />
           <Route path="exam" element={<ExamPage />} />

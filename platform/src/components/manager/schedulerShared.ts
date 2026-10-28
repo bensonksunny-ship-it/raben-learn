@@ -4,6 +4,7 @@
  * `PriorityScheduler.tsx` itself — a component file may only export components, or
  * Fast Refresh stops working for it.
  */
+import { doc, getDoc, type Firestore } from 'firebase/firestore'
 import type { ClassTimetable, Course, ElectiveSchedule, Weekday } from '../../types'
 
 export const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -65,6 +66,48 @@ export function formatDayDate(s: string): string {
 export function formatWeekRangeLabel(monday: string): string {
   const saturday = addDays(monday, 5)
   return `${formatDayDate(monday)} – ${formatDayDate(saturday)}, ${parseDateStr(saturday).getUTCFullYear()}`
+}
+
+// ─── Per-week persistence ───────────────────────────────────────────────────────
+//
+// `class_timetable`/`elective_sessions` used to be a single static `master` doc
+// each — one recurring template, no date-bound history. They're now one doc per
+// week, keyed by that week's Monday (`weekKeyOf`/`mondayOf`); `master` is kept
+// around purely as the legacy pre-migration fallback below, never written to
+// again. Only the Schedule page itself needs to know whether a *specific* week
+// has been explicitly saved yet (to show the "no schedule for this week" prompt
+// and run "Copy from Previous Week") — see `SchedulePage.tsx`'s own loader for
+// that. Everything else that just wants "the schedule in effect this week"
+// (student views, the scan/kiosk pages) uses `loadEffectiveWeekSchedule` below.
+
+/** This week's Firestore doc id for `class_timetable`/`elective_sessions` — the
+ *  Monday of whichever week `dateStr` falls in. */
+export function weekKeyOf(dateStr: string): string {
+  return mondayOf(dateStr)
+}
+
+/**
+ * The schedule actually in effect for a given week: that week's own saved doc
+ * if one exists, else the legacy shared `master` doc, else blank defaults — so
+ * every read-only page keeps showing today's real schedule even for a week an
+ * admin hasn't explicitly opened/saved from the Schedule page yet.
+ */
+export async function loadEffectiveWeekSchedule(
+  db: Firestore, weekKey: string,
+): Promise<{ timetable: ClassTimetable; electives: ElectiveSchedule }> {
+  const [weekTT, weekEL, masterTT, masterEL] = await Promise.all([
+    getDoc(doc(db, 'class_timetable', weekKey)),
+    getDoc(doc(db, 'elective_sessions', weekKey)),
+    getDoc(doc(db, 'class_timetable', 'master')),
+    getDoc(doc(db, 'elective_sessions', 'master')),
+  ])
+  const timetable = normalizeTimetable(
+    (weekTT.exists() ? weekTT.data() : undefined) ?? (masterTT.exists() ? masterTT.data() : undefined),
+  )
+  const electives = normalizeElectives(
+    (weekEL.exists() ? weekEL.data() : undefined) ?? (masterEL.exists() ? masterEL.data() : undefined),
+  )
+  return { timetable, electives }
 }
 
 // ─── Shared class timetable (Priority 1) ───────────────────────────────────────

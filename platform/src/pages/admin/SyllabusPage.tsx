@@ -1,11 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { ClassTimetable, Course, ElectiveSchedule, LevelId, Session, Topic, TopicType } from '../../types'
 import { LEVELS, levelName } from '../../lib/levels'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { mapCourseDoc } from '../../lib/courses'
-import { computeSubjectWeeklyHours, normalizeTimetable, normalizeElectives } from '../../components/manager/schedulerShared'
+import { computeSubjectWeeklyHours, todayStr, weekKeyOf, loadEffectiveWeekSchedule } from '../../components/manager/schedulerShared'
 import ExamManager from './ExamManager'
 import { useAuth } from '../../context/AuthContext'
 
@@ -134,12 +134,9 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   }
 
   async function loadScheduleForHours() {
-    const [tSnap, eSnap] = await Promise.all([
-      getDoc(doc(db, 'class_timetable', 'master')),
-      getDoc(doc(db, 'elective_sessions', 'master')),
-    ])
-    setScheduleTimetable(normalizeTimetable(tSnap.exists() ? tSnap.data() : undefined))
-    setScheduleElectives(normalizeElectives(eSnap.exists() ? eSnap.data() : undefined))
+    const { timetable, electives } = await loadEffectiveWeekSchedule(db, weekKeyOf(todayStr()))
+    setScheduleTimetable(timetable)
+    setScheduleElectives(electives)
   }
 
   // courseId -> { scheduledMinutes, completedMinutes } this week, from the shared

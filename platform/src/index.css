@@ -181,6 +181,26 @@ h3 { font-size: 1.15rem; font-weight: 700; line-height: 1.2; margin: 0 0 0.4rem;
 }
 .mobile-drawer-backdrop.open { opacity: 1; pointer-events: auto; }
 
+/* Right-edge slide-out drawer for a small form/detail that doesn't warrant a
+   full centered modal — e.g. the Schedule page's Live Class Link panel. Same
+   open/backdrop transform pattern as `.mobile-drawer` above, but a light
+   content card sliding in from the right rather than the dark nav rail. */
+.side-drawer {
+  width: min(380px, 92vw); background: var(--surface); color: var(--text);
+  display: flex; flex-direction: column; gap: 0.75rem;
+  padding: calc(env(safe-area-inset-top, 0px) + 1.25rem) 1.25rem 1.25rem;
+  position: fixed; top: 0; right: 0; height: 100dvh; z-index: 330;
+  box-shadow: -10px 0 36px rgba(10,18,40,0.18);
+  transform: translateX(100%); transition: transform 0.22s ease;
+  overflow-y: auto;
+}
+.side-drawer.open { transform: translateX(0); }
+.side-drawer-backdrop {
+  position: fixed; inset: 0; z-index: 329; background: rgba(10,18,40,0.35);
+  opacity: 0; pointer-events: none; transition: opacity 0.22s ease;
+}
+.side-drawer-backdrop.open { opacity: 1; pointer-events: auto; }
+
 .form { display: flex; flex-direction: column; gap: 0.75rem; }
 .form.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
 .form.grid .full { grid-column: 1 / -1; }

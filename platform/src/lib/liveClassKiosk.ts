@@ -3,6 +3,7 @@ import { getAuth } from 'firebase/auth'
 import { getFirestore } from 'firebase/firestore'
 import { getValidatedFirebaseEnv } from '../firebase/env'
 import { callableHttpUrl } from './adminGcfCallables'
+import { PUBLIC_APP_URL } from './publicUrl'
 
 /** A secondary, isolated Firebase app — so signing into the kiosk's custom-token
  *  session never touches (or signs out) a staff member's own session if the Live
@@ -52,12 +53,6 @@ export async function resolveLiveClassKioskToken(token: string): Promise<string>
   }
   return o.result.customToken
 }
-
-/** Permanent production site the kiosk link always points at — so the link is the
- *  same whether it's copied from localhost, Firebase Hosting, or a per-deploy
- *  Vercel preview URL. Override with `VITE_PUBLIC_APP_URL` if the domain changes. */
-const PUBLIC_APP_URL = (import.meta.env.VITE_PUBLIC_APP_URL as string | undefined)?.trim().replace(/\/+$/, '')
-  || 'https://platform-beta-cyan.vercel.app'
 
 /** Builds the shareable kiosk URL on the permanent production site. */
 export function liveClassKioskUrl(token: string): string {

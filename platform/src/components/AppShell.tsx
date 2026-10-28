@@ -70,6 +70,7 @@ export default function AppShell() {
       { to: '/student/planner', label: "Today's Plan", icon: '📅' },
       { to: '/student/history', label: 'History', icon: '🏆' },
       { to: '/exam', label: 'Exams', icon: '📝' },
+      { to: '/student/application', label: 'My Application', icon: '📋' },
     ] : []),
     ...(isManager ? [
       { to: '/manager?view=users', label: 'Users', icon: '👤' },

@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { LockIcon, FlexIcon } from './StatIcons'
 import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, formatTime } from './schedulerShared'
 import type {
   ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, ElectiveSession,
-  LessonItemType, Session, TimetableDay, TimetablePeriod, Topic, TopicType, Weekday,
+  LessonItemType, TimetableDay, TimetablePeriod, Weekday,
 } from '../../types'
 
 /** Priority 1 — locked school periods (green, matches LockIcon). */
@@ -133,81 +133,13 @@ interface ElectiveSectionDraft {
   title: string
   startTime: string
   durationMinutes: number
-  /** Set when `title` was picked from the syllabus autocomplete and resolved to a
-   *  Session — drives the "view & add activities" panel under the Title field.
-   *  Cleared whenever the title is hand-edited, so it never points at a session
-   *  whose name no longer matches what's actually in the field. */
-  linkedSessionId: string | null
-  /** Set when `title` was picked from a custom Activity Type instead — drives this
-   *  section's card color/icon on the grid. Cleared on any hand-edit, same as
-   *  `linkedSessionId` (and mutually exclusive with it). */
+  /** Set when `title` was picked from a custom Activity Type instead of a
+   *  syllabus Course — drives this section's card color/icon on the grid.
+   *  Mutually exclusive with `courseId`. */
   activityTypeId: string | null
-  /** Which syllabus Course `title` resolved to, when picked from a course/session/
-   *  topic suggestion — feeds the subject-wise hours summary. Cleared on hand-edit
-   *  or when an Activity Type is picked instead, same as `linkedSessionId`. */
+  /** Which syllabus Course `title` resolved to, when picked as a Subject —
+   *  feeds the subject-wise hours summary. Mutually exclusive with `activityTypeId`. */
   courseId: string | null
-}
-
-/** One row in the title autocomplete — a syllabus Course/Session/Topic, or a
- *  custom non-subject Activity Type (Lunch, Assembly, …), all searched together. */
-interface SyllabusSuggestion {
-  key: string
-  title: string
-  kind: 'course' | 'session' | 'topic' | 'activity'
-  detail: string
-  /** Set for 'session' and 'topic' rows — the Session the activities panel should
-   *  show when this suggestion is picked. A bare Course has no activities of its
-   *  own (only its sessions do), so it's null there. Always null for 'activity'. */
-  sessionId: string | null
-  /** The Course this row belongs to — set for 'course'/'session'/'topic', always
-   *  null for 'activity'. Feeds the subject-wise hours summary once picked. */
-  courseId: string | null
-  /** 'activity' rows only — carried through so `onPick` can auto-fill duration
-   *  and tag the saved period/session with this type (for its card color/icon). */
-  activityType?: ActivityType
-}
-
-/**
- * Only courses actually placed under a Syllabus level feed the autocomplete — a
- * `levelId` of null means the course sits in the Syllabus Builder's "Unassigned"
- * bucket (never properly leveled: leftover test rows, mock seed data, etc.), and
- * those shouldn't surface as elective title suggestions. Sessions/topics inherit
- * the restriction from their parent course.
- */
-function buildSyllabusSuggestions(courses: Course[], sessions: Session[]): SyllabusSuggestion[] {
-  const leveledCourseIds = new Set(courses.filter((c) => c.levelId !== null).map((c) => c.id))
-  const out: SyllabusSuggestion[] = []
-  for (const c of courses) {
-    if (c.levelId === null) continue
-    if (!c.title.trim()) continue
-    out.push({ key: `course_${c.id}`, title: c.title, kind: 'course', detail: 'Course', sessionId: null, courseId: c.id })
-  }
-  for (const s of sessions) {
-    if (!s.courseId || !leveledCourseIds.has(s.courseId)) continue
-    if (s.title.trim()) {
-      out.push({
-        key: `session_${s.id}`, title: s.title, kind: 'session',
-        detail: s.courseName ? `Session · ${s.courseName}` : 'Session', sessionId: s.id, courseId: s.courseId,
-      })
-    }
-    for (const t of s.activities) {
-      if (!t.title.trim()) continue
-      out.push({ key: `topic_${s.id}_${t.id}`, title: t.title, kind: 'topic', detail: `Topic · ${s.title}`, sessionId: s.id, courseId: s.courseId })
-    }
-  }
-  return out
-}
-
-/** Custom non-subject activities (Lunch, Assembly, Travel, …) as title-autocomplete
- *  rows, listed first — picking one is a fixed-duration shortcut, not something to
- *  dig for among dozens of syllabus topics. */
-function buildActivityTypeSuggestions(activityTypes: ActivityType[]): SyllabusSuggestion[] {
-  return activityTypes
-    .filter((a) => a.name.trim())
-    .map((a) => ({
-      key: `activity_${a.id}`, title: a.name, kind: 'activity' as const,
-      detail: `Activity · ${a.defaultDurationMinutes} min`, sessionId: null, courseId: null, activityType: a,
-    }))
 }
 
 type ModalState =
@@ -259,19 +191,19 @@ export interface PrioritySchedulerProps {
   claimRole?: 'student' | 'mentor'
   /** Recorded as the elective's `mentorName` when a mentor claims a slot. */
   claimerName?: string | null
-  /** Courses and sessions from the Syllabus page — feed the "Add elective" title
-   *  field's autocomplete. Only meaningful when `editingAllowed` — omitted (or
-   *  empty) elsewhere, which degrades gracefully to a plain text input. */
+  /** Leveled Courses from the Syllabus page — the "Subject" dropdown's items in
+   *  the Title field's Subject/Activity selector. Only meaningful when
+   *  `editingAllowed` — omitted (or empty) elsewhere just shows no subjects. */
   syllabusCourses?: Course[]
-  syllabusSessions?: Session[]
-  /** Appends a topic to a syllabus session — wired to the "+ Add activity" quick
-   *  action under a Title field once it's linked to a session. */
-  onAddSyllabusActivity?: (sessionId: string, topic: Topic) => Promise<void>
-  /** Custom non-subject categories (Lunch, Assembly, …) — offered alongside
-   *  syllabus suggestions in the same title field, and looked up by id to color
-   *  a period's/session's card once one's been picked. Omitted (or empty)
-   *  degrades gracefully to the plain Priority-1/2 look, same as the syllabus props. */
+  /** Custom non-subject categories (Lunch, Assembly, …) — the "Activity"
+   *  dropdown's items in the same Title field selector, and looked up by id to
+   *  color a period's/session's card once one's been picked. Omitted (or empty)
+   *  degrades gracefully to the plain Priority-1/2 look, same as `syllabusCourses`. */
   activityTypes?: ActivityType[]
+  /** Opens the Schedule page's "Manage Activity Types" panel — wired to the
+   *  "Don't see it?" link under the Title field's structured Subject/Activity
+   *  selector (see `SubjectOrActivitySelect`). Omitted hides that link. */
+  onManageActivityTypes?: () => void
 }
 
 /**
@@ -292,14 +224,11 @@ export function PriorityScheduler({
   timetable, electives, editingAllowed, saving,
   onSaveTimetable, onSaveElectives, weekDates, weekPlans,
   claimRole, claimerName, focusDay = null,
-  syllabusCourses = [], syllabusSessions = [], onAddSyllabusActivity,
-  activityTypes = [],
+  syllabusCourses = [],
+  activityTypes = [], onManageActivityTypes,
 }: PrioritySchedulerProps) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
-  // Activity types first — a fixed-duration shortcut, not something to hunt for
-  // among dozens of syllabus topics.
-  const syllabusSuggestions = [...buildActivityTypeSuggestions(activityTypes), ...buildSyllabusSuggestions(syllabusCourses, syllabusSessions)]
   const activityTypeById = new Map(activityTypes.map((a) => [a.id, a]))
   /** A period's/session's own Activity Type color if it has one, else the plain
    *  Priority-1/2 fallback — every card color usage below goes through this. */
@@ -325,7 +254,7 @@ export function PriorityScheduler({
     setModalError('')
     setModal({
       kind: 'elective', mode: 'add', day,
-      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), linkedSessionId: null, activityTypeId: null, courseId: null }],
+      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), activityTypeId: null, courseId: null }],
     })
   }
   function openElectiveEditModal(day: Weekday, session: ElectiveSession) {
@@ -380,7 +309,7 @@ export function PriorityScheduler({
     const lastStartMin = timeStrToMinutes(last.startTime) ?? 0
     setModal({
       ...modal,
-      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, linkedSessionId: null, activityTypeId: null, courseId: null }],
+      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, activityTypeId: null, courseId: null }],
     })
   }
   function removeElectiveSection(index: number) {
@@ -992,25 +921,19 @@ export function PriorityScheduler({
                           <input type="time" value={section.startTime} onChange={(e) => updateElectiveSection(i, { startTime: e.target.value })} required autoFocus={i === 0} />
                         </label>
                         <label>Title
-                          <SyllabusTitleField
-                            value={section.title}
-                            suggestions={syllabusSuggestions}
-                            placeholder="Search or enter title"
-                            onChange={(title) => updateElectiveSection(i, { title, linkedSessionId: null, activityTypeId: null, courseId: null })}
-                            onPick={(s) => (s.kind === 'activity' && s.activityType
-                              ? updateElectiveSection(i, {
-                                  title: s.title, durationMinutes: s.activityType.defaultDurationMinutes,
-                                  activityTypeId: s.activityType.id, linkedSessionId: null, courseId: null,
-                                })
-                              : updateElectiveSection(i, { title: s.title, linkedSessionId: s.sessionId, activityTypeId: null, courseId: s.courseId }))}
+                          <SubjectOrActivitySelect
+                            courseId={section.courseId}
+                            activityTypeId={section.activityTypeId}
+                            courses={syllabusCourses}
+                            activityTypes={activityTypes}
+                            placeholder="— Open slot (leave for a student/mentor to claim) —"
+                            onPick={({ title, courseId, activityTypeId, durationMinutes }) => updateElectiveSection(i, {
+                              title, courseId, activityTypeId,
+                              ...(durationMinutes != null ? { durationMinutes } : {}),
+                            })}
+                            onManageActivityTypes={onManageActivityTypes}
                           />
                         </label>
-                        {section.linkedSessionId && (
-                          <SessionActivitiesPanel
-                            session={syllabusSessions.find((s) => s.id === section.linkedSessionId) ?? null}
-                            onAddActivity={(topic) => onAddSyllabusActivity?.(section.linkedSessionId!, topic) ?? Promise.resolve()}
-                          />
-                        )}
                         <div>
                           <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Duration</div>
                           <div className="row" style={{ marginBottom: '0.5rem' }}>
@@ -1096,14 +1019,18 @@ export function PriorityScheduler({
                   )}
                   <label>Start time<input type="time" value={modal.startTime} onChange={(e) => setModal({ ...modal, startTime: e.target.value })} required autoFocus /></label>
                   <label>Title
-                    <SyllabusTitleField
-                      value={modal.title}
-                      suggestions={syllabusSuggestions}
-                      placeholder={modal.kind === 'locked' ? 'Search a subject or enter a title' : 'Search or enter title'}
-                      onChange={(title) => setModal({ ...modal, title, activityTypeId: null, courseId: null })}
-                      onPick={(s) => (s.kind === 'activity' && s.activityType
-                        ? setModal({ ...modal, title: s.title, durationMinutes: s.activityType.defaultDurationMinutes, activityTypeId: s.activityType.id, courseId: null })
-                        : setModal({ ...modal, title: s.title, activityTypeId: null, courseId: s.courseId }))}
+                    <SubjectOrActivitySelect
+                      courseId={modal.courseId}
+                      activityTypeId={modal.activityTypeId}
+                      courses={syllabusCourses}
+                      activityTypes={activityTypes}
+                      placeholder="Select a subject or activity…"
+                      required
+                      onPick={({ title, courseId, activityTypeId, durationMinutes }) => setModal({
+                        ...modal, title, courseId, activityTypeId,
+                        ...(durationMinutes != null ? { durationMinutes } : {}),
+                      })}
+                      onManageActivityTypes={onManageActivityTypes}
                     />
                   </label>
                   {modal.kind === 'elective' && (
@@ -1172,140 +1099,76 @@ export function PriorityScheduler({
   )
 }
 
-interface SyllabusTitleFieldProps {
-  value: string
-  suggestions: SyllabusSuggestion[]
-  placeholder?: string
-  onChange: (title: string) => void
-  onPick: (suggestion: SyllabusSuggestion) => void
+interface SubjectOrActivitySelectProps {
+  courseId: string | null
+  activityTypeId: string | null
+  courses: Course[]
+  activityTypes: ActivityType[]
+  placeholder: string
+  required?: boolean
+  onPick: (pick: { title: string; courseId: string | null; activityTypeId: string | null; durationMinutes?: number }) => void
+  onManageActivityTypes?: () => void
 }
 
-const SYLLABUS_KIND_ICON: Record<SyllabusSuggestion['kind'], string> = { course: '📚', session: '🗂️', topic: '📝', activity: '📌' }
-
 /**
- * Searchable dropdown over the syllabus (courses, sessions, topics) for an elective's
- * Title field — type to filter, or focus an empty field to browse what's there. Still
- * a plain text input underneath, so typing something that matches nothing just keeps
- * that free text (today's behavior); suggestions sit on top rather than replacing it.
+ * Structured Title field, shared by both the School Period and Elective
+ * modals — two dependent dropdowns instead of one. The first picks the
+ * category ("Subject" vs "Activity"); the second then lists only that
+ * category's items (leveled syllabus Courses, or custom Activity Types).
+ * Every period/elective is now either a real subject or a defined Activity
+ * Type — no free text, no session/topic-level granularity.
  */
-function SyllabusTitleField({ value, suggestions, placeholder, onChange, onPick }: SyllabusTitleFieldProps) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef<HTMLDivElement | null>(null)
-
-  useEffect(() => {
-    if (!open) return
-    function onDocPointerDown(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDocPointerDown)
-    return () => document.removeEventListener('mousedown', onDocPointerDown)
-  }, [open])
-
-  const q = value.trim().toLowerCase()
-  const matches = (q ? suggestions.filter((s) => s.title.toLowerCase().includes(q)) : suggestions).slice(0, 8)
-
-  return (
-    <div className="syllabus-autocomplete" ref={wrapRef}>
-      <input
-        value={value}
-        onChange={(e) => { onChange(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        placeholder={placeholder}
-        autoComplete="off"
-      />
-      {open && matches.length > 0 && (
-        <div className="syllabus-autocomplete-list">
-          {matches.map((s) => (
-            <button
-              key={s.key}
-              type="button"
-              className="syllabus-autocomplete-item"
-              onClick={() => { onPick(s); setOpen(false) }}
-            >
-              <span aria-hidden>{s.kind === 'activity' && s.activityType ? s.activityType.icon : SYLLABUS_KIND_ICON[s.kind]}</span>
-              <span className="syllabus-autocomplete-item-text">
-                <span className="syllabus-autocomplete-item-title">{s.title}</span>
-                <span className="muted small">{s.detail}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+function SubjectOrActivitySelect({ courseId, activityTypeId, courses, activityTypes, placeholder, required, onPick, onManageActivityTypes }: SubjectOrActivitySelectProps) {
+  const leveledCourses = courses.filter((c) => c.levelId !== null && c.title.trim())
+  // Local, not derived from courseId/activityTypeId — picking a category but not
+  // yet an item would otherwise have nothing to keep the second dropdown open
+  // against (both ids are null until an item's actually chosen).
+  const [category, setCategory] = useState<'' | 'subject' | 'activity'>(
+    () => (activityTypeId ? 'activity' : courseId ? 'subject' : ''),
   )
-}
 
-interface SessionActivitiesPanelProps {
-  session: Session | null
-  onAddActivity: (topic: Topic) => Promise<void>
-}
+  function handleCategoryChange(e: ChangeEvent<HTMLSelectElement>) {
+    setCategory(e.target.value as '' | 'subject' | 'activity')
+    // Whatever was picked before belonged to the other category — clear it so
+    // a stale courseId/activityTypeId never lingers once the category changes.
+    onPick({ title: '', courseId: null, activityTypeId: null })
+  }
 
-/**
- * Shown under the Title field once it's linked to a syllabus session — lets a manager
- * glance at that session's existing activities and add a new one on the spot, without
- * leaving the "Add elective" modal for the Syllabus page.
- */
-function SessionActivitiesPanel({ session, onAddActivity }: SessionActivitiesPanelProps) {
-  const [adding, setAdding] = useState(false)
-  const [title, setTitle] = useState('')
-  const [type, setType] = useState<TopicType>('concept')
-  const [saving, setSaving] = useState(false)
-
-  if (!session) return null
-
-  async function save() {
-    const t = title.trim()
-    if (!t) return
-    setSaving(true)
-    try {
-      await onAddActivity({ id: crypto.randomUUID(), title: t, type, remark: '' })
-      setTitle(''); setType('concept'); setAdding(false)
-    } finally {
-      setSaving(false)
+  function handleItemChange(e: ChangeEvent<HTMLSelectElement>) {
+    const v = e.target.value
+    if (!v) { onPick({ title: '', courseId: null, activityTypeId: null }); return }
+    if (category === 'activity') {
+      const a = activityTypes.find((x) => x.id === v)
+      if (a) onPick({ title: a.name, courseId: null, activityTypeId: a.id, durationMinutes: a.defaultDurationMinutes })
+    } else {
+      const c = leveledCourses.find((x) => x.id === v)
+      if (c) onPick({ title: c.title, courseId: c.id, activityTypeId: null })
     }
   }
 
   return (
-    <div className="syllabus-activities-panel">
-      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
-        <strong style={{ fontSize: '0.82rem' }}>Activities — {session.title}</strong>
-        <button type="button" className="btn small secondary" onClick={() => setAdding((v) => !v)}>
-          {adding ? '✕ Cancel' : '+ Add activity'}
-        </button>
-      </div>
-      {session.activities.length === 0 ? (
-        <p className="muted small" style={{ margin: '0.4rem 0 0' }}>No activities yet.</p>
-      ) : (
-        <ul className="syllabus-activities-list">
-          {session.activities.map((t) => {
-            const colors = itemTypeColors(t.type)
-            return (
-              <li key={t.id}>
-                <span className="tag" style={{ background: colors.bg, color: colors.text, border: 'none' }}>
-                  {itemTypeLabel(t.type)}
-                </span>
-                {t.title}
-              </li>
-            )
-          })}
-        </ul>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+      <select value={category} onChange={handleCategoryChange} required={required}>
+        <option value="" disabled={required}>{placeholder}</option>
+        <option value="subject">📚 Subject</option>
+        <option value="activity">📌 Activity</option>
+      </select>
+      {category === 'subject' && (
+        <select value={courseId ?? ''} onChange={handleItemChange} required={required}>
+          <option value="" disabled={required}>Select a subject…</option>
+          {leveledCourses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+        </select>
       )}
-      {adding && (
-        <div className="row" style={{ marginTop: '0.5rem', alignItems: 'center' }}>
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="New activity title"
-            style={{ flex: 1, minWidth: 120 }}
-          />
-          <select value={type} onChange={(e) => setType(e.target.value as TopicType)}>
-            <option value="concept">Concept</option>
-            <option value="exercise">Exercise</option>
-          </select>
-          <button type="button" className="btn small primary" disabled={!title.trim() || saving} onClick={() => void save()}>
-            {saving ? 'Adding…' : 'Add'}
-          </button>
-        </div>
+      {category === 'activity' && (
+        <select value={activityTypeId ?? ''} onChange={handleItemChange} required={required}>
+          <option value="" disabled={required}>Select an activity…</option>
+          {activityTypes.map((a) => <option key={a.id} value={a.id}>{a.icon} {a.name}</option>)}
+        </select>
+      )}
+      {category === 'activity' && onManageActivityTypes && (
+        <button type="button" className="btn small secondary" onClick={onManageActivityTypes}>
+          Don't see it? ⚙️ Manage Activity Types
+        </button>
       )}
     </div>
   )

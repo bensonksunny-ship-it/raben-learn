@@ -51,7 +51,12 @@ export interface TimetableDay {
   periods: TimetablePeriod[]
 }
 
-/** The single shared, platform-wide weekly class timetable (`class_timetable/master`). */
+/** The shared, platform-wide class timetable for one week — stored at
+ *  `class_timetable/{weekStartDate}` (that week's Monday, "YYYY-MM-DD"), not a
+ *  single static `master` doc. The legacy `class_timetable/master` doc is kept
+ *  only as the one-time migration fallback `loadEffectiveWeekSchedule`/"Copy
+ *  from Previous Week" read when a week has no doc of its own yet — see
+ *  `schedulerShared.ts`. */
 export interface ClassTimetable {
   /** "HH:MM" grid display bounds — default school-day window is 10:00–18:00. */
   windowStart: string
@@ -95,9 +100,10 @@ export interface ElectiveDay {
   sessions: ElectiveSession[]
 }
 
-/** The single shared, platform-wide weekly elective-session board
- *  (`elective_sessions/master`) — Priority-2 bookings shown over the
- *  locked `ClassTimetable` (Priority 1) on the same scheduler grid. */
+/** The shared, platform-wide elective-session board for one week — same
+ *  per-week doc id scheme as `ClassTimetable` (`elective_sessions/{weekStartDate}`,
+ *  `master` kept only as the migration fallback). Priority-2 bookings shown
+ *  over the locked `ClassTimetable` (Priority 1) on the same scheduler grid. */
 export interface ElectiveSchedule {
   days: Record<Weekday, ElectiveDay>
 }

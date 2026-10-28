@@ -1,9 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc, updateDoc } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
 import { mapCourseDoc } from '../../lib/courses'
-import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { mapActivityTypeDoc, ACTIVITY_TYPE_COLOR_PRESETS } from '../../lib/activityTypes'
 import { StudentSelect } from '../../components/StudentSelect'
 import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelect'
@@ -19,7 +18,7 @@ import {
   computeSubjectWeeklyHours,
 } from '../../components/manager/schedulerShared'
 import type {
-  ActivityType, ClassTimetable, Course, ElectiveSchedule, Session, Topic, UserProfile, Weekday,
+  ActivityType, ClassTimetable, Course, ElectiveSchedule, UserProfile, Weekday,
 } from '../../types'
 
 /**
@@ -81,12 +80,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
 
   const [error, setError] = useState('')
 
-  // Syllabus data (Priority 2's "Add elective" title autocomplete draws suggestions
-  // from here) — loaded once, independent of the student/week selection above.
+  // Syllabus data (the Title field's Subject dropdown draws its items from
+  // here) — loaded once, independent of the student/week selection above.
   const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
-  const [syllabusSessions, setSyllabusSessions] = useState<Session[]>([])
-  // Custom non-subject activities (Lunch, Assembly, …) — same title autocomplete,
-  // managed from the "Manage Activity Types" panel below.
+  // Custom non-subject activities (Lunch, Assembly, …) — the Title field's
+  // Activity dropdown, managed from the "Manage Activity Types" panel below.
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
   const [showActivityTypesModal, setShowActivityTypesModal] = useState(false)
 
@@ -119,57 +117,84 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     })()
   }, [])
 
-  useEffect(() => {
-    void (async () => {
-      try {
-        const snap = await getDoc(doc(db, 'class_timetable', 'master'))
-        setTimetable(normalizeTimetable(snap.exists() ? snap.data() : undefined))
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load the class timetable')
-        setTimetable(createDefaultTimetable())
-      } finally {
-        setLoadingTimetable(false)
-      }
-    })()
-  }, [])
+  // `class_timetable`/`elective_sessions` are now one doc per week (keyed by
+  // `weekStart`, that week's Monday) rather than a single static `master` doc —
+  // re-fetches whenever the week changes. `weekHasOwnDoc` tracks whether *this*
+  // week has ever been explicitly saved — false shows the "no schedule for this
+  // week yet" prompt (with "Copy from Previous Week") below, instead of silently
+  // falling back to some other week's data without saying so.
+  const [weekHasOwnDoc, setWeekHasOwnDoc] = useState(false)
+  const [copyingWeek, setCopyingWeek] = useState(false)
 
   useEffect(() => {
+    setLoadingTimetable(true); setLoadingElectives(true)
     void (async () => {
       try {
-        const snap = await getDoc(doc(db, 'elective_sessions', 'master'))
-        setElectives(normalizeElectives(snap.exists() ? snap.data() : undefined))
+        const [weekTT, weekEL] = await Promise.all([
+          getDoc(doc(db, 'class_timetable', weekStart)),
+          getDoc(doc(db, 'elective_sessions', weekStart)),
+        ])
+        setWeekHasOwnDoc(weekTT.exists() || weekEL.exists())
+        setTimetable(normalizeTimetable(weekTT.exists() ? weekTT.data() : undefined))
+        setElectives(normalizeElectives(weekEL.exists() ? weekEL.data() : undefined))
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load elective sessions')
+        setError(e instanceof Error ? e.message : 'Failed to load this week\'s schedule')
+        setTimetable(createDefaultTimetable())
         setElectives(createDefaultElectives())
       } finally {
-        setLoadingElectives(false)
+        setLoadingTimetable(false); setLoadingElectives(false)
       }
     })()
-  }, [])
+  }, [weekStart])
+
+  /** Copies the previous week's schedule into this one — the nearest of: last
+   *  week's own saved doc, or (first time anyone uses this on a fresh project)
+   *  the legacy `master` doc every pre-migration week effectively was. IDs are
+   *  regenerated, same as every other copy action in this file. */
+  async function copyFromPreviousWeek() {
+    setCopyingWeek(true); setError('')
+    try {
+      const previousWeek = addDays(weekStart, -7)
+      const [prevTT, prevEL, masterTT, masterEL] = await Promise.all([
+        getDoc(doc(db, 'class_timetable', previousWeek)),
+        getDoc(doc(db, 'elective_sessions', previousWeek)),
+        getDoc(doc(db, 'class_timetable', 'master')),
+        getDoc(doc(db, 'elective_sessions', 'master')),
+      ])
+      const sourceTimetable = normalizeTimetable(
+        (prevTT.exists() ? prevTT.data() : undefined) ?? (masterTT.exists() ? masterTT.data() : undefined),
+      )
+      const sourceElectives = normalizeElectives(
+        (prevEL.exists() ? prevEL.data() : undefined) ?? (masterEL.exists() ? masterEL.data() : undefined),
+      )
+      const nextDays = {} as ClassTimetable['days']
+      const nextElectiveDays = {} as ElectiveSchedule['days']
+      for (const d of WEEKDAYS) {
+        nextDays[d] = { periods: sourceTimetable.days[d].periods.map((p) => ({ ...p, id: crypto.randomUUID() })) }
+        nextElectiveDays[d] = { sessions: (sourceElectives.days[d]?.sessions ?? []).map((s) => ({ ...s, id: crypto.randomUUID() })) }
+      }
+      const nextTimetable: ClassTimetable = { windowStart: sourceTimetable.windowStart, windowEnd: sourceTimetable.windowEnd, days: nextDays }
+      const nextElectives: ElectiveSchedule = { days: nextElectiveDays }
+      await Promise.all([
+        setDoc(doc(db, 'class_timetable', weekStart), nextTimetable),
+        setDoc(doc(db, 'elective_sessions', weekStart), nextElectives),
+      ])
+      setTimetable(nextTimetable)
+      setElectives(nextElectives)
+      setWeekHasOwnDoc(true)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to copy last week\'s schedule')
+    } finally {
+      setCopyingWeek(false)
+    }
+  }
 
   async function loadSyllabus() {
     try {
-      const [coursesSnap, sessionsSnap] = await Promise.all([
-        getDocs(collection(db, 'courses')),
-        getDocs(collection(db, 'sessions')),
-      ])
+      const coursesSnap = await getDocs(collection(db, 'courses'))
       setSyllabusCourses(coursesSnap.docs.map(mapCourseDoc))
-      const sl: Session[] = []
-      sessionsSnap.forEach((d) => {
-        const x = d.data()
-        sl.push({
-          id: d.id,
-          title: (x.title as string) ?? '',
-          subtitle: (x.subtitle as string) ?? '',
-          courseId: (x.courseId as string) ?? null,
-          courseName: (x.courseName as string) ?? '',
-          order: Number(x.order ?? 0),
-          activities: readTopicsFromSessionDoc(x.activities),
-        })
-      })
-      setSyllabusSessions(sl)
     } catch {
-      // Non-critical — the "Add elective" title field just falls back to free text.
+      // Non-critical — the Title field's Subject dropdown just comes up empty.
     }
   }
 
@@ -186,17 +211,6 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
       }
     })()
   }, [])
-
-  /** Appends one topic to a syllabus session's activity list — used by the "+ Add
-   *  activity" quick action inside the "Add elective" modal's title autocomplete,
-   *  same write `<SyllabusPage>` itself makes when adding a topic to a session. */
-  async function addSyllabusActivity(sessionId: string, topic: Topic) {
-    const session = syllabusSessions.find((s) => s.id === sessionId)
-    if (!session) return
-    const next = [...session.activities, topic]
-    await updateDoc(doc(db, 'sessions', sessionId), { activities: next, updatedAt: serverTimestamp() })
-    setSyllabusSessions((prev) => prev.map((s) => (s.id === sessionId ? { ...s, activities: next } : s)))
-  }
 
   useEffect(() => {
     if (!isOverrideMode) { setStudentTimetableOverride(null); setStudentElectiveOverride(null); setHasOverride(false); return }
@@ -221,8 +235,9 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   async function saveTimetable(next: ClassTimetable) {
     setSaving(true); setError('')
     setTimetable(next) // optimistic — the grid should never flicker while saving
+    setWeekHasOwnDoc(true) // any save makes this week an explicitly-saved one
     try {
-      await setDoc(doc(db, 'class_timetable', 'master'), next)
+      await setDoc(doc(db, 'class_timetable', weekStart), next)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save the class timetable')
     } finally {
@@ -233,8 +248,9 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   async function saveElectives(next: ElectiveSchedule) {
     setSaving(true); setError('')
     setElectives(next) // optimistic, same as saveTimetable
+    setWeekHasOwnDoc(true)
     try {
-      await setDoc(doc(db, 'elective_sessions', 'master'), next)
+      await setDoc(doc(db, 'elective_sessions', weekStart), next)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save elective sessions')
     } finally {
@@ -388,6 +404,22 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         </div>
       )}
 
+      {/* Only the shared schedule is week-scoped — a student override has no
+          "which week" dimension of its own, so this prompt is irrelevant there. */}
+      {!isOverrideMode && !loadingTimetable && !loadingElectives && !weekHasOwnDoc && (
+        <div className="panel" style={{ marginBottom: '1.25rem', background: '#fff8e1', borderColor: '#ffe08a' }}>
+          <p style={{ margin: '0 0 0.6rem', fontWeight: 600 }}>
+            📭 No schedule for this week. Would you like to copy from last week or create a new one?
+          </p>
+          <div className="row">
+            <button type="button" className="btn small primary" disabled={copyingWeek} onClick={() => void copyFromPreviousWeek()}>
+              {copyingWeek ? 'Copying…' : '📋 Copy from Previous Week'}
+            </button>
+            <span className="muted small">Or just start adding school periods/electives below — that creates this week's schedule too.</span>
+          </div>
+        </div>
+      )}
+
       <div className="panel" style={{ marginBottom: '1.25rem' }}>
         <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
           <strong style={{ fontSize: '0.88rem' }}>Grid time range</strong>
@@ -453,9 +485,8 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           weekDates={weekDates}
           weekPlans={{}}
           syllabusCourses={syllabusCourses}
-          syllabusSessions={syllabusSessions}
-          onAddSyllabusActivity={addSyllabusActivity}
           activityTypes={activityTypes}
+          onManageActivityTypes={() => setShowActivityTypesModal(true)}
         />
       )}
     </div>
@@ -470,9 +501,15 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
 
 /**
  * Manages the "Live Class" kiosk link's secret token (`settings/liveClassKiosk`)
- * so staff can copy/open/rotate it without touching Firestore by hand. The kiosk
+ * so staff can generate (once) and copy/open it without touching Firestore by hand. The kiosk
  * page itself never reads this doc — only the `resolveLiveClassKiosk` Cloud
  * Function checks it (with the Admin SDK), server-side, before minting anything.
+ */
+/**
+ * Collapsed to a single button by default — clicking it slides out a side
+ * drawer with the actual link, Copy/Open actions, and rotation control. Kept
+ * as one component (rather than splitting trigger/drawer) since the token
+ * state and actions are only ever needed together.
  */
 function LiveClassLinkPanel() {
   const [token, setToken] = useState<string | null>(null)
@@ -480,6 +517,7 @@ function LiveClassLinkPanel() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
+  const [open, setOpen] = useState(false)
 
   useEffect(() => {
     void (async () => {
@@ -494,7 +532,7 @@ function LiveClassLinkPanel() {
     })()
   }, [])
 
-  async function rotate(confirmMessage: string | null) {
+  async function generate(confirmMessage: string | null) {
     if (confirmMessage && !window.confirm(confirmMessage)) return
     setSaving(true)
     setError('')
@@ -522,37 +560,52 @@ function LiveClassLinkPanel() {
   }
 
   return (
-    <div className="panel" style={{ marginBottom: '1.25rem' }}>
-      <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem', justifyContent: 'space-between' }}>
-        <div>
-          <strong style={{ fontSize: '0.88rem' }}>🟢 Live Class link</strong>
-          <p className="muted small" style={{ margin: '0.2rem 0 0' }}>
-            No login needed — open this on a classroom TV/projector to run the class and see who's checked in, live.
-          </p>
-        </div>
-        {!loading && token && (
-          <div className="row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
-            <input readOnly value={liveClassKioskUrl(token)} style={{ minWidth: 260 }} onFocus={(e) => e.currentTarget.select()} />
-            <button type="button" className="btn small secondary" onClick={() => void copyLink()}>{copied ? '✓ Copied' : 'Copy'}</button>
-            <a className="btn small secondary" href={liveClassKioskUrl(token)} target="_blank" rel="noreferrer">Open ↗</a>
-            <button
-              type="button"
-              className="btn small secondary"
-              disabled={saving}
-              onClick={() => void rotate('Generate a new link? The old one stops working immediately — update it on any classroom device using it.')}
-            >
-              🔄 Rotate
-            </button>
-          </div>
-        )}
-        {!loading && !token && (
-          <button type="button" className="btn small primary" disabled={saving} onClick={() => void rotate(null)}>
-            {saving ? 'Generating…' : '+ Generate link'}
-          </button>
-        )}
+    <>
+      <div className="row" style={{ marginBottom: '1.25rem' }}>
+        <button type="button" className="btn small secondary" onClick={() => setOpen(true)}>
+          🟢 Live Class Link
+        </button>
       </div>
-      {error ? <p className="error small" style={{ margin: '0.5rem 0 0' }}>{error}</p> : null}
-    </div>
+
+      {open && (
+        <>
+          <div className="side-drawer-backdrop open" onClick={() => setOpen(false)} />
+          <aside className="side-drawer open">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0 }}>🟢 Live Class Link</h3>
+              <button type="button" className="btn small ghost" onClick={() => setOpen(false)}>✕</button>
+            </div>
+            <p className="muted small" style={{ margin: 0 }}>
+              No login needed — open this on a classroom TV/projector to run the class and see who's checked in, live.
+            </p>
+            {error ? <p className="error small" style={{ margin: 0 }}>{error}</p> : null}
+            {loading ? (
+              <p className="muted small" style={{ margin: 0 }}>Loading…</p>
+            ) : token ? (
+              <>
+                <label>Link
+                  <input readOnly value={liveClassKioskUrl(token)} onFocus={(e) => e.currentTarget.select()} />
+                </label>
+                <div className="row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <button type="button" className="btn small secondary" onClick={() => void copyLink()}>{copied ? '✓ Copied' : 'Copy'}</button>
+                  <a className="btn small secondary" href={liveClassKioskUrl(token)} target="_blank" rel="noreferrer">Open ↗</a>
+                </div>
+                <button
+                  type="button" className="btn small ghost" disabled={saving}
+                  onClick={() => void generate('Rotate the Live Class link? The old link stops working immediately — anyone with it open will need the new one.')}
+                >
+                  {saving ? 'Rotating…' : '🔄 Rotate link'}
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn small primary" disabled={saving} onClick={() => void generate(null)}>
+                {saving ? 'Generating…' : '+ Generate link'}
+              </button>
+            )}
+          </aside>
+        </>
+      )}
+    </>
   )
 }
 

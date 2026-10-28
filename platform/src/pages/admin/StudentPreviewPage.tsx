@@ -6,8 +6,8 @@ import { normalizeRoles } from '../../lib/roles'
 import { OwlMascot } from '../../components/manager/OwlMascot'
 import { NavCard } from '../../components/manager/NavCard'
 import {
-  timeStrToMinutes,
-  createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
+  timeStrToMinutes, todayStr, weekKeyOf, loadEffectiveWeekSchedule,
+  createDefaultTimetable, createDefaultElectives,
 } from '../../components/manager/schedulerShared'
 import type { ClassTimetable, ElectiveSchedule, Weekday } from '../../types'
 
@@ -112,12 +112,7 @@ export function StudentPreviewPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const [timetableSnap, electivesSnap] = await Promise.all([
-          getDoc(doc(db, 'class_timetable', 'master')),
-          getDoc(doc(db, 'elective_sessions', 'master')),
-        ])
-        const timetable = normalizeTimetable(timetableSnap.exists() ? timetableSnap.data() : undefined)
-        const electives = normalizeElectives(electivesSnap.exists() ? electivesSnap.data() : undefined)
+        const { timetable, electives } = await loadEffectiveWeekSchedule(db, weekKeyOf(todayStr()))
         setNextClass(computeNextClass(timetable, electives))
       } catch {
         setNextClass(computeNextClass(createDefaultTimetable(), createDefaultElectives()))

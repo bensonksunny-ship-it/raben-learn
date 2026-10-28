@@ -8,14 +8,15 @@ import type { ClassTimetable, Course, ElectiveSchedule, ProgressEntry, Weekday }
 import { OwlMascot } from '../../components/manager/OwlMascot'
 import { NavCard } from '../../components/manager/NavCard'
 import {
-  timeStrToMinutes, todayStr,
-  createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
+  timeStrToMinutes, todayStr, weekKeyOf, loadEffectiveWeekSchedule,
+  createDefaultTimetable, createDefaultElectives,
 } from '../../components/manager/schedulerShared'
 // Statically imported, not lazy — App.tsx already bundles it eagerly for its own
 // /student/planner route, so a lazy() wrapper here would just be dead weight
 // (same JS, no later chunk fetch to defer).
 import { StudentDailyPlanner } from './StudentDailyPlanner'
 import { StudentCourseView } from './StudentCourseView'
+import { loadApplication, type ApplicationStatus } from '../../lib/studentApplication'
 
 // This one genuinely isn't loaded anywhere else yet, so lazy-loading it here keeps
 // its (PriorityScheduler-pulling) chunk out of the main bundle until opened.
@@ -149,12 +150,7 @@ export function StudentDashboard() {
   useEffect(() => {
     void (async () => {
       try {
-        const [timetableSnap, electivesSnap] = await Promise.all([
-          getDoc(doc(db, 'class_timetable', 'master')),
-          getDoc(doc(db, 'elective_sessions', 'master')),
-        ])
-        const timetable = normalizeTimetable(timetableSnap.exists() ? timetableSnap.data() : undefined)
-        const electives = normalizeElectives(electivesSnap.exists() ? electivesSnap.data() : undefined)
+        const { timetable, electives } = await loadEffectiveWeekSchedule(db, weekKeyOf(todayStr()))
         setNextClass(computeNextClass(timetable, electives))
       } catch (e) {
         console.error('StudentDashboard schedule load failed', e)
@@ -174,6 +170,18 @@ export function StudentDashboard() {
 
   const firstName = profile?.name?.split(' ')[0] ?? 'there'
 
+  // Nudges every student (existing ones included) to complete their application.
+  const [applicationStatus, setApplicationStatus] = useState<ApplicationStatus | null | undefined>(undefined)
+  useEffect(() => {
+    if (!uid) return
+    let cancelled = false
+    void loadApplication(uid)
+      .then(({ app, exists }) => { if (!cancelled) setApplicationStatus(exists ? app.status : null) })
+      .catch(() => { if (!cancelled) setApplicationStatus(undefined) })
+    return () => { cancelled = true }
+  }, [uid])
+  const showApplicationBanner = applicationStatus === null || applicationStatus === 'draft' || applicationStatus === 'changes_requested'
+
   return (
     <div>
       {/* Hero — just the mascot (kept for the same illustrated identity every
@@ -182,6 +190,20 @@ export function StudentDashboard() {
         <OwlMascot size={108} />
         <h1 style={{ margin: 0 }}>Welcome back, {firstName}</h1>
       </div>
+
+      {showApplicationBanner && (
+        <div className="panel" style={{ marginBottom: '1.5rem', borderRadius: 'calc(var(--radius) + 10px)', borderColor: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
+          <div>
+            <h2 style={{ margin: '0 0 0.25rem', fontSize: '1rem' }}>
+              {applicationStatus === 'changes_requested' ? '📋 Your application needs a few changes' : '📋 Please complete your application'}
+            </h2>
+            <p className="muted small" style={{ margin: 0 }}>Your details, photo and documents — the photo is used for your ID card.</p>
+          </div>
+          <Link to="/student/application" className="btn primary">
+            {applicationStatus === null ? 'Start application' : 'Continue'}
+          </Link>
+        </div>
+      )}
 
       {/* Today's schedule — next class summary, plain text only (no status pill,
           no mentor name) so it reads as one simple line. */}

@@ -180,6 +180,50 @@ service cloud.firestore {
       allow delete: if request.auth.token.liveClassKiosk == true || isAdminOrMentor() || hasRole('manager');
     }
 
+    // Student application form (id: studentId). The student fills in and submits
+    // their own (never approving it, never touching the staff review fields, and
+    // locked once approved); admin/manager review, edit, approve or send it back;
+    // mentors can read it.
+    function canReviewStudents() { return hasRole('admin') || hasRole('manager'); }
+    function applicationApproved(sid) {
+      return exists(/databases/$(database)/documents/student_applications/$(sid))
+        && get(/databases/$(database)/documents/student_applications/$(sid)).data.status == 'approved';
+    }
+    match /student_applications/{sid} {
+      allow read: if isOwner(sid) || isAdminOrMentor() || hasRole('manager');
+      allow create, update: if canReviewStudents();
+      allow create: if isOwner(sid)
+        && request.resource.data.studentId == sid
+        && request.resource.data.status in ['draft', 'submitted']
+        && !request.resource.data.keys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy']);
+      allow update: if isOwner(sid)
+        && resource.data.status != 'approved'
+        && request.resource.data.studentId == sid
+        && request.resource.data.status in ['draft', 'submitted', 'changes_requested']
+        && (request.resource.data.status != 'changes_requested' || resource.data.status == 'changes_requested')
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy']);
+    }
+    // Prospective students from "+ New Student" — same shape as a student
+    // application, but no account yet. Staff-only; "Recruit Student" creates the
+    // account and copies the application over to `student_applications/{uid}`.
+    match /applicants/{id} {
+      allow read: if isAdminOrMentor() || hasRole('manager');
+      allow create, update, delete: if canReviewStudents();
+    }
+
+    // Uploaded application documents (photo, ID cards, birth certificate) as
+    // compressed data URLs — id "{studentId}__{kind}", one doc per file.
+    match /student_application_files/{id} {
+      allow read: if (isSignedIn() && id.matches(request.auth.uid + '__.*')) || isAdminOrMentor() || hasRole('manager');
+      allow create, update: if request.resource.data.dataUrl is string
+        && request.resource.data.dataUrl.size() < 1000000
+        && id == request.resource.data.studentId + '__' + request.resource.data.kind
+        && (canReviewStudents()
+            || (isOwner(request.resource.data.studentId) && !applicationApproved(request.resource.data.studentId)));
+      allow delete: if canReviewStudents()
+        || (isSignedIn() && id.matches(request.auth.uid + '__.*') && !applicationApproved(request.auth.uid));
+    }
+
     match /settings/{id} {
       allow read, write: if isAdminOrMentor() || hasRole('manager');
     }

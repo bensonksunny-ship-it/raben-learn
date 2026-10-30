@@ -36,7 +36,11 @@
 
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
-body { margin: 0; background: var(--bg); overscroll-behavior: none; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
+/* Safety net — legitimate horizontal scrolling in this app always happens inside
+   a specific container (`.timetable-grid-wrap`, `.table-wrap`, …) via its own
+   `overflow-x: auto`, never the page itself, so this should never need to engage
+   if every such container is correctly contained; it's a backstop in case one isn't. */
+body { margin: 0; background: var(--bg); overflow-x: hidden; overscroll-behavior: none; padding-top: env(safe-area-inset-top); padding-bottom: env(safe-area-inset-bottom); }
 #root { min-height: 100dvh; }
 a { color: var(--link); text-decoration: none; touch-action: manipulation; }
 a:hover { text-decoration: underline; text-underline-offset: 2px; }
@@ -368,8 +372,14 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
    grow into — see the `:has()` rule right below, which does that specifically for
    the bare (non-modal) /schedule page; a modal popup's own fullscreen body already
    provides it another way. */
-.schedule-page { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-.schedule-page .timetable-grid-wrap { flex: 1; min-height: 320px; overflow-y: auto; }
+/* `min-width: 0` alongside `min-height: 0` on every link below — a flex item's
+   automatic min-width otherwise falls back to its content's intrinsic min-width,
+   and the grid's fixed-width columns (DAY_LABEL_COL_PX + totalSlots*SLOT_PX) are
+   wide enough to inflate that all the way up through .kid-theme/.main, pushing
+   the whole page wider than the viewport instead of just letting
+   `.timetable-grid-wrap`'s own `overflow-x: auto` scroll it in place. */
+.schedule-page { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; }
+.schedule-page .timetable-grid-wrap { flex: 1; min-height: 320px; min-width: 0; overflow-y: auto; }
 /* Bare /schedule route only (not the Timetable popups, which get their height from
    .manager-view-fullscreen-body instead) — stretches .main/.kid-theme down to the
    real viewport height so the grid's own `flex: 1` above has actual leftover space
@@ -377,11 +387,11 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
    background below. Narrower side padding too, so the grid gets closer to the
    screen edges — this page wants the width, most others don't. */
 .main:has(.schedule-page) {
-  display: flex; flex-direction: column;
+  display: flex; flex-direction: column; min-width: 0;
   padding-left: 1rem; padding-right: 1rem;
 }
 .main:has(.schedule-page) > .kid-theme {
-  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0;
 }
 
 /* ─── Mobile landscape prompt (centered modal) + fullscreen grid — see useLandscapeFullscreen() ── */

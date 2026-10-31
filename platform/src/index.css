@@ -549,7 +549,7 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
    a third named column, so the table still reads as just those two at a glance. */
 .session-topics-table { width: 100%; border-collapse: collapse; margin: 0.35rem 0 0; font-size: 0.92rem; }
 .session-topics-table th { text-align: left; font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted-2); padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border); }
-.session-topics-table td { padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+.session-topics-table td { padding: 0.7rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
 .session-topics-table tbody tr:last-child td { border-bottom: none; }
 .session-topics-table tbody tr:hover { background: var(--surface-soft); }
 .session-topics-table tr.topic-done { background: #f0fdf8; }
@@ -563,7 +563,7 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
 .session-topics-index { width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
 .session-topics-title { color: var(--text); }
 .session-topics-actions { width: 1%; white-space: nowrap; }
-.session-topics-actions-inner { display: flex; align-items: center; gap: 0.35rem; justify-content: flex-end; }
+.session-topics-actions-inner { display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end; }
 /* Flush, spreadsheet-like cell editing — no border/padding until the cell is
    actively focused, so the grid reads as a real editable table rather than a
    form stacked inside one. */

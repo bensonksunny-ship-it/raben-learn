@@ -82,8 +82,7 @@ export function MentorDashboard() {
 
   return (
     <div>
-      <h1>Mentor Dashboard</h1>
-      <p className="muted">Review student progress and approve completed activities.</p>
+      <h1 style={{ marginBottom: '1.25rem' }}>Mentor Dashboard</h1>
 
       <WelcomeBanner title="Hoo's helping today?" subtitle="Review your students' progress and jump in where they need you." />
 

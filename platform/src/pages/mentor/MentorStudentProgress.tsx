@@ -251,7 +251,6 @@ export function MentorStudentProgress() {
         <div className="mentor-student-avatar">{studentName.charAt(0).toUpperCase()}</div>
         <div>
           <h1 style={{ margin: 0 }}>{studentName}</h1>
-          <p className="muted" style={{ margin: 0 }}>Review and approve student work</p>
         </div>
       </div>
       {error ? <p className="error">{error}</p> : null}

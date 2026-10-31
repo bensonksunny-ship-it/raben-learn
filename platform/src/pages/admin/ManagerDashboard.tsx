@@ -1,6 +1,5 @@
 import { lazy, Suspense } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { useAuth } from '../../context/AuthContext'
 import { NavCard } from '../../components/manager/NavCard'
 import { ManagerWelcomeBanner } from '../../components/manager/ManagerWelcomeBanner'
 import { NavigationSidebar } from '../../components/manager/NavigationSidebar'
@@ -35,7 +34,6 @@ function isManagerView(v: string | null): v is ManagerView {
  * shared navy sidebar still wraps everything outside this div for branding/sign-out.
  */
 export function ManagerDashboard() {
-  const { profile } = useAuth()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
 
@@ -49,14 +47,7 @@ export function ManagerDashboard() {
       <NavigationSidebar />
 
       <div className="manager-main">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem' }}>
-          <div>
-            <h1 style={{ marginBottom: '0.2rem' }}>Manager Dashboard</h1>
-            <p className="muted" style={{ margin: 0 }}>
-              Welcome back{profile?.name ? `, ${profile.name}` : ''}
-            </p>
-          </div>
-        </div>
+        <h1 style={{ marginBottom: '1.25rem' }}>Manager Dashboard</h1>
 
         <ManagerWelcomeBanner />
 
@@ -64,21 +55,18 @@ export function ManagerDashboard() {
           <NavCard
             icon={<StudentsIcon color="#ffffff" />}
             title="Students"
-            subtitle="Create & manage student accounts"
             color="#f97316"
             to="/manager?view=students"
           />
           <NavCard
             icon={<MentorsIcon color="#ffffff" />}
             title="Users"
-            subtitle="Create & manage mentor accounts"
             color="#3b82f6"
             to="/manager?view=users"
           />
           <NavCard
             icon={<ScheduleIcon color="#ffffff" />}
             title="Schedule"
-            subtitle="Class timetable & student diaries"
             color="#8b5cf6"
             to="/manager?view=schedule"
           />

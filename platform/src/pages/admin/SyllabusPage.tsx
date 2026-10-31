@@ -23,6 +23,25 @@ function fmtHrs(minutes: number): number {
 }
 
 export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) {
+  const { profile } = useAuth()
+  // Admin, mentor, and consultant all have exam-question-setup rights — matches
+  // canEditSyllabus() in firestore.rules, which the exam write rule now follows too.
+  const canManageExams = profile?.roles.some((r) => r === 'admin' || r === 'mentor' || r === 'consultant') ?? false
+  const isManager = profile?.roles.includes('manager') ?? false
+  // Manager reaches this page to take exam papers for printout and check things
+  // over — view + print only, never full edit, even though the shared /syllabus
+  // route (unlike /admin/syllabus, /mentor/syllabus) doesn't pass a `readOnly`
+  // prop, since that same route is also how the Academic Consultant gets their
+  // own full-edit access. Only forces read-only when manager is their sole
+  // relevant role here — a manager who's also admin/mentor/consultant keeps
+  // that role's full access.
+  const effectiveReadOnly = readOnly || (isManager && !canManageExams)
+  // Manager can open Exam/Main Exam to view and print, but `canManageExams`
+  // alone still gates the create/edit/delete/activate controls inside
+  // ExamManager itself (via its own `readOnly` prop below) — rules agree:
+  // canEditSyllabus() (the exams write rule) doesn't include manager.
+  const canSeeExams = canManageExams || isManager
+
   const [courses, setCourses] = useState<Course[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
   type LevelFilter = LevelId | 'unassigned'
@@ -56,13 +75,10 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   // `commitRowTitle`/`addRow` below), so "Save Syllabus" has nothing left to write;
   // it just confirms you're done and switches to the clean read-only table. Resets
   // to editable whenever a different course is selected.
-  const [editingSyllabus, setEditingSyllabus] = useState(!readOnly)
+  const [editingSyllabus, setEditingSyllabus] = useState(!effectiveReadOnly)
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-
-  const { profile } = useAuth()
-  const isAdminOrMentor = profile?.roles.some((r) => r === 'admin' || r === 'mentor') ?? false
 
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null
 
@@ -362,8 +378,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
 
   return (
     <div>
-      <h1>📚 Syllabus Builder</h1>
-      <p className="muted">Design your curriculum: Courses → Syllabus.</p>
+      <h1 style={{ marginBottom: '1rem' }}>📚 Syllabus Builder</h1>
       {error ? <p className="error">{error}</p> : null}
 
       <div className="course-tabs" style={{ marginBottom: '0.85rem' }}>
@@ -382,11 +397,11 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
         <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
           <div className="syllabus-col-header">
             <h2>📖 Courses</h2>
-            {!readOnly && (
+            {!effectiveReadOnly && (
               <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
             )}
           </div>
-          {!readOnly && addingCourse && (
+          {!effectiveReadOnly && addingCourse && (
             <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
               <input placeholder="Course title *" value={newCourseTitle} onChange={(e) => setNewCourseTitle(e.target.value)} required autoFocus />
               <input placeholder="Description (optional)" value={newCourseDesc} onChange={(e) => setNewCourseDesc(e.target.value)} />
@@ -413,7 +428,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                   {weeklyHoursByCourse.get(c.id) && (() => {
                     const h = weeklyHoursByCourse.get(c.id)!
                     return (
-                      <span className="course-row-tag" title="Completed = hours already elapsed so far this week, not an attendance-confirmed count">
+                      <span className="course-row-tag" title="Completed = hours elapsed this week">
                         📅 {fmtHrs(h.completedMinutes)}/{courseHours(c.id)} hrs completed · Scheduled: {fmtHrs(h.scheduledMinutes)} hrs/wk
                       </span>
                     )
@@ -452,7 +467,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     )}
                     <h2 className="syllabus-active-title">
                       {selectedCourse?.title}
-                      {!readOnly && (
+                      {!effectiveReadOnly && (
                         <div className="topic-menu-wrap" style={{ display: 'inline-block', marginLeft: '0.4rem', verticalAlign: 'middle' }}>
                           <button
                             type="button"
@@ -493,7 +508,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     {selectedCourseId && weeklyHoursByCourse.get(selectedCourseId) && (() => {
                       const h = weeklyHoursByCourse.get(selectedCourseId)!
                       return (
-                        <p className="muted small" style={{ margin: '0.2rem 0 0' }} title="Completed = hours already elapsed so far this week, not an attendance-confirmed count">
+                        <p className="muted small" style={{ margin: '0.2rem 0 0' }} title="Completed = hours elapsed this week">
                           📅 {fmtHrs(h.completedMinutes)} / {courseHours(selectedCourseId)} hrs completed · Scheduled: {fmtHrs(h.scheduledMinutes)} hrs/wk
                         </p>
                       )
@@ -502,12 +517,12 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                 )}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
-                {isAdminOrMentor && (
-                  <button type="button" className="btn secondary" title="This subject's whole-course exam(s) — not tied to any one topic" onClick={() => setExamModalTopic('main')}>
+                {canSeeExams && (
+                  <button type="button" className="btn secondary" title="Whole-course exam(s)" onClick={() => setExamModalTopic('main')}>
                     🎓 Main Exam
                   </button>
                 )}
-                {!readOnly && (editingSyllabus ? (
+                {!effectiveReadOnly && (editingSyllabus ? (
                   <button type="button" className="btn primary" disabled={saving} onClick={() => void saveSyllabus()}>
                     {saving ? 'Saving…' : 'Save Syllabus'}
                   </button>
@@ -556,11 +571,10 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                         </td>
                         <td className="session-topics-actions">
                           <div className="session-topics-actions-inner">
-                            {isAdminOrMentor && (
+                            {canSeeExams && (
                               <button
                                 type="button"
                                 className="btn small secondary"
-                                title="Open exams for this topic"
                                 onClick={() => setExamModalTopic({ id: row.topic.id, title: row.topic.title })}
                               >
                                 Exam
@@ -600,16 +614,29 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     <th className="session-topics-index">SL No.</th>
                     <th>Title</th>
                     <th style={{ width: 90 }}>Min</th>
+                    {canSeeExams && <th aria-hidden="true" />}
                   </tr>
                 </thead>
                 <tbody>
                   {flatRows.length === 0 ? (
-                    <tr><td colSpan={3} className="muted small">No topics yet.</td></tr>
+                    <tr><td colSpan={canSeeExams ? 4 : 3} className="muted small">No topics yet.</td></tr>
                   ) : flatRows.map((row, idx) => (
                     <tr key={row.topic.id}>
                       <td className="session-topics-index muted small">{idx + 1}</td>
                       <td className="session-topics-title">{row.topic.title}</td>
                       <td className="session-topics-title muted small">{row.topic.durationMinutes || '—'}</td>
+                      {canSeeExams && (
+                        <td className="session-topics-actions">
+                          <button
+                            type="button"
+                            className="btn small secondary"
+                            title="Open exams for this topic"
+                            onClick={() => setExamModalTopic({ id: row.topic.id, title: row.topic.title })}
+                          >
+                            Exam
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -629,7 +656,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
               </h3>
               <button type="button" className="btn small ghost" onClick={() => setExamModalTopic(null)}>✕</button>
             </div>
-            <ExamManager courseId={selectedCourseId} topic={examModalTopic === 'main' ? null : examModalTopic} />
+            <ExamManager courseId={selectedCourseId} topic={examModalTopic === 'main' ? null : examModalTopic} readOnly={!canManageExams} />
           </div>
         </div>
       )}

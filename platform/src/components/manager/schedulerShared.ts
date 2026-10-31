@@ -135,6 +135,7 @@ export function normalizeTimetable(data: Record<string, unknown> | undefined): C
         durationMinutes: Number(p.durationMinutes ?? 0),
         activityTypeId: typeof p.activityTypeId === 'string' ? p.activityTypeId : null,
         courseId: typeof p.courseId === 'string' ? p.courseId : null,
+        examId: typeof p.examId === 'string' ? p.examId : null,
       }))
       .filter((p) => p.title && timeStrToMinutes(p.startTime) != null && p.durationMinutes > 0)
     days[d] = { periods }
@@ -178,6 +179,7 @@ export function normalizeElectives(data: Record<string, unknown> | undefined): E
           claimed,
           activityTypeId: typeof s.activityTypeId === 'string' ? s.activityTypeId : null,
           courseId: typeof s.courseId === 'string' ? s.courseId : null,
+          examId: typeof s.examId === 'string' ? s.examId : null,
         }
       })
       // A real session always needs a valid time + duration — but an *unclaimed*

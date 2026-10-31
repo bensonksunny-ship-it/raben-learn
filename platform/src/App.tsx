@@ -159,6 +159,17 @@ export default function App() {
               </RequireCapability>
             }
           />
+          {/* Consultant's own exam-print route — admin/mentor use their own
+              /admin/exam-print, /mentor/exam-print below (gated on adminArea/
+              mentorArea), which a consultant can't reach. */}
+          <Route
+            path="exam-print/:courseId/:examId"
+            element={
+              <RequireCapability cap="syllabusArea">
+                <Suspense fallback={<AdminRouteFallback />}><ExamPrintView /></Suspense>
+              </RequireCapability>
+            }
+          />
           {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
           <Route path="timetable" element={<Navigate to="/schedule" replace />} />
           <Route path="admin/diary" element={<Navigate to="/schedule" replace />} />

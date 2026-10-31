@@ -15,10 +15,6 @@ export function ConsultantPreviewPage() {
     <div>
       <div className="panel" style={{ marginBottom: '1.5rem', background: '#fae8ff', borderColor: '#e9a8f2' }}>
         <strong>👁️ Read-only preview — Academic Consultant</strong>
-        <p className="muted small" style={{ margin: '0.35rem 0 0' }}>
-          This is the one page an Academic Consultant account can reach. Nothing here is editable from
-          this preview — the real role does have full add/edit rights on it.
-        </p>
       </div>
       <SyllabusPage readOnly />
     </div>

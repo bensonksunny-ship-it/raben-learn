@@ -124,7 +124,7 @@ export default function ExamInstructions() {
           ))}
         </div>
         {exam.sections.length > 0 && (
-          <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
+          <div style={{ marginTop: '0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
             {exam.sections.map((s) => {
               const n = exam.questions.filter((q) => q.sectionId === s.id).length
               return (

@@ -41,15 +41,15 @@ service cloud.firestore {
     // A `match` on a collection doesn't cover its subcollections — exam papers
     // live under `courses/{courseId}/exams/{examId}`, with their sections and
     // questions embedded in the one doc, but still need their own rule here or
-    // every read/write to them is denied by default. Admin/mentor-only to
-    // write (the Exam button in the Syllabus Builder is gated the same way, not
-    // widened to `canEditSyllabus()`'s consultant role) but readable by anyone
-    // signed in, since a student needs the exam doc (including each question's
+    // every read/write to them is denied by default. Write access matches
+    // `canEditSyllabus()` (admin/mentor/consultant — the Exam button in the
+    // Syllabus Builder is gated the same way) but readable by anyone signed in,
+    // since a student needs the exam doc (including each question's
     // options/correctAnswer) to take an mcq exam client-side — same tradeoff the
     // old questionBank rule made; there's no server-side grading to hide it behind.
     match /courses/{courseId}/exams/{examId} {
       allow read: if isSignedIn();
-      allow write: if isAdminOrMentor();
+      allow write: if canEditSyllabus();
     }
 
     // Reusable sub-section designs (title/caption/marks), global across courses —
@@ -57,7 +57,7 @@ service cloud.firestore {
     // papers there. Same access shape as the exam docs themselves.
     match /sectionTemplates/{id} {
       allow read: if isSignedIn();
-      allow write: if isAdminOrMentor();
+      allow write: if canEditSyllabus();
     }
 
     match /student_lesson_progress/{id} {

@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { useAuth } from '../../context/AuthContext'
 import { normalizeRoles } from '../../lib/roles'
 import { mapCourseDoc } from '../../lib/courses'
 import type { Course } from '../../types'
@@ -22,7 +21,6 @@ function formatDate(d: Date) {
 }
 
 export default function AdminDashboard() {
-  const { profile } = useAuth()
   const [stats, setStats] = useState<DashStats | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -64,12 +62,7 @@ export default function AdminDashboard() {
     <div>
       {/* Page header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.75rem' }}>
-        <div>
-          <h1 style={{ marginBottom: '0.2rem' }}>Dashboard</h1>
-          <p className="muted" style={{ margin: 0 }}>
-            Welcome back{profile?.name ? `, ${profile.name}` : ''}
-          </p>
-        </div>
+        <h1 style={{ margin: 0 }}>Dashboard</h1>
         <span className="page-stat">{formatDate(new Date())}</span>
       </div>
 

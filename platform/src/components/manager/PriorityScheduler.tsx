@@ -11,6 +11,17 @@ const PERIOD_COLOR = { bg: '#c3fae8', text: '#087f5b' }
 /** Priority 2 — elective sessions (sky blue, matches FlexIcon) — deliberately a
  *  different hue from PERIOD_COLOR so the two priorities read apart on sight. */
 const ELECTIVE_COLOR = { bg: '#d0ebff', text: '#1971c2' }
+/** Exams — a striped crimson card so an exam stands out as a special event
+ *  against both priorities and every Activity Type color. */
+const EXAM_COLOR = { bg: 'repeating-linear-gradient(135deg, #ffe3ec 0 10px, #ffd0de 10px 20px)', text: '#c2255c' }
+
+/** One exam paper offered in the slot Title selector's "Exam" category. */
+export interface ScheduleExamOption {
+  id: string
+  courseId: string
+  title: string
+  courseTitle: string
+}
 
 /** Width of one 15-minute column — hours run left→right now, days top→bottom, so a
  *  day reads as one long horizontal strip ("lengthier" view of how its day flows). */
@@ -140,11 +151,13 @@ interface ElectiveSectionDraft {
   /** Which syllabus Course `title` resolved to, when picked as a Subject —
    *  feeds the subject-wise hours summary. Mutually exclusive with `activityTypeId`. */
   courseId: string | null
+  /** Set when picked from the "Exam" category — `courseId` is then the exam's course. */
+  examId: string | null
 }
 
 type ModalState =
-  | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null; courseId: string | null }
-  | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null; courseId: string | null }
+  | { kind: 'locked'; mode: 'add'; day: Weekday; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null; courseId: string | null; examId: string | null }
+  | { kind: 'locked'; mode: 'edit'; day: Weekday; periodId: string; title: string; startTime: string; durationMinutes: number; activityTypeId: string | null; courseId: string | null; examId: string | null }
   | { kind: 'elective'; mode: 'add'; day: Weekday; sections: ElectiveSectionDraft[] }
   /** `viewMode` starts true for an already-claimed session (plain-text "View
    *  Elective" card) and false for a still-open/pending one (nothing real to
@@ -152,7 +165,7 @@ type ModalState =
    *  button flips it to false; Cancel from there flips it back (restoring the
    *  session's saved values) rather than closing the whole modal — but only
    *  when the session was claimed to begin with. */
-  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean; activityTypeId: string | null; courseId: string | null }
+  | { kind: 'elective'; mode: 'edit'; day: Weekday; sessionId: string; title: string; startTime: string; durationMinutes: number; mentorName: string; viewMode: boolean; activityTypeId: string | null; courseId: string | null; examId: string | null }
   /** The minimal claim form a student/mentor sees on an open slot that's theirs to
    *  fill — just a title (mentors also confirm their name). Nothing else on the grid
    *  is editable in claim mode, so this is the only modal shape claiming ever opens. */
@@ -204,6 +217,9 @@ export interface PrioritySchedulerProps {
    *  "Don't see it?" link under the Title field's structured Subject/Activity
    *  selector (see `SubjectOrActivitySelect`). Omitted hides that link. */
   onManageActivityTypes?: () => void
+  /** Exam papers for the Title selector's "Exam" category. Omitted/empty shows
+   *  the category with nothing to pick. */
+  exams?: ScheduleExamOption[]
 }
 
 /**
@@ -225,27 +241,28 @@ export function PriorityScheduler({
   onSaveTimetable, onSaveElectives, weekDates, weekPlans,
   claimRole, claimerName, focusDay = null,
   syllabusCourses = [],
-  activityTypes = [], onManageActivityTypes,
+  activityTypes = [], onManageActivityTypes, exams = [],
 }: PrioritySchedulerProps) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
   const activityTypeById = new Map(activityTypes.map((a) => [a.id, a]))
   /** A period's/session's own Activity Type color if it has one, else the plain
    *  Priority-1/2 fallback — every card color usage below goes through this. */
-  function colorFor(activityTypeId: string | null | undefined, fallback: { bg: string; text: string }) {
+  function colorFor(activityTypeId: string | null | undefined, fallback: { bg: string; text: string }, examId?: string | null) {
+    if (examId) return EXAM_COLOR
     if (!activityTypeId) return fallback
     return activityTypeById.get(activityTypeId)?.color ?? fallback
   }
 
   function openLockedAddModal(day: Weekday = WEEKDAYS[0]) {
     setModalError('')
-    setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45, activityTypeId: null, courseId: null })
+    setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45, activityTypeId: null, courseId: null, examId: null })
   }
   function openLockedEditModal(day: Weekday, period: TimetablePeriod) {
     setModalError('')
     setModal({
       kind: 'locked', mode: 'edit', day, periodId: period.id, title: period.title,
-      startTime: period.startTime, durationMinutes: period.durationMinutes, activityTypeId: period.activityTypeId ?? null,
+      startTime: period.startTime, durationMinutes: period.durationMinutes, activityTypeId: period.activityTypeId ?? null, examId: period.examId ?? null,
       courseId: period.courseId ?? null,
     })
   }
@@ -254,7 +271,7 @@ export function PriorityScheduler({
     setModalError('')
     setModal({
       kind: 'elective', mode: 'add', day,
-      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), activityTypeId: null, courseId: null }],
+      sections: [{ title: '', startTime: minutesToTimeStr(startMin), durationMinutes: Math.max(5, Math.min(240, gapMinutes)), activityTypeId: null, courseId: null, examId: null }],
     })
   }
   function openElectiveEditModal(day: Weekday, session: ElectiveSession) {
@@ -262,7 +279,7 @@ export function PriorityScheduler({
     setModal({
       kind: 'elective', mode: 'edit', day, sessionId: session.id, title: session.title,
       startTime: session.startTime, durationMinutes: session.durationMinutes, mentorName: session.mentorName ?? '',
-      viewMode: Boolean(session.claimed), activityTypeId: session.activityTypeId ?? null, courseId: session.courseId ?? null,
+      viewMode: Boolean(session.claimed), activityTypeId: session.activityTypeId ?? null, courseId: session.courseId ?? null, examId: session.examId ?? null,
     })
   }
   function enterElectiveEditMode() {
@@ -279,7 +296,7 @@ export function PriorityScheduler({
       setModal({
         ...modal, viewMode: true, title: original.title, startTime: original.startTime,
         durationMinutes: original.durationMinutes, mentorName: original.mentorName ?? '',
-        activityTypeId: original.activityTypeId ?? null, courseId: original.courseId ?? null,
+        activityTypeId: original.activityTypeId ?? null, courseId: original.courseId ?? null, examId: original.examId ?? null,
       })
     } else {
       closeModal()
@@ -309,7 +326,7 @@ export function PriorityScheduler({
     const lastStartMin = timeStrToMinutes(last.startTime) ?? 0
     setModal({
       ...modal,
-      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, activityTypeId: null, courseId: null }],
+      sections: [...modal.sections, { title: '', startTime: minutesToTimeStr(lastStartMin + last.durationMinutes), durationMinutes: last.durationMinutes, activityTypeId: null, courseId: null, examId: null }],
     })
   }
   function removeElectiveSection(index: number) {
@@ -391,6 +408,7 @@ export function PriorityScheduler({
           claimed: !isOpen,
           activityTypeId: section.activityTypeId,
           courseId: section.courseId,
+          examId: section.examId,
         })
       }
 
@@ -416,8 +434,8 @@ export function PriorityScheduler({
       if (electiveClash) { setModalError(`Overlaps the elective "${electiveClash.session.title}" (${minutesToTimeStr(electiveClash.startMin)}–${minutesToTimeStr(electiveClash.endMin)}). Move or remove it first.`); return }
 
       const nextPeriods = modal.mode === 'add'
-        ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId }]
-        : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId } : p))
+        ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId, examId: modal.examId }]
+        : day.periods.map((p) => (p.id === modal.periodId ? { ...p, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId, examId: modal.examId } : p))
       onSaveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: nextPeriods } } })
     } else {
       const lockedClash = overlapsAny(startMin, endMin, timedPeriodsOf(timetable.days[modal.day]), () => false)
@@ -429,7 +447,7 @@ export function PriorityScheduler({
       const mentorName = modal.mentorName.trim() || null
       // A manager filling this in via the full edit modal counts as claimed, whether
       // it started out filled or open.
-      const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true, activityTypeId: modal.activityTypeId, courseId: modal.courseId } : s))
+      const nextSessions = sessions.map((s) => (s.id === modal.sessionId ? { ...s, title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, mentorName, claimed: true, activityTypeId: modal.activityTypeId, courseId: modal.courseId, examId: modal.examId } : s))
       onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: nextSessions } } })
       // Saving an edit lands back on the read-only view card rather than closing.
       setModal({ ...modal, title, mentorName: mentorName ?? '', viewMode: true })
@@ -543,10 +561,10 @@ export function PriorityScheduler({
     }
 
     if (row.type === 'locked') {
-      const periodColor = colorFor(row.period.activityTypeId, PERIOD_COLOR)
+      const periodColor = colorFor(row.period.activityTypeId, PERIOD_COLOR, row.period.examId)
       const content = (
         <>
-          <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />School period</span>
+          <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{row.period.examId ? '📝 EXAM' : 'School period'}</span>
           <strong className="timetable-grid-card-title">{row.period.title}</strong>
           <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
         </>
@@ -570,7 +588,7 @@ export function PriorityScheduler({
     if (row.type === 'elective') {
       const session = row.session
       const isPending = !session.claimed
-      const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR)
+      const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR, session.examId)
       const clickable = editingAllowed || (isPending && !!claimRole)
       const onClick = () => {
         closeModal()
@@ -584,7 +602,7 @@ export function PriorityScheduler({
         </>
       ) : (
         <>
-          <span className="timetable-grid-card-lock"><FlexIcon color={electiveColor.text} /><span className="timetable-grid-card-lock-text">Elective{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
+          <span className="timetable-grid-card-lock"><FlexIcon color={electiveColor.text} /><span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Elective'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
           <strong className="timetable-grid-card-title">{session.title}</strong>
           <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
         </>
@@ -717,11 +735,11 @@ export function PriorityScheduler({
               const startSlot = Math.round((startMin - gridTopMin) / slotMin)
               const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
               const gridPos = { gridRow: di + 2, gridColumn: `${2 + startSlot} / span ${span}` }
-              const periodColor = colorFor(period.activityTypeId, PERIOD_COLOR)
+              const periodColor = colorFor(period.activityTypeId, PERIOD_COLOR, period.examId)
               if (editingAllowed) {
                 return (
                   <button key={period.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }} onClick={() => openLockedEditModal(d, period)}>
-                    <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />School period</span>
+                    <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{period.examId ? '📝 EXAM' : 'School period'}</span>
                     <strong className="timetable-grid-card-title">{period.title}</strong>
                     <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
                   </button>
@@ -729,7 +747,7 @@ export function PriorityScheduler({
               }
               return (
                 <div key={period.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }}>
-                  <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />School period</span>
+                  <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{period.examId ? '📝 EXAM' : 'School period'}</span>
                   <strong className="timetable-grid-card-title">{period.title}</strong>
                   <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
                 </div>
@@ -779,11 +797,11 @@ export function PriorityScheduler({
                 )
               }
 
-              const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR)
+              const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR, session.examId)
               const badge = (
                 <span className="timetable-grid-card-lock">
                   <FlexIcon color={electiveColor.text} />
-                  <span className="timetable-grid-card-lock-text">Elective{session.mentorName ? ` · ${session.mentorName}` : ''}</span>
+                  <span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Elective'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span>
                 </span>
               )
               if (editingAllowed) {
@@ -881,9 +899,6 @@ export function PriorityScheduler({
                 <form className="form" onSubmit={submitModal}>
               {modal.kind === 'copyDay' ? (
                 <>
-                  <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
-                    Copies every school period and elective session from <strong>{modal.fromDay}</strong> onto the day(s) you pick — replacing whatever's already scheduled there.
-                  </p>
                   <label>Copy to
                     <select value={modal.target} onChange={(e) => setModal({ ...modal, target: e.target.value as Weekday | 'all' })}>
                       {WEEKDAYS.filter((d) => d !== modal.fromDay).map((d) => <option key={d} value={d}>{d}</option>)}
@@ -893,11 +908,6 @@ export function PriorityScheduler({
                 </>
               ) : modal.kind === 'claim' ? (
                 <>
-                  <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
-                    {modal.role === 'student'
-                      ? "This slot is yours to fill in — pick what you'd like to work on."
-                      : 'This slot is open for a mentor to run — claim it with a title and your name.'}
-                  </p>
                   <label>Title<input value={modal.title} onChange={(e) => setModal({ ...modal, title: e.target.value })} placeholder={modal.role === 'student' ? 'e.g. Practice vocabulary' : 'e.g. Chess Club'} required autoFocus /></label>
                   {modal.role === 'mentor' && (
                     <label>Your name
@@ -924,11 +934,13 @@ export function PriorityScheduler({
                           <SubjectOrActivitySelect
                             courseId={section.courseId}
                             activityTypeId={section.activityTypeId}
+                            examId={section.examId}
+                            exams={exams}
                             courses={syllabusCourses}
                             activityTypes={activityTypes}
                             placeholder="— Open slot (leave for a student/mentor to claim) —"
-                            onPick={({ title, courseId, activityTypeId, durationMinutes }) => updateElectiveSection(i, {
-                              title, courseId, activityTypeId,
+                            onPick={({ title, courseId, activityTypeId, examId, durationMinutes }) => updateElectiveSection(i, {
+                              title, courseId, activityTypeId, examId,
                               ...(durationMinutes != null ? { durationMinutes } : {}),
                             })}
                             onManageActivityTypes={onManageActivityTypes}
@@ -1022,12 +1034,14 @@ export function PriorityScheduler({
                     <SubjectOrActivitySelect
                       courseId={modal.courseId}
                       activityTypeId={modal.activityTypeId}
+                      examId={modal.examId}
+                      exams={exams}
                       courses={syllabusCourses}
                       activityTypes={activityTypes}
-                      placeholder="Select a subject or activity…"
+                      placeholder="Select a subject, activity or exam…"
                       required
-                      onPick={({ title, courseId, activityTypeId, durationMinutes }) => setModal({
-                        ...modal, title, courseId, activityTypeId,
+                      onPick={({ title, courseId, activityTypeId, examId, durationMinutes }) => setModal({
+                        ...modal, title, courseId, activityTypeId, examId,
                         ...(durationMinutes != null ? { durationMinutes } : {}),
                       })}
                       onManageActivityTypes={onManageActivityTypes}
@@ -1099,50 +1113,59 @@ export function PriorityScheduler({
   )
 }
 
+type PickResult = { title: string; courseId: string | null; activityTypeId: string | null; examId: string | null; durationMinutes?: number }
+const EMPTY_PICK: PickResult = { title: '', courseId: null, activityTypeId: null, examId: null }
+
 interface SubjectOrActivitySelectProps {
   courseId: string | null
   activityTypeId: string | null
+  examId: string | null
   courses: Course[]
   activityTypes: ActivityType[]
+  exams: ScheduleExamOption[]
   placeholder: string
   required?: boolean
-  onPick: (pick: { title: string; courseId: string | null; activityTypeId: string | null; durationMinutes?: number }) => void
+  onPick: (pick: PickResult) => void
   onManageActivityTypes?: () => void
 }
 
 /**
  * Structured Title field, shared by both the School Period and Elective
  * modals — two dependent dropdowns instead of one. The first picks the
- * category ("Subject" vs "Activity"); the second then lists only that
- * category's items (leveled syllabus Courses, or custom Activity Types).
- * Every period/elective is now either a real subject or a defined Activity
- * Type — no free text, no session/topic-level granularity.
+ * category ("Subject", "Activity" or "Exam"); the second then lists only that
+ * category's items (leveled syllabus Courses, custom Activity Types, or exam
+ * papers grouped by course). Every period/elective is a real subject, a
+ * defined Activity Type, or an exam — no free text.
  */
-function SubjectOrActivitySelect({ courseId, activityTypeId, courses, activityTypes, placeholder, required, onPick, onManageActivityTypes }: SubjectOrActivitySelectProps) {
+function SubjectOrActivitySelect({ courseId, activityTypeId, examId, courses, activityTypes, exams, placeholder, required, onPick, onManageActivityTypes }: SubjectOrActivitySelectProps) {
   const leveledCourses = courses.filter((c) => c.levelId !== null && c.title.trim())
-  // Local, not derived from courseId/activityTypeId — picking a category but not
-  // yet an item would otherwise have nothing to keep the second dropdown open
-  // against (both ids are null until an item's actually chosen).
-  const [category, setCategory] = useState<'' | 'subject' | 'activity'>(
-    () => (activityTypeId ? 'activity' : courseId ? 'subject' : ''),
+  // Local, not derived from the ids — picking a category but not yet an item
+  // would otherwise have nothing to keep the second dropdown open against.
+  const [category, setCategory] = useState<'' | 'subject' | 'activity' | 'exam'>(
+    () => (examId ? 'exam' : activityTypeId ? 'activity' : courseId ? 'subject' : ''),
   )
+  const examsByCourse = new Map<string, ScheduleExamOption[]>()
+  for (const e of exams) examsByCourse.set(e.courseTitle, [...(examsByCourse.get(e.courseTitle) ?? []), e])
 
   function handleCategoryChange(e: ChangeEvent<HTMLSelectElement>) {
-    setCategory(e.target.value as '' | 'subject' | 'activity')
-    // Whatever was picked before belonged to the other category — clear it so
-    // a stale courseId/activityTypeId never lingers once the category changes.
-    onPick({ title: '', courseId: null, activityTypeId: null })
+    setCategory(e.target.value as '' | 'subject' | 'activity' | 'exam')
+    // Whatever was picked before belonged to another category — clear it so a
+    // stale id never lingers once the category changes.
+    onPick(EMPTY_PICK)
   }
 
   function handleItemChange(e: ChangeEvent<HTMLSelectElement>) {
     const v = e.target.value
-    if (!v) { onPick({ title: '', courseId: null, activityTypeId: null }); return }
+    if (!v) { onPick(EMPTY_PICK); return }
     if (category === 'activity') {
       const a = activityTypes.find((x) => x.id === v)
-      if (a) onPick({ title: a.name, courseId: null, activityTypeId: a.id, durationMinutes: a.defaultDurationMinutes })
+      if (a) onPick({ ...EMPTY_PICK, title: a.name, activityTypeId: a.id, durationMinutes: a.defaultDurationMinutes })
+    } else if (category === 'exam') {
+      const x = exams.find((ex) => ex.id === v)
+      if (x) onPick({ ...EMPTY_PICK, title: `${x.courseTitle} — ${x.title}`, courseId: x.courseId, examId: x.id })
     } else {
       const c = leveledCourses.find((x) => x.id === v)
-      if (c) onPick({ title: c.title, courseId: c.id, activityTypeId: null })
+      if (c) onPick({ ...EMPTY_PICK, title: c.title, courseId: c.id })
     }
   }
 
@@ -1152,6 +1175,7 @@ function SubjectOrActivitySelect({ courseId, activityTypeId, courses, activityTy
         <option value="" disabled={required}>{placeholder}</option>
         <option value="subject">📚 Subject</option>
         <option value="activity">📌 Activity</option>
+        <option value="exam">📝 Exam</option>
       </select>
       {category === 'subject' && (
         <select value={courseId ?? ''} onChange={handleItemChange} required={required}>
@@ -1164,6 +1188,20 @@ function SubjectOrActivitySelect({ courseId, activityTypeId, courses, activityTy
           <option value="" disabled={required}>Select an activity…</option>
           {activityTypes.map((a) => <option key={a.id} value={a.id}>{a.icon} {a.name}</option>)}
         </select>
+      )}
+      {category === 'exam' && (
+        exams.length === 0 ? (
+          <span className="muted small">No exams yet — create one in the Syllabus page's Exam Manager.</span>
+        ) : (
+          <select value={examId ?? ''} onChange={handleItemChange} required={required}>
+            <option value="" disabled={required}>Select an exam…</option>
+            {[...examsByCourse.entries()].map(([courseTitle, list]) => (
+              <optgroup key={courseTitle} label={courseTitle}>
+                {list.map((x) => <option key={x.id} value={x.id}>{x.title}</option>)}
+              </optgroup>
+            ))}
+          </select>
+        )
       )}
       {category === 'activity' && onManageActivityTypes && (
         <button type="button" className="btn small secondary" onClick={onManageActivityTypes}>

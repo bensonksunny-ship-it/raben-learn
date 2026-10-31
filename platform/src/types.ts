@@ -45,6 +45,10 @@ export interface TimetablePeriod {
    *  period saved before this existed, or a period for a non-subject activity).
    *  Drives the subject-wise hours summary on the Schedule page. */
   courseId?: string | null
+  /** Set when this slot is an exam — picked from the "Exam" category of the
+   *  slot's Title selector (a `courses/{courseId}/exams/{examId}` paper, with
+   *  `courseId` set to that exam's course). Renders as a highlighted exam card. */
+  examId?: string | null
 }
 
 export interface TimetableDay {
@@ -94,6 +98,8 @@ export interface ElectiveSession {
    *  was created by picking a syllabus course/session/topic from the title
    *  autocomplete, rather than an Activity Type or free text. */
   courseId?: string | null
+  /** Same exam link as `TimetablePeriod.examId`. */
+  examId?: string | null
 }
 
 export interface ElectiveDay {

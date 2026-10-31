@@ -45,10 +45,7 @@ export function Login() {
       <div className="brand" style={{ textAlign: 'center', marginBottom: '1.5rem', fontSize: '1.15rem' }}>
         🎓 Raben Learn
       </div>
-      <h1 style={{ textAlign: 'center', marginBottom: '0.25rem' }}>Sign in</h1>
-      <p className="muted small" style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
-        Enter your credentials to continue
-      </p>
+      <h1 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>Sign in</h1>
       {error ? <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p> : null}
       <form onSubmit={(e) => void handleSubmit(e)} className="form">
         <label>

@@ -41,8 +41,7 @@ export function ChangePassword() {
 
   return (
     <div className="shell narrow">
-      <h1>Set a new password</h1>
-      <p className="muted">For security, replace your temporary password before continuing.</p>
+      <h1 style={{ marginBottom: '1.25rem' }}>Set a new password</h1>
       <form className="form" onSubmit={onSubmit}>
         <label>
           Current (temporary) password

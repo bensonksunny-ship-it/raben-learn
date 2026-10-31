@@ -9,7 +9,7 @@ import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelec
 import { LandscapePrompt } from '../../components/LandscapePrompt'
 import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
-import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
+import { PriorityScheduler, type ScheduleExamOption } from '../../components/manager/PriorityScheduler'
 import { liveClassKioskUrl } from '../../lib/liveClassKiosk'
 import {
   WEEKDAYS, DAY_COLORS,
@@ -83,6 +83,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   // Syllabus data (the Title field's Subject dropdown draws its items from
   // here) — loaded once, independent of the student/week selection above.
   const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
+  const [scheduleExams, setScheduleExams] = useState<ScheduleExamOption[]>([])
   // Custom non-subject activities (Lunch, Assembly, …) — the Title field's
   // Activity dropdown, managed from the "Manage Activity Types" panel below.
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
@@ -192,7 +193,25 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   async function loadSyllabus() {
     try {
       const coursesSnap = await getDocs(collection(db, 'courses'))
-      setSyllabusCourses(coursesSnap.docs.map(mapCourseDoc))
+      const courseList = coursesSnap.docs.map(mapCourseDoc)
+      setSyllabusCourses(courseList)
+      // Every course's exam papers (`courses/{id}/exams`) for the slot Title
+      // selector's "Exam" category — whole-subject Main Exams first, then
+      // topic exams, each labelled with its topic.
+      const perCourse = await Promise.all(courseList.map(async (c) => {
+        const snap = await getDocs(collection(db, 'courses', c.id, 'exams'))
+        return snap.docs.map((d) => {
+          const x = d.data()
+          const title = (x.title as string | undefined)?.trim() || 'Exam'
+          const topicTitle = (x.topicTitle as string | null | undefined)?.trim()
+          return {
+            option: { id: d.id, courseId: c.id, courseTitle: c.title || 'Untitled course', title: topicTitle ? `${title} · ${topicTitle}` : `${title} (Main)` },
+            isMain: !x.topicId,
+          }
+        }).sort((a, b) => Number(b.isMain) - Number(a.isMain) || a.option.title.localeCompare(b.option.title))
+          .map((e) => e.option)
+      }))
+      setScheduleExams(perCourse.flat())
     } catch {
       // Non-critical — the Title field's Subject dropdown just comes up empty.
     }
@@ -350,9 +369,6 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         <div className="modal-backdrop" onClick={() => setCopyWeekOpen(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 1rem' }}>Copy to Whole Week</h3>
-            <p className="muted small" style={{ margin: '0 0 0.75rem' }}>
-              Copies every school period and elective session from the day you pick onto every other day — replacing whatever's already scheduled there.
-            </p>
             <div className="form">
               <label>Copy from
                 <select value={copyWeekSourceDay} onChange={(e) => setCopyWeekSourceDay(e.target.value as Weekday)}>
@@ -397,9 +413,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
               <button type="button" className="btn small secondary" disabled={saving} onClick={() => void resetToDefault()}>Reset to Default</button>
             </>
           ) : (
-            <span className="muted small">
-              Editing the default schedule for <strong>{selectedStudent?.name ?? 'this student'}</strong> — the first change creates a personal override.
-            </span>
+            <span className="tag">Default schedule — {selectedStudent?.name ?? 'this student'}</span>
           )}
         </div>
       )}
@@ -408,14 +422,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           "which week" dimension of its own, so this prompt is irrelevant there. */}
       {!isOverrideMode && !loadingTimetable && !loadingElectives && !weekHasOwnDoc && (
         <div className="panel" style={{ marginBottom: '1.25rem', background: '#fff8e1', borderColor: '#ffe08a' }}>
-          <p style={{ margin: '0 0 0.6rem', fontWeight: 600 }}>
-            📭 No schedule for this week. Would you like to copy from last week or create a new one?
-          </p>
-          <div className="row">
+          <div className="row" style={{ alignItems: 'center' }}>
+            <strong>📭 No schedule for this week</strong>
             <button type="button" className="btn small primary" disabled={copyingWeek} onClick={() => void copyFromPreviousWeek()}>
               {copyingWeek ? 'Copying…' : '📋 Copy from Previous Week'}
             </button>
-            <span className="muted small">Or just start adding school periods/electives below — that creates this week's schedule too.</span>
           </div>
         </div>
       )}
@@ -431,7 +442,6 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
             End
             <input type="time" className="date-picker" min="10:00" max="18:00" value={timetable.windowEnd} onChange={(e) => updateWindow({ windowEnd: e.target.value })} />
           </label>
-          <span className="muted small">(shared by every student's schedule, including overrides)</span>
         </div>
       </div>
 
@@ -447,7 +457,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
               {subjectHours.map((s) => (
-                <span key={s.courseId} className="tag" title="Completed = hours already elapsed so far this week, not an attendance-confirmed count">
+                <span key={s.courseId} className="tag" title="Completed = hours elapsed this week">
                   {s.courseTitle}: {fmtHrs(s.completedMinutes)} / {fmtHrs(s.scheduledMinutes)} hrs this wk
                 </span>
               ))}
@@ -487,6 +497,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           syllabusCourses={syllabusCourses}
           activityTypes={activityTypes}
           onManageActivityTypes={() => setShowActivityTypesModal(true)}
+          exams={scheduleExams}
         />
       )}
     </div>
@@ -575,9 +586,6 @@ function LiveClassLinkPanel() {
               <h3 style={{ margin: 0 }}>🟢 Live Class Link</h3>
               <button type="button" className="btn small ghost" onClick={() => setOpen(false)}>✕</button>
             </div>
-            <p className="muted small" style={{ margin: 0 }}>
-              No login needed — open this on a classroom TV/projector to run the class and see who's checked in, live.
-            </p>
             {error ? <p className="error small" style={{ margin: 0 }}>{error}</p> : null}
             {loading ? (
               <p className="muted small" style={{ margin: 0 }}>Loading…</p>
@@ -664,11 +672,6 @@ function ActivityTypesPanel({ activityTypes, setActivityTypes, onClose }: {
           <h3 style={{ margin: 0 }}>⚙️ Manage Activity Types</h3>
           <button type="button" className="btn small ghost" onClick={onClose}>✕</button>
         </div>
-        <p className="muted small" style={{ margin: '0 0 1rem' }}>
-          Non-subject activities (Lunch, Break, Assembly, Travel, …) — these show up
-          alongside syllabus subjects when searching a period's or elective's title,
-          and picking one auto-fills its duration and card color.
-        </p>
 
         {error ? <p className="error small" style={{ margin: '0 0 0.75rem' }}>{error}</p> : null}
 

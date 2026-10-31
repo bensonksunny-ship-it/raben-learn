@@ -220,11 +220,8 @@ export function UserManagement() {
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ marginBottom: '0.25rem' }}>User Management</h1>
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span className="page-stat">{users.length}{hasMore ? '+' : ''} users</span>
-            <span className="muted small">Create accounts and manage roles</span>
-          </div>
+          <h1 style={{ marginBottom: '0.5rem' }}>User Management</h1>
+          <span className="page-stat">{users.length}{hasMore ? '+' : ''} users</span>
         </div>
         <button className="btn primary" onClick={() => { setShowCreate((v) => !v); setError('') }}>
           {showCreate ? '✕ Cancel' : '+ New User'}
@@ -243,7 +240,7 @@ export function UserManagement() {
             <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
             <div className="full">
               <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-                Initial password <span className="muted small" style={{ fontWeight: 400 }}>(optional — leave blank to auto-generate)</span>
+                Initial password <span className="muted small" style={{ fontWeight: 400 }}>(optional)</span>
               </div>
               <input
                 type="password"

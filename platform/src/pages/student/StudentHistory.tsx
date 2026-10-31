@@ -34,7 +34,7 @@ export function StudentHistory() {
       <h1>🏆 Completed Courses</h1>
       {loading ? <p className="muted">Loading…</p> : null}
       {records.length === 0 && !loading ? (
-        <div className="panel" style={{ textAlign: 'center', padding: '3rem' }}><p style={{ fontSize: '3rem', margin: 0 }}>📚</p><h3>No courses completed yet</h3><p className="muted">Keep studying — your completed courses will show up here!</p></div>
+        <div className="panel" style={{ textAlign: 'center', padding: '3rem' }}><p style={{ fontSize: '3rem', margin: 0 }}>📚</p><h3 style={{ margin: 0 }}>No courses completed yet</h3></div>
       ) : (
         <div className="course-grid">
           {records.map((r) => (

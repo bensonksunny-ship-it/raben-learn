@@ -194,10 +194,9 @@ export function StudentDashboard() {
       {showApplicationBanner && (
         <div className="panel" style={{ marginBottom: '1.5rem', borderRadius: 'calc(var(--radius) + 10px)', borderColor: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
           <div>
-            <h2 style={{ margin: '0 0 0.25rem', fontSize: '1rem' }}>
+            <h2 style={{ margin: 0, fontSize: '1rem' }}>
               {applicationStatus === 'changes_requested' ? '📋 Your application needs a few changes' : '📋 Please complete your application'}
             </h2>
-            <p className="muted small" style={{ margin: 0 }}>Your details, photo and documents — the photo is used for your ID card.</p>
           </div>
           <Link to="/student/application" className="btn primary">
             {applicationStatus === null ? 'Start application' : 'Continue'}
@@ -260,15 +259,12 @@ export function StudentDashboard() {
               <h2 style={{ fontSize: '1.1rem', marginBottom: '1rem' }}>Quick Actions</h2>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {[
-                  { to: '/student/planner', icon: '📅', label: "Today's Plan", desc: 'View and complete your daily tasks' },
-                  { to: '/student/history', icon: '🏆', label: 'History', desc: 'Your completed sessions and progress' },
+                  { to: '/student/planner', icon: '📅', label: "Today's Plan" },
+                  { to: '/student/history', icon: '🏆', label: 'History' },
                 ].map((a) => (
                   <Link key={a.to} to={a.to} className="dash-action-link">
                     <span style={{ fontSize: '1.3rem', flexShrink: 0 }}>{a.icon}</span>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{a.label}</div>
-                      <div className="muted small">{a.desc}</div>
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: '0.92rem' }}>{a.label}</div>
                     <span style={{ marginLeft: 'auto', color: 'var(--muted-2)', fontSize: '1rem' }}>›</span>
                   </Link>
                 ))}
@@ -321,7 +317,7 @@ export function StudentDashboard() {
           <section className="panel">
             <h2 style={{ fontSize: '1.1rem', marginBottom: '1.1rem' }}>My Courses</h2>
             {courses.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>No courses assigned yet. Ask your mentor to enroll you.</p>
+              <p className="muted" style={{ margin: 0 }}>No courses assigned yet.</p>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '1.1rem' }}>
                 {courses.map((c) => {

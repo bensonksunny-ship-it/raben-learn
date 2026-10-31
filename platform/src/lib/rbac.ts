@@ -18,16 +18,16 @@ const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   admin: ['adminArea', 'manageTimetable', 'managerArea'],
   mentor: ['mentorArea'],
   student: ['studentArea'],
-  // Manager is intentionally narrow: just the Dashboard, Users, Students, and
-  // Schedule pages, nothing under /admin, /mentor, or /student. See
+  // Manager is intentionally narrow: just the Dashboard, Users, Students,
+  // Schedule, and (view/print-only — see SyllabusPage's own `effectiveReadOnly`)
+  // Syllabus pages, nothing under /admin, /mentor, or /student. See
   // UserManagement/StudentsPage for the additional restriction that a manager
   // can't touch admin/manager accounts or grant those roles — that's enforced
   // server-side, this table only decides which pages are reachable at all.
-  manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable'],
+  manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable', 'syllabusArea'],
   // Academic Consultant — exactly one page, nothing else. `/syllabus` (App.tsx)
-  // is the only route gated on `syllabusArea`; admin/mentor reach the same
-  // `<SyllabusPage>` through their own `adminArea`/`mentorArea` routes instead,
-  // so this capability is consultant-only in practice.
+  // is the only route gated on `syllabusArea` for a FULL-edit visitor; manager
+  // reaches the same route too, but SyllabusPage forces it read-only for them.
   consultant: ['syllabusArea'],
 }
 

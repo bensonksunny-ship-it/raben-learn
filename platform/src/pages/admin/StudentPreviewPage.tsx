@@ -159,8 +159,7 @@ export function StudentPreviewPage() {
       {!selectedStudentId ? (
         <div className="panel" style={{ textAlign: 'center', padding: '2.5rem' }}>
           <p style={{ fontSize: '2.5rem', margin: 0 }}>🎓</p>
-          <h3>Pick a student to preview</h3>
-          <p className="muted">Choose anyone from the dropdown above to see their real dashboard.</p>
+          <h3 style={{ margin: 0 }}>Pick a student to preview</h3>
         </div>
       ) : loading ? (
         <p className="muted">Loading {firstName}'s data…</p>

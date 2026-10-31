@@ -263,9 +263,6 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
         </Section>
 
         <Section title="Photo & documents">
-          <p className="muted small" style={{ marginTop: 0 }}>
-            Upload clear photos (JPG/PNG) or small PDFs. The student photo is used on the ID card — a plain background, face clearly visible.
-          </p>
           <FileSlot kind="photo" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
 
           <YesNo
@@ -294,10 +291,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
 
           {needsParentDeclaration(app) && (
             <div className="panel" style={{ background: 'var(--surface-soft)', marginTop: '1rem' }}>
-              <h4 style={{ margin: '0 0 0.4rem' }}>Parent's ID card & declaration</h4>
-              <p className="muted small" style={{ marginTop: 0 }}>
-                Since the student doesn't have {declarationFor}, upload a parent's ID card and complete the declaration below.
-              </p>
+              <h4 style={{ margin: '0 0 0.75rem' }}>Parent's ID card & declaration</h4>
               <Grid>
                 <Field label="Parent's name on the ID"><input value={app.parentIdName} onChange={(e) => set({ parentIdName: e.target.value })} /></Field>
                 <Field label="ID card type"><input value={app.parentIdType} onChange={(e) => set({ parentIdType: e.target.value })} placeholder="e.g. Aadhaar" /></Field>

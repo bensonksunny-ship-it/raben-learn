@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { collection, getDocs } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { useAuth } from '../../context/AuthContext'
 import { mapCourseDoc } from '../../lib/courses'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import type { Course } from '../../types'
@@ -27,7 +26,6 @@ interface ConsultantStats {
  * first.
  */
 export function ConsultantDashboard() {
-  const { profile } = useAuth()
   const [stats, setStats] = useState<ConsultantStats | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -51,15 +49,8 @@ export function ConsultantDashboard() {
     })()
   }, [])
 
-  const firstName = profile?.name?.split(' ')[0] ?? 'there'
-
   return (
     <div>
-      <div style={{ marginBottom: '1.75rem' }}>
-        <h1 style={{ marginBottom: '0.2rem' }}>Welcome back, {firstName}</h1>
-        <p className="muted" style={{ margin: 0 }}>Here's the curriculum at a glance.</p>
-      </div>
-
       <WelcomeBanner title="Shape the curriculum" subtitle="Review and refine every course and syllabus in one place." />
 
       {loading ? <p className="muted">Loading…</p> : null}
@@ -84,7 +75,7 @@ export function ConsultantDashboard() {
       )}
 
       <div className="nav-card-grid">
-        <NavCard icon="📚" title="Syllabus" subtitle="Add and edit courses, sessions, and topics" color="#7c3aed" to="/syllabus" />
+        <NavCard icon="📚" title="Syllabus" color="#7c3aed" to="/syllabus" />
       </div>
     </div>
   )

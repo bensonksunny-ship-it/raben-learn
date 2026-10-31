@@ -299,7 +299,7 @@ export function StudentDailyPlanner() {
   return (
     <div>
       <div className="planner-header">
-        <div><h1 style={{ margin: 0 }}>📅 Today's Plan</h1><p className="muted small" style={{ margin: '0.2rem 0 0' }}>Set your daily study activities and track time</p></div>
+        <h1 style={{ margin: 0 }}>📅 Today's Plan</h1>
         <input type="date" className="date-picker" value={date} onChange={(e) => setDate(e.target.value)} />
       </div>
 
@@ -307,7 +307,6 @@ export function StudentDailyPlanner() {
         <div className="modal-backdrop" onClick={() => { /* force explicit action */ }}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <h3 style={{ margin: '0 0 0.75rem' }}>Start time for your day</h3>
-            <p className="muted small" style={{ marginTop: 0 }}>We’ll calculate real clock times for each activity based on the minutes you plan.</p>
             <div className="form">
               <label>Start time<input type="time" value={startTimeInput} onChange={(e) => setStartTimeInput(e.target.value)} /></label>
               <div className="row">
@@ -362,7 +361,7 @@ export function StudentDailyPlanner() {
         })}
         {plan?.items.length === 0 && !loading && (
           <div className="panel" style={{ textAlign: 'center', padding: '2.5rem' }}>
-            <p style={{ fontSize: '2.5rem', margin: 0 }}>📝</p><h3>Plan your day</h3><p className="muted">Add activities below — we'll suggest incomplete ones for you.</p>
+            <p style={{ fontSize: '2.5rem', margin: 0 }}>📝</p><h3>Plan your day</h3>
           </div>
         )}
       </div>

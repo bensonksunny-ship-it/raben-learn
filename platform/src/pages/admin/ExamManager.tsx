@@ -18,6 +18,12 @@ interface Props {
    *  course regardless of this filter, so a topic exam can reuse a question
    *  already written for the Main Exam, and vice versa. */
   topic?: { id: string; title: string } | null
+  /** True for a viewer who can see exams (and print them) but can't write them —
+   *  a manager, per SyllabusPage's `canManageExams`/`canSeeExams` split. Hides
+   *  every create/edit/delete/activate control in the list view; 'edit' and
+   *  'templates' are never reachable since their only entry points are among
+   *  those hidden buttons. Results and Print/PDF stay visible — both read-only. */
+  readOnly?: boolean
 }
 
 type View = 'list' | 'edit' | 'templates'
@@ -55,9 +61,11 @@ function blankDraft(type: ExamType, courseId: string, topic?: { id: string; titl
   }
 }
 
-export default function ExamManager({ courseId, topic }: Props) {
+export default function ExamManager({ courseId, topic, readOnly = false }: Props) {
   const { firebaseUser, profile } = useAuth()
-  const printPrefix = profile?.roles.includes('admin') ? 'admin' : 'mentor'
+  // Admin/mentor print through their own /admin, /mentor exam-print routes;
+  // a consultant has neither area, so falls through to the top-level one.
+  const printPrefix = profile?.roles.includes('admin') ? 'admin' : profile?.roles.includes('mentor') ? 'mentor' : null
   const [view, setView] = useState<View>('list')
   const [exams, setExams] = useState<Exam[]>([])
   const [loading, setLoading] = useState(true)
@@ -437,10 +445,7 @@ export default function ExamManager({ courseId, topic }: Props) {
     return (
       <div>
         <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => { setView('list'); setTemplateForm(blankTemplateForm()) }}>← Back to Exams</button>
-        <h3 style={{ marginBottom: '0.25rem' }}>📑 Sub-Section Library</h3>
-        <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-          Design a sub-section once — title, explanation for students, and marks per question — then pick it from the list whenever you build an exam paper.
-        </p>
+        <h3 style={{ marginBottom: '0.75rem' }}>📑 Sub-Section Library</h3>
         {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
 
         <div className="panel" style={{ marginBottom: '1rem' }}>
@@ -534,7 +539,7 @@ export default function ExamManager({ courseId, topic }: Props) {
             </div>
           </div>
           {draft.sections.length === 0 ? (
-            <p className="muted small">No sections yet — e.g. "Part A" = 10 questions × 1 mark, "Part B" = 5 questions × 5 marks.</p>
+            <p className="muted small">No sections yet.</p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {draft.sections.map((s) => (
@@ -637,9 +642,6 @@ export default function ExamManager({ courseId, topic }: Props) {
                 <h3 style={{ margin: 0 }}>🔗 Pick Existing Questions</h3>
                 <button type="button" className="btn small ghost" onClick={() => setPickerForSectionId(null)}>✕</button>
               </div>
-              <p className="muted small" style={{ marginBottom: '0.6rem' }}>
-                From every other {draft.type === 'mcq' ? 'MCQ' : 'written'} exam in this course — a Main Exam can reuse a topic exam's question, or the reverse. Picking copies it in; editing the copy later never changes the original.
-              </p>
               <input
                 value={pickerFilter}
                 onChange={(e) => setPickerFilter(e.target.value)}
@@ -681,20 +683,13 @@ export default function ExamManager({ courseId, topic }: Props) {
 
   return (
     <div>
-      {topic ? (
-        <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-          Exams for topic <strong style={{ color: 'var(--text)' }}>{topic.title}</strong> only — not the course's Main Exam(s).
-        </p>
-      ) : (
-        <p className="muted small" style={{ marginBottom: '0.75rem' }}>
-          Main Exam(s) for the whole subject — not tied to any one topic.
-        </p>
+      {!readOnly && (
+        <div className="row" style={{ marginBottom: '1rem' }}>
+          <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New {examTypeLabel('written')}</button>
+          <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New {examTypeLabel('mcq')}</button>
+          <button type="button" className="btn small ghost" onClick={() => { setTemplateForm(blankTemplateForm()); setView('templates') }}>📑 Sub-Section Library</button>
+        </div>
       )}
-      <div className="row" style={{ marginBottom: '1rem' }}>
-        <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New {examTypeLabel('written')}</button>
-        <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New {examTypeLabel('mcq')}</button>
-        <button type="button" className="btn small ghost" onClick={() => { setTemplateForm(blankTemplateForm()); setView('templates') }}>📑 Sub-Section Library</button>
-      </div>
       {error && <p className="error">{error}</p>}
       {visibleExams.length === 0 ? (
         <p className="muted small">No exams yet for this {topic ? 'topic' : 'course'}.</p>
@@ -726,15 +721,21 @@ export default function ExamManager({ courseId, topic }: Props) {
                   <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                     {exam.type === 'mcq' && (
                       <>
-                        <button type="button" className="btn small ghost" onClick={() => void toggleActive(exam)}>{exam.isActive ? 'Deactivate' : 'Activate'}</button>
+                        {!readOnly && (
+                          <button type="button" className="btn small ghost" onClick={() => void toggleActive(exam)}>{exam.isActive ? 'Deactivate' : 'Activate'}</button>
+                        )}
                         <button type="button" className="btn small ghost" onClick={() => void openResults(exam)}>📊 Results</button>
                       </>
                     )}
                     {exam.type === 'written' && (
-                      <a className="btn small ghost" href={`/${printPrefix}/exam-print/${courseId}/${exam.id}`} target="_blank" rel="noreferrer">🖨 Print / PDF</a>
+                      <a className="btn small ghost" href={`${printPrefix ? `/${printPrefix}` : ''}/exam-print/${courseId}/${exam.id}`} target="_blank" rel="noreferrer">🖨 Print / PDF</a>
                     )}
-                    <button type="button" className="btn small ghost" onClick={() => openEdit(exam)}>Edit</button>
-                    <button type="button" className="btn small ghost" onClick={() => void deleteExam(exam)}>Delete</button>
+                    {!readOnly && (
+                      <>
+                        <button type="button" className="btn small ghost" onClick={() => openEdit(exam)}>Edit</button>
+                        <button type="button" className="btn small ghost" onClick={() => void deleteExam(exam)}>Delete</button>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

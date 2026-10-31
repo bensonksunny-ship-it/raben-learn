@@ -340,7 +340,7 @@ export function StudentsPage() {
 
       {statusFilter === 'applications' && (
         applicants.length === 0 ? (
-          <EmptyState title="No applications" subtitle="Use “+ New Student” to fill in an application — recruit them from here." />
+          <EmptyState title="No applications" />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.5rem' }}>
             {applicants.map((a) => {
@@ -449,10 +449,7 @@ export function StudentsPage() {
         ))}
         {visibleStudents.length === 0 && !loading && statusFilter !== 'applications' && (
           <div style={{ gridColumn: '1/-1' }}>
-            <EmptyState
-              title={statusFilter === 'active' ? 'No active students found' : 'No inactive students'}
-              subtitle={statusFilter === 'active' ? 'Use “+ New Student” to add an application, then recruit them.' : 'Students marked inactive will show up here.'}
-            />
+            <EmptyState title={statusFilter === 'active' ? 'No active students found' : 'No inactive students'} />
           </div>
         )}
       </div>
@@ -634,10 +631,6 @@ export function StudentsPage() {
             {cardNote ? <p className="muted small" style={{ marginTop: 0 }}>{cardNote}</p> : null}
             {!idCardStudent.qrToken && (
               <div style={{ marginBottom: '1rem' }}>
-                <p className="muted small" style={{ marginTop: 0 }}>
-                  No QR code yet for this student — accounts created before Live Class
-                  don't have one until it's generated once.
-                </p>
                 <button type="button" className="btn primary small" disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
                   {generatingQr ? 'Generating…' : 'Generate QR Code'}
                 </button>

@@ -399,8 +399,10 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
     const exam = exams.find((e) => e.id === resultsForExamId)
     return (
       <div>
-        <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => setResultsForExamId(null)}>← Back to Exams</button>
-        <h3 style={{ marginBottom: '0.75rem' }}>📊 Results — {exam?.title}</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+          <button type="button" className="btn small ghost" onClick={() => setResultsForExamId(null)}>← Back</button>
+          <h3 style={{ margin: 0 }}>📊 Results — {exam?.title}</h3>
+        </div>
         {error && <p className="error">{error}</p>}
         {attempts.length === 0 ? <p className="muted">No attempts yet.</p> : (
           <div style={{ overflowX: 'auto' }}>
@@ -463,8 +465,10 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
   if (view === 'templates') {
     return (
       <div>
-        <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => { setView('list'); setTemplateForm(blankTemplateForm()) }}>← Back to Exams</button>
-        <h3 style={{ marginBottom: '0.75rem' }}>📑 Sub-Section Library</h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+          <button type="button" className="btn small ghost" onClick={() => { setView('list'); setTemplateForm(blankTemplateForm()) }}>← Back</button>
+          <h3 style={{ margin: 0 }}>📑 Sub-Section Library</h3>
+        </div>
         {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
 
         <div className="panel" style={{ marginBottom: '1rem' }}>
@@ -519,10 +523,10 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
 
     return (
       <div>
-        <button type="button" className="btn small ghost" style={{ marginBottom: '0.75rem' }} onClick={() => { setView('list'); setDraft(null) }}>← Back to Exams</button>
-        <h3 style={{ marginBottom: '0.75rem' }}>
-          {draft.id ? '✏️ Edit' : '✨ New'} {examTypeLabel(draft.type)}
-        </h3>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.75rem' }}>
+          <button type="button" className="btn small ghost" onClick={() => { setView('list'); setDraft(null) }}>← Back</button>
+          <h3 style={{ margin: 0 }}>{draft.id ? '✏️ Edit' : '✨ New'} {examTypeLabel(draft.type)}</h3>
+        </div>
         {error && <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p>}
 
         <div className="panel" style={{ marginBottom: '1rem' }}>

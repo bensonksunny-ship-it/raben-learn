@@ -212,7 +212,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
               </select>
             </Field>
             <Field label="Student's phone"><input type="tel" value={app.phone} onChange={(e) => set({ phone: e.target.value })} /></Field>
-            <Field label="School name"><input value={app.schoolName} onChange={(e) => set({ schoolName: e.target.value })} /></Field>
+            <Field label="Previous school name"><input value={app.schoolName} onChange={(e) => set({ schoolName: e.target.value })} /></Field>
             <Field label="Class / grade"><input value={app.grade} onChange={(e) => set({ grade: e.target.value })} placeholder="e.g. 7" /></Field>
           </Grid>
           <Field label="Home address" required>
@@ -221,6 +221,11 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
         </Section>
 
         <Section title="Parents & emergency contact">
+          <YesNo
+            label="Single parent?"
+            value={app.isSingleParent}
+            onChange={(v) => set({ isSingleParent: v })}
+          />
           <Grid>
             <Field label="Father's name"><input value={app.fatherName} onChange={(e) => set({ fatherName: e.target.value })} /></Field>
             <Field label="Father's phone"><input type="tel" value={app.fatherPhone} onChange={(e) => set({ fatherPhone: e.target.value })} /></Field>
@@ -267,23 +272,38 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
             <FileSlot kind="birth_certificate" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
           )}
 
-          <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Father's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
-          <IdCardBlock
-            typeLabel="ID card type" typeValue={app.fatherIdType} onType={(v) => set({ fatherIdType: v })}
-            numberValue={app.fatherIdNumber} onNumber={(v) => set({ fatherIdNumber: v })}
-            fileKind="father_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
-            onPick={onPickFile} onRemove={onRemoveFile}
-            isStaff={asStaff} received={app.fatherIdReceived} onToggleReceived={(v) => set({ fatherIdReceived: v })}
-          />
+          {app.isSingleParent ? (
+            <>
+              <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Parent's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
+              <IdCardBlock
+                typeLabel="ID card type" typeValue={app.fatherIdType} onType={(v) => set({ fatherIdType: v })}
+                numberValue={app.fatherIdNumber} onNumber={(v) => set({ fatherIdNumber: v })}
+                fileKind="father_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+                onPick={onPickFile} onRemove={onRemoveFile}
+                isStaff={asStaff} received={app.fatherIdReceived} onToggleReceived={(v) => set({ fatherIdReceived: v })}
+              />
+            </>
+          ) : (
+            <>
+              <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Father's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
+              <IdCardBlock
+                typeLabel="ID card type" typeValue={app.fatherIdType} onType={(v) => set({ fatherIdType: v })}
+                numberValue={app.fatherIdNumber} onNumber={(v) => set({ fatherIdNumber: v })}
+                fileKind="father_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+                onPick={onPickFile} onRemove={onRemoveFile}
+                isStaff={asStaff} received={app.fatherIdReceived} onToggleReceived={(v) => set({ fatherIdReceived: v })}
+              />
 
-          <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Mother's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
-          <IdCardBlock
-            typeLabel="ID card type" typeValue={app.motherIdType} onType={(v) => set({ motherIdType: v })}
-            numberValue={app.motherIdNumber} onNumber={(v) => set({ motherIdNumber: v })}
-            fileKind="mother_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
-            onPick={onPickFile} onRemove={onRemoveFile}
-            isStaff={asStaff} received={app.motherIdReceived} onToggleReceived={(v) => set({ motherIdReceived: v })}
-          />
+              <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Mother's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
+              <IdCardBlock
+                typeLabel="ID card type" typeValue={app.motherIdType} onType={(v) => set({ motherIdType: v })}
+                numberValue={app.motherIdNumber} onNumber={(v) => set({ motherIdNumber: v })}
+                fileKind="mother_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+                onPick={onPickFile} onRemove={onRemoveFile}
+                isStaff={asStaff} received={app.motherIdReceived} onToggleReceived={(v) => set({ motherIdReceived: v })}
+              />
+            </>
+          )}
 
           {needsParentDeclaration(app) && (
             <div className="panel" style={{ background: 'var(--surface-soft)', marginTop: '1rem' }}>

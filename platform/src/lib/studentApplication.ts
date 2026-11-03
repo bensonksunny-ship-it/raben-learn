@@ -21,13 +21,15 @@ export type ApplicationStatus = 'draft' | 'submitted' | 'changes_requested' | 'a
  *  (`applicants/{applicantId}`) — same shape, moved across on "Recruit Student". */
 export type ApplicationCollection = 'student_applications' | 'applicants'
 
-export type ApplicationFileKind = 'photo' | 'student_id' | 'birth_certificate' | 'parent_id'
+export type ApplicationFileKind = 'photo' | 'student_id' | 'birth_certificate' | 'parent_id' | 'father_id' | 'mother_id'
 
 export const FILE_KIND_LABEL: Record<ApplicationFileKind, string> = {
   photo: 'Student photo',
   student_id: "Student's ID card",
   birth_certificate: 'Birth certificate',
   parent_id: "Parent's ID card",
+  father_id: "Father's ID card",
+  mother_id: "Mother's ID card",
 }
 
 export interface ApplicationFileMeta {
@@ -66,6 +68,10 @@ export interface StudentApplication {
   grade: string
 
   // Parents / guardian
+  /** When true, the form asks for one parent's ID card instead of separate
+   *  Father's/Mother's ID blocks — see `fatherId*` below, reused as that
+   *  single slot regardless of which parent it actually is. */
+  isSingleParent: boolean
   fatherName: string
   fatherPhone: string
   fatherOccupation: string
@@ -82,7 +88,21 @@ export interface StudentApplication {
   hasStudentId: boolean
   studentIdType: string
   studentIdNumber: string
+  /** True once the office has physically collected a printout of the
+   *  student's ID card — set only by staff (see `ID card received as hard
+   *  copy` in the form). Stands in for `files.student_id` in
+   *  `validateApplication()` so there's no need to also upload a scan. */
+  studentIdReceived: boolean
   hasBirthCertificate: boolean
+  // Father's / mother's own ID card — independent of the parent-ID-as-
+  // declaration fallback below (that one proves identity in place of a
+  // missing student document; these are just each parent's own ID on file).
+  fatherIdType: string
+  fatherIdNumber: string
+  fatherIdReceived: boolean
+  motherIdType: string
+  motherIdNumber: string
+  motherIdReceived: boolean
   parentIdName: string
   parentIdType: string
   declaration: ApplicationDeclaration | null
@@ -95,9 +115,12 @@ export function emptyApplication(studentId: string, fullName = ''): StudentAppli
   return {
     studentId, status: 'draft', email: '', targetCourseIds: [],
     fullName, dateOfBirth: '', gender: '', bloodGroup: '', phone: '', address: '', schoolName: '', grade: '',
+    isSingleParent: false,
     fatherName: '', fatherPhone: '', fatherOccupation: '', motherName: '', motherPhone: '', motherOccupation: '',
     parentEmail: '', emergencyName: '', emergencyRelation: '', emergencyPhone: '', medicalNotes: '',
-    hasStudentId: true, studentIdType: '', studentIdNumber: '', hasBirthCertificate: true,
+    hasStudentId: true, studentIdType: '', studentIdNumber: '', studentIdReceived: false, hasBirthCertificate: true,
+    fatherIdType: '', fatherIdNumber: '', fatherIdReceived: false,
+    motherIdType: '', motherIdNumber: '', motherIdReceived: false,
     parentIdName: '', parentIdType: '', declaration: null, files: {},
     reviewNote: '',
   }
@@ -124,12 +147,16 @@ export function normalizeApplication(studentId: string, d: Record<string, unknow
     fullName: str(d.fullName) || fallbackName,
     dateOfBirth: str(d.dateOfBirth), gender: str(d.gender), bloodGroup: str(d.bloodGroup), phone: str(d.phone),
     address: str(d.address), schoolName: str(d.schoolName), grade: str(d.grade),
+    isSingleParent: d.isSingleParent === true,
     fatherName: str(d.fatherName), fatherPhone: str(d.fatherPhone), fatherOccupation: str(d.fatherOccupation),
     motherName: str(d.motherName), motherPhone: str(d.motherPhone), motherOccupation: str(d.motherOccupation),
     parentEmail: str(d.parentEmail), emergencyName: str(d.emergencyName), emergencyRelation: str(d.emergencyRelation),
     emergencyPhone: str(d.emergencyPhone), medicalNotes: str(d.medicalNotes),
     hasStudentId: d.hasStudentId !== false, studentIdType: str(d.studentIdType), studentIdNumber: str(d.studentIdNumber),
+    studentIdReceived: d.studentIdReceived === true,
     hasBirthCertificate: d.hasBirthCertificate !== false,
+    fatherIdType: str(d.fatherIdType), fatherIdNumber: str(d.fatherIdNumber), fatherIdReceived: d.fatherIdReceived === true,
+    motherIdType: str(d.motherIdType), motherIdNumber: str(d.motherIdNumber), motherIdReceived: d.motherIdReceived === true,
     parentIdName: str(d.parentIdName), parentIdType: str(d.parentIdType),
     declaration: decl
       ? { parentName: str(decl.parentName), relation: str(decl.relation), agreed: decl.agreed === true, signedOn: str(decl.signedOn) }
@@ -158,7 +185,7 @@ export function validateApplication(a: StudentApplication): string[] {
   req(a.emergencyName, 'Emergency contact name')
   req(a.emergencyPhone, 'Emergency contact phone')
   if (!a.files.photo) missing.push('Student photo')
-  if (a.hasStudentId && !a.files.student_id) missing.push("Student's ID card upload")
+  if (a.hasStudentId && !a.files.student_id && !a.studentIdReceived) missing.push("Student's ID card upload (or mark it received as hard copy)")
   if (a.hasBirthCertificate && !a.files.birth_certificate) missing.push('Birth certificate upload')
   if (needsParentDeclaration(a)) {
     if (!a.files.parent_id) missing.push("Parent's ID card upload")
@@ -174,19 +201,25 @@ export async function loadApplication(
   return { app: normalizeApplication(studentId, snap.exists() ? snap.data() : undefined, fallbackName), exists: snap.exists() }
 }
 
-/** Saves the form fields with the given status. `reviewNote` is only written by
- *  staff (`asStaff`) — the rules reject a student touching it. */
+/** Saves the form fields with the given status. `reviewNote` and the three
+ *  "received as hard copy" flags are only written by staff (`asStaff`) — the
+ *  rules reject a student touching any of them, same as `reviewNote`. */
 export async function saveApplication(
   a: StudentApplication, status: ApplicationStatus,
   opts: { asStaff: boolean; reviewerId?: string; collection?: ApplicationCollection },
 ) {
-  const { reviewNote, ...fields } = a
+  const { reviewNote, studentIdReceived, fatherIdReceived, motherIdReceived, ...fields } = a
   const data: Record<string, unknown> = {
     ...fields,
     status,
     updatedAt: serverTimestamp(),
     ...(status === 'submitted' ? { submittedAt: serverTimestamp() } : {}),
-    ...(opts.asStaff ? { reviewNote, ...(status === 'approved' || status === 'changes_requested' ? { reviewedAt: serverTimestamp(), reviewedBy: opts.reviewerId ?? null } : {}) } : {}),
+    ...(opts.asStaff
+      ? {
+          reviewNote, studentIdReceived, fatherIdReceived, motherIdReceived,
+          ...(status === 'approved' || status === 'changes_requested' ? { reviewedAt: serverTimestamp(), reviewedBy: opts.reviewerId ?? null } : {}),
+        }
+      : {}),
   }
   // `mergeFields` (not `merge: true`) so each written field — notably the `files`
   // map — is replaced wholesale (a removed upload really disappears), while fields

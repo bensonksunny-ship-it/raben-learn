@@ -736,9 +736,16 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
 .mentor-student-header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.25rem; }
 .mentor-student-avatar { width: 56px; height: 56px; border-radius: 50%; background: var(--primary); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1.4rem; flex-shrink: 0; }
 .course-tabs { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-bottom: 0.5rem; }
-.course-tab { padding: 0.45rem 1rem; border-radius: 8px; border: 1.5px solid var(--border); background: transparent; cursor: pointer; font-size: 0.86rem; font-weight: 600; color: var(--muted); transition: all 0.15s; font-family: var(--font-body); }
+.course-tab { padding: 0.45rem 1rem; border-radius: 8px; border: 1.5px solid var(--border); background: transparent; cursor: pointer; font-size: 0.86rem; font-weight: 600; color: var(--muted); transition: all 0.15s; font-family: var(--font-body); white-space: nowrap; flex-shrink: 0; }
 .course-tab.active { background: var(--primary); color: #fff; border-color: var(--primary); }
 .course-tab:hover:not(.active) { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+/* On mobile there isn't room for ten-plus Level tabs to wrap across several
+   rows without pushing the rest of the page down and feeling cramped under
+   the fixed top bar — scroll them in one row instead, same as the timetable
+   grid scrolls horizontally rather than inflating the page. */
+@media (max-width: 768px) {
+  .course-tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 0.3rem; }
+}
 
 .planner-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1.25rem; flex-wrap: wrap; gap: 1rem; }
 .date-picker { padding: 0.45rem 0.75rem; border: 1.5px solid var(--border); border-radius: 8px; font-size: 0.88rem; color: var(--text); background: var(--surface); font-family: var(--font-body); }

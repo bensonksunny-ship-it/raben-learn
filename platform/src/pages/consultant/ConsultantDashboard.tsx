@@ -76,6 +76,7 @@ export function ConsultantDashboard() {
 
       <div className="nav-card-grid">
         <NavCard icon="📚" title="Syllabus" color="#7c3aed" to="/syllabus" />
+        <NavCard icon="📝" title="Exam Schedule" color="#c2255c" to="/exam-schedule" />
       </div>
     </div>
   )

@@ -246,7 +246,11 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .table tr:hover td { background: #f8faff; }
 
 .modal-backdrop { position: fixed; inset: 0; background: rgba(10,18,40,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
-.modal { background: var(--surface); border-radius: calc(var(--radius) + 4px); padding: 1.75rem; width: 100%; max-width: 580px; box-shadow: 0 24px 60px rgba(10,18,40,0.2); max-height: 90vh; overflow-y: auto; }
+/* `overflow-x: hidden` — a wide grid/table inside a modal (e.g. ExamManager's
+   section-row grid) can otherwise overflow the card horizontally instead of
+   wrapping or scrolling with it, spilling past the rounded border and getting
+   clipped by the viewport edge. */
+.modal { background: var(--surface); border-radius: calc(var(--radius) + 4px); padding: 1.75rem; width: 100%; max-width: 580px; box-shadow: 0 24px 60px rgba(10,18,40,0.2); max-height: 90vh; overflow-y: auto; overflow-x: hidden; }
 
 /* Glassmorphism variant — a frosted, translucent card over a softly blurred
    backdrop, for compact task-focused modals (Add Student) rather than the
@@ -1275,3 +1279,13 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
 @media (max-width: 600px) {
   .sb-course-grid { grid-template-columns: 1fr; }
 }
+
+.lesson-notes-toolbar { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.6rem; }
+.lesson-notes-editor-surface { border: 1px solid var(--border); border-radius: var(--radius); padding: 0.85rem 1rem; min-height: 220px; }
+.lesson-notes-editor-surface .ProseMirror { outline: none; min-height: 200px; line-height: 1.6; }
+.lesson-notes-editor-surface .ProseMirror img,
+.lesson-notes-view img { max-width: 100%; border-radius: 6px; }
+.lesson-notes-editor-surface .ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder); color: var(--muted-2); float: left; height: 0; pointer-events: none;
+}
+.lesson-notes-view { line-height: 1.6; }

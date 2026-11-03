@@ -4,6 +4,7 @@ import { addDoc, collection, doc, getDoc, getDocs, query, serverTimestamp, where
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { shuffleArray } from '../../lib/examUtils'
+import { examAvailability, formatExamWhen, loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
 import type { Exam, ExamAttempt } from '../../types'
 
 export default function ExamInstructions() {
@@ -17,6 +18,7 @@ export default function ExamInstructions() {
   const [loading, setLoading] = useState(true)
   const [starting, setStarting] = useState(false)
   const [error, setError] = useState('')
+  const [schedules, setSchedules] = useState<ExamScheduleEntry[]>([])
 
   useEffect(() => { void load() }, [courseId, examId, firebaseUser?.uid])
 
@@ -24,11 +26,13 @@ export default function ExamInstructions() {
     if (!courseId || !examId || !firebaseUser?.uid) return
     setLoading(true)
     try {
-      const [courseSnap, examSnap, attSnap] = await Promise.all([
+      const [courseSnap, examSnap, attSnap, allSchedules] = await Promise.all([
         getDoc(doc(db, 'courses', courseId)),
         getDoc(doc(db, 'courses', courseId, 'exams', examId)),
         getDocs(query(collection(db, 'examAttempts'), where('studentId', '==', firebaseUser.uid), where('examId', '==', examId))),
+        loadExamSchedules().catch(() => [] as ExamScheduleEntry[]),
       ])
+      setSchedules(allSchedules.filter((x) => x.examId === examId))
       if (courseSnap.exists()) setCourseTitle((courseSnap.data().title as string) ?? '')
       if (examSnap.exists()) setExam({ id: examSnap.id, ...(examSnap.data() as Omit<Exam, 'id'>) })
 
@@ -51,6 +55,8 @@ export default function ExamInstructions() {
       navigate(`/exam/${courseId}/${examId}/run`, { state: { attemptId: existingAttempt.id } })
       return
     }
+    // Re-checked at click time — the page may have sat open past the slot's end.
+    if (examAvailability(exam, schedules).state !== 'open') { setError('This exam is not open right now.'); return }
     setStarting(true); setError('')
     try {
       if (exam.questions.length === 0) { setError('This exam has no questions yet.'); setStarting(false); return }
@@ -93,9 +99,18 @@ export default function ExamInstructions() {
     </div>
   )
 
-  if (!exam.isActive) return (
+  // A scheduled paper opens only during its slot; an unscheduled one follows the
+  // Exam Manager's "active" switch. An attempt already in progress can always resume.
+  const availability = examAvailability(exam, schedules)
+  if (availability.state !== 'open' && !(existingAttempt && !existingAttempt.submittedAt)) return (
     <div style={{ padding: '2rem' }}>
-      <p className="notice">This exam is not active yet. Check back later.</p>
+      <p className="notice">
+        {availability.state === 'upcoming'
+          ? `This exam opens on ${formatExamWhen(availability.next)}.`
+          : availability.state === 'closed'
+            ? 'This exam has closed.'
+            : 'This exam is not active yet. Check back later.'}
+      </p>
     </div>
   )
 

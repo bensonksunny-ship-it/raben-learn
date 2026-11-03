@@ -12,6 +12,9 @@ service cloud.firestore {
     function canEditSyllabus() { return isAdminOrMentor() || hasRole('consultant'); }
     // Matches rbac.ts's `scheduleExams` capability (admin, mentor, manager, consultant).
     function canScheduleExams() { return isAdminOrMentor() || hasRole('manager') || hasRole('consultant'); }
+    // Lesson notes are stricter than the rest of the syllabus: mentor ("teacher")
+    // is deliberately read-only here, unlike canEditSyllabus() above.
+    function canEditLessonNotes() { return hasRole('admin') || hasRole('consultant'); }
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function targetIsElevated(uid) {
       let roles = get(/databases/$(database)/documents/users/$(uid)).data.roles;
@@ -60,6 +63,14 @@ service cloud.firestore {
     match /sectionTemplates/{id} {
       allow read: if isSignedIn();
       allow write: if canEditSyllabus();
+    }
+
+    // Lesson notes — one doc per syllabus topic (topicId as the doc id).
+    // Readable by any signed-in user (mentor/"teacher" views + downloads them),
+    // writable only by admin/consultant — see canEditLessonNotes().
+    match /topic_notes/{topicId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if canEditLessonNotes();
     }
 
     // Dated exam bookings (ExamSchedulePage's "+ Schedule exam") — one doc per

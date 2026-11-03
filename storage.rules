@@ -1,0 +1,15 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Lesson notes images, pasted/uploaded by the Academic Consultant into a
+    // topic's rich-text notes — path is lesson_notes/{topicId}/{fileName}.
+    // Write access isn't restricted to admin/consultant here: the actual
+    // notes document in Firestore (topic_notes/{topicId}) is what's gated to
+    // those roles, so an uploaded-but-unreferenced image is harmless. Same
+    // tradeoff this codebase already makes for exam question content.
+    match /lesson_notes/{topicId}/{fileName} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.resource.size < 8 * 1024 * 1024;
+    }
+  }
+}

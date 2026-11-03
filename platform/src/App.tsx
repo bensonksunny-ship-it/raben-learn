@@ -45,6 +45,7 @@ const LiveClassKioskPage = lazy(() =>
   import('./pages/LiveClassKioskPage').then((m) => ({ default: m.LiveClassKioskPage })),
 )
 const ExamPrintView = lazy(() => import('./pages/admin/ExamPrintView'))
+const LessonNotesPrintView = lazy(() => import('./pages/admin/LessonNotesPrintView'))
 const ExamInstructions = lazy(() => import('./pages/exam/ExamInstructions'))
 const ExamRunner = lazy(() => import('./pages/exam/ExamRunner'))
 const ExamResults = lazy(() => import('./pages/exam/ExamResults'))
@@ -172,6 +173,15 @@ export default function App() {
                 <Suspense fallback={<AdminRouteFallback />}><ExamPrintView /></Suspense>
               </RequireCapability>
             }
+          />
+          {/* Lesson notes' "Print / Download" link, opened in a new tab from the
+              Notes modal — reachable by admin/mentor/consultant/manager, none of
+              which share one single capability, so this isn't RequireCapability-
+              gated; the real access boundary is the topic_notes Firestore rule
+              (any signed-in user can read), same tradeoff the exam rules make. */}
+          <Route
+            path="lesson-notes-print/:topicId"
+            element={<Suspense fallback={<AdminRouteFallback />}><LessonNotesPrintView /></Suspense>}
           />
           {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
           <Route path="timetable" element={<Navigate to="/schedule" replace />} />

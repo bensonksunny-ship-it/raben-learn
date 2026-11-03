@@ -1,11 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import {
-  addDoc, collection, deleteDoc, doc, getDoc, getDocs,
+  addDoc, collection, deleteDoc, doc, documentId, getDoc, getDocs,
   query, serverTimestamp, updateDoc, where,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
 import { parseMcqPaste, parseWrittenPaste } from '../../lib/examUtils'
+import { mapCourseDoc } from '../../lib/courses'
+import { examEnd, formatExamWhen, loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
+import { ExamScheduleForm } from '../../components/ExamScheduleForm'
+import type { Course } from '../../types'
 import type { Exam, ExamAttempt, ExamQuestionItem, ExamSection, ExamType, SectionTemplate, UserProfile } from '../../types'
 
 interface Props {
@@ -68,6 +72,10 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
   const printPrefix = profile?.roles.includes('admin') ? 'admin' : profile?.roles.includes('mentor') ? 'mentor' : null
   const [view, setView] = useState<View>('list')
   const [exams, setExams] = useState<Exam[]>([])
+  // Exam-schedule bookings for this course's papers, and the "📅 Schedule"
+  // shortcut's form (open for one paper, with this course as its subject).
+  const [schedules, setSchedules] = useState<ExamScheduleEntry[]>([])
+  const [scheduling, setScheduling] = useState<{ exam: Exam; course: Course } | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -115,9 +123,20 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
       snap.forEach((d) => list.push({ id: d.id, ...(d.data() as Omit<Exam, 'id'>) }))
       list.sort((a, b) => a.title.localeCompare(b.title))
       setExams(list)
+      const all = await loadExamSchedules().catch(() => [] as ExamScheduleEntry[])
+      setSchedules(all.filter((x) => x.courseId === courseId))
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed to load') }
     finally { setLoading(false) }
   }, [courseId])
+
+  async function openSchedule(exam: Exam) {
+    try {
+      const snap = await getDocs(query(collection(db, 'courses'), where(documentId(), '==', courseId)))
+      const courseDoc = snap.docs[0]
+      if (!courseDoc) { setError('Course not found.'); return }
+      setScheduling({ exam, course: mapCourseDoc(courseDoc) })
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed to open the exam schedule') }
+  }
 
   useEffect(() => { void load() }, [load])
 
@@ -509,7 +528,7 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
         <div className="panel" style={{ marginBottom: '1rem' }}>
           <div className="form">
             <label>Exam Title *<input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} placeholder="e.g. Mid-Term Exam" /></label>
-            <div style={{ display: 'grid', gridTemplateColumns: draft.type === 'mcq' ? '1fr 1fr 1fr' : '1fr 1fr', gap: '0.5rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: draft.type === 'mcq' ? 'minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)' : 'minmax(0,1fr) minmax(0,1fr)', gap: '0.5rem' }}>
               <label>Total Questions (target)<input type="number" min={0} value={draft.totalQuestions} onChange={(e) => setDraft({ ...draft, totalQuestions: Number(e.target.value) })} /></label>
               <label>Total Marks (target)<input type="number" min={0} value={draft.totalMarks} onChange={(e) => setDraft({ ...draft, totalMarks: Number(e.target.value) })} /></label>
               {draft.type === 'mcq' && (
@@ -544,7 +563,7 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
               {draft.sections.map((s) => (
                 <div key={s.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '0.6rem', display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr 1fr auto auto', gap: '0.5rem', alignItems: 'center' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) auto auto', gap: '0.5rem', alignItems: 'center' }}>
                     <input value={s.label} onChange={(e) => updateSection(s.id, { label: e.target.value })} placeholder="Section label" />
                     <input type="number" min={0} value={s.questionCount} onChange={(e) => updateSection(s.id, { questionCount: Number(e.target.value) })} placeholder="Questions" title="Question count" />
                     <input type="number" min={0} value={s.marksPerQuestion} onChange={(e) => updateSection(s.id, { marksPerQuestion: Number(e.target.value) })} placeholder="Marks/Q" title="Marks per question" />
@@ -608,7 +627,7 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
                         <button type="button" className="btn small ghost" onClick={() => removeQuestion(q.id)}>✕</button>
                       </div>
                       {draft.type === 'mcq' && q.options && (
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.35rem', marginTop: '0.4rem', paddingLeft: '2rem' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: '0.35rem', marginTop: '0.4rem', paddingLeft: '2rem' }}>
                           {q.options.map((opt, oi) => (
                             <label key={oi} style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.85rem' }}>
                               <input
@@ -691,6 +710,21 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
         </div>
       )}
       {error && <p className="error">{error}</p>}
+      {scheduling && (
+        <ExamScheduleForm
+          courses={[scheduling.course]}
+          entry={null}
+          prefill={{
+            courseId: scheduling.course.id, courseTitle: scheduling.course.title,
+            examId: scheduling.exam.id,
+            examTitle: scheduling.exam.topicTitle ? `${scheduling.exam.title} · ${scheduling.exam.topicTitle}` : scheduling.exam.title,
+            examType: scheduling.exam.type,
+            ...(scheduling.exam.type === 'mcq' && scheduling.exam.durationMinutes > 0 ? { durationMinutes: scheduling.exam.durationMinutes } : {}),
+          }}
+          onClose={() => setScheduling(null)}
+          onSaved={() => { setScheduling(null); void load() }}
+        />
+      )}
       {visibleExams.length === 0 ? (
         <p className="muted small">No exams yet for this {topic ? 'topic' : 'course'}.</p>
       ) : (
@@ -717,8 +751,15 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
                       {exam.sections.length} section{exam.sections.length !== 1 ? 's' : ''} · {sumQuestions} questions · {sumMarks} marks
                       {exam.type === 'mcq' ? ` · ${exam.durationMinutes}min` : ''}
                     </span>
+                    {(() => {
+                      const next = schedules.find((x) => x.examId === exam.id && examEnd(x) >= new Date())
+                      return next ? (
+                        <div className="small" style={{ color: '#c2255c', fontWeight: 600, marginTop: '0.2rem' }}>📅 {formatExamWhen(next)}</div>
+                      ) : null
+                    })()}
                   </div>
                   <div style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
+                    <button type="button" className="btn small ghost" onClick={() => void openSchedule(exam)}>📅 Schedule</button>
                     {exam.type === 'mcq' && (
                       <>
                         {!readOnly && (

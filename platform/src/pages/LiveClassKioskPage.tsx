@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { signInWithCustomToken } from 'firebase/auth'
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, type Timestamp } from 'firebase/firestore'
 import { kioskAuth, kioskDb, resolveLiveClassKioskToken } from '../lib/liveClassKiosk'
+import { localDateStr, mapExamSchedule, type ExamScheduleEntry } from '../lib/examSchedule'
 import { mapUserDoc } from '../lib/userUtils'
 import { todayStr, weekKeyOf, loadEffectiveWeekSchedule, timeStrToMinutes } from '../components/manager/schedulerShared'
 import { GRACE_MINUTES, todaysPeriods, todayWeekday } from '../lib/attendance'
@@ -52,7 +53,7 @@ function useNow(): Date {
 /** One block on today's running timetable — a locked school period (`label`
  *  "P1", "P2"… matching the roster's attendance columns) or an elective session
  *  (`label` "Elective"), both placed purely by their scheduled clock time. */
-interface TimedPeriod { id: string; title: string; label: string; kind: 'period' | 'elective'; startTime: string; startMin: number; endMin: number }
+interface TimedPeriod { id: string; title: string; label: string; kind: 'period' | 'elective' | 'exam'; startTime: string; startMin: number; endMin: number }
 
 /** Where the wall clock sits within today's timetable. */
 type ClockState =
@@ -102,6 +103,8 @@ export function LiveClassKioskPage() {
   const [students, setStudents] = useState<UserProfile[]>([])
   const [timetable, setTimetable] = useState<ClassTimetable | null>(null)
   const [electives, setElectives] = useState<ElectiveSchedule | null>(null)
+  /** Today's booked exams (`exam_schedules`) — merged into the running timetable. */
+  const [todaysExams, setTodaysExams] = useState<ExamScheduleEntry[]>([])
   const [checkpointsByStudent, setCheckpointsByStudent] = useState<Record<string, AttendanceCheckpoint[]>>({})
   /** `class_runs/{date}.startedAt` — undefined while loading, null if not started yet. */
   const [startedAt, setStartedAt] = useState<Date | null | undefined>(undefined)
@@ -192,6 +195,16 @@ export function LiveClassKioskPage() {
     )
   }, [phase, date])
 
+  const localDate = localDateStr(now)
+  useEffect(() => {
+    if (phase !== 'ready') return
+    return onSnapshot(
+      query(collection(kioskDb, 'exam_schedules'), where('date', '==', localDate)),
+      (snap) => setTodaysExams(snap.docs.map((d) => mapExamSchedule(d.id, d.data()))),
+      () => setTodaysExams([]),
+    )
+  }, [phase, localDate])
+
   const periods: TimetablePeriod[] = useMemo(
     () => (timetable && weekday ? todaysPeriods(timetable, weekday) : []),
     [timetable, weekday],
@@ -209,8 +222,13 @@ export function LiveClassKioskPage() {
       if (startMin == null || !(e.durationMinutes > 0)) continue
       out.push({ id: e.id, title: e.title || 'Open slot', label: 'Elective', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
     }
+    for (const x of todaysExams) {
+      const startMin = timeStrToMinutes(x.startTime)
+      if (startMin == null) continue
+      out.push({ id: x.id, title: `${x.courseTitle} — ${x.examTitle || 'Exam'}`, label: '📝 Exam', kind: 'exam', startTime: x.startTime, startMin, endMin: startMin + x.durationMinutes })
+    }
     return out.sort((a, b) => a.startMin - b.startMin)
-  }, [periods, electives, weekday])
+  }, [periods, electives, weekday, todaysExams])
   const scheduledStartMin = timed[0]?.startMin ?? null
   const state = clockState(timed, nowMin)
   const currentPeriodId = state.kind === 'in' && state.current.kind === 'period' ? state.current.id : null

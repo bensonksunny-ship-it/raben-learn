@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { ClassTimetable, Course, ElectiveSchedule, LevelId, Session, Topic, TopicType } from '../../types'
@@ -8,6 +8,12 @@ import { mapCourseDoc } from '../../lib/courses'
 import { computeSubjectWeeklyHours, todayStr, weekKeyOf, loadEffectiveWeekSchedule } from '../../components/manager/schedulerShared'
 import ExamManager from './ExamManager'
 import { useAuth } from '../../context/AuthContext'
+
+// Lazy — pulls in the TipTap rich-text editor, which is heavy and only ever
+// needed once someone actually opens the Notes modal.
+const LessonNotesEditor = lazy(() =>
+  import('../../components/admin/LessonNotesEditor').then((m) => ({ default: m.LessonNotesEditor })),
+)
 
 /** One row of the flattened SL No./Title grid — a Topic plus which Session doc it
  *  currently lives in (needed only so writes know where to save; the grid itself
@@ -41,6 +47,11 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   // ExamManager itself (via its own `readOnly` prop below) — rules agree:
   // canEditSyllabus() (the exams write rule) doesn't include manager.
   const canSeeExams = canManageExams || isManager
+  // Lesson notes are stricter than exams: only admin/consultant can write them —
+  // mentor ("teacher") is deliberately read-only here, unlike canManageExams above.
+  const canEditNotes = profile?.roles.some((r) => r === 'admin' || r === 'consultant') ?? false
+  const isMentor = profile?.roles.includes('mentor') ?? false
+  const canSeeNotes = canEditNotes || isMentor || isManager
 
   const [courses, setCourses] = useState<Course[]>([])
   const [selectedCourseId, setSelectedCourseId] = useState<string | null>(null)
@@ -66,6 +77,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   // null = closed; 'main' = the course's whole-subject exam(s), no topic; an
   // object = scoped to that one topic row's exam(s).
   const [examModalTopic, setExamModalTopic] = useState<'main' | { id: string; title: string } | null>(null)
+  const [notesModalTopic, setNotesModalTopic] = useState<{ id: string; title: string } | null>(null)
   const [editingCourseInfo, setEditingCourseInfo] = useState(false)
   const [courseMenuOpen, setCourseMenuOpen] = useState(false)
   const [editCourseTitle, setEditCourseTitle] = useState('')
@@ -311,16 +323,6 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   async function deleteRow(topicId: string) {
     if (!window.confirm('Delete this row?')) return
     await commitFlatTopics(flatRows.filter((r) => r.topic.id !== topicId).map((r) => r.topic))
-  }
-
-  async function moveRow(index: number, direction: -1 | 1) {
-    const target = index + direction
-    if (target < 0 || target >= flatRows.length) return
-    const topics = flatRows.map((r) => r.topic)
-    const tmp = topics[index]!
-    topics[index] = topics[target]!
-    topics[target] = tmp
-    await commitFlatTopics(topics)
   }
 
   /** Parses pasted text into an ordered list of titles — plain lines, lines
@@ -580,8 +582,15 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                                 Exam
                               </button>
                             )}
-                            <button type="button" className="btn small ghost" title="Move up" disabled={idx === 0 || saving} onClick={() => void moveRow(idx, -1)}>↑</button>
-                            <button type="button" className="btn small ghost" title="Move down" disabled={idx === flatRows.length - 1 || saving} onClick={() => void moveRow(idx, 1)}>↓</button>
+                            {canSeeNotes && (
+                              <button
+                                type="button"
+                                className="btn small secondary"
+                                onClick={() => setNotesModalTopic({ id: row.topic.id, title: row.topic.title })}
+                              >
+                                📝 Notes
+                              </button>
+                            )}
                             <button type="button" className="btn small ghost" title="Delete" disabled={saving} onClick={() => void deleteRow(row.topic.id)}>✕</button>
                           </div>
                         </td>
@@ -657,6 +666,20 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
               <button type="button" className="btn small ghost" onClick={() => setExamModalTopic(null)}>✕</button>
             </div>
             <ExamManager courseId={selectedCourseId} topic={examModalTopic === 'main' ? null : examModalTopic} readOnly={!canManageExams} />
+          </div>
+        </div>
+      )}
+
+      {notesModalTopic && (
+        <div className="modal-backdrop" onClick={() => setNotesModalTopic(null)}>
+          <div className="modal" style={{ maxWidth: 760, width: '95%' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <h3 style={{ margin: 0 }}>📝 Notes — {notesModalTopic.title}</h3>
+              <button type="button" className="btn small ghost" onClick={() => setNotesModalTopic(null)}>✕</button>
+            </div>
+            <Suspense fallback={<p className="muted">Loading…</p>}>
+              <LessonNotesEditor topicId={notesModalTopic.id} topicTitle={notesModalTopic.title} canEdit={canEditNotes} />
+            </Suspense>
           </div>
         </div>
       )}

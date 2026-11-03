@@ -13,13 +13,17 @@
     "generate-icons": "node scripts/generate-app-icons.mjs"
   },
   "dependencies": {
+    "@tiptap/extension-image": "^3.32.2",
+    "@tiptap/extension-placeholder": "^3.32.2",
+    "@tiptap/pm": "^3.32.2",
+    "@tiptap/react": "^3.32.2",
+    "@tiptap/starter-kit": "^3.32.2",
     "firebase": "^12.11.0",
     "framer-motion": "^12.40.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "react-router-dom": "^7.13.2",
-    "xlsx": "^0.18.5"
+    "react-router-dom": "^7.13.2"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",

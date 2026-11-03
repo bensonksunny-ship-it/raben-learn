@@ -7,7 +7,6 @@ import {
   saveApplication, uploadApplicationFile, validateApplication,
   type ApplicationCollection, type ApplicationFileKind, type ApplicationStatus, type StudentApplication,
 } from '../lib/studentApplication'
-import type { Course } from '../types'
 
 const STATUS_LABEL: Record<ApplicationStatus, string> = {
   draft: 'Not submitted yet',
@@ -49,8 +48,6 @@ interface Props {
    *  student (no account yet) from "+ New Student" — saved to `applicants`. */
   mode: 'student' | 'staff' | 'applicant'
   reviewerId?: string
-  /** Applicant mode only — the courses offered as "Target level / syllabus". */
-  courses?: Course[]
   /** Called after any save, with the new status (e.g. so a list can refresh). */
   onSaved?: (status: ApplicationStatus) => void
 }
@@ -61,7 +58,7 @@ interface Props {
  * declaration in place of a missing one). Uploads save straight away; the text
  * fields save on "Save draft"/"Submit" (or the staff actions).
  */
-export function StudentApplicationForm({ studentId, defaultName, mode, reviewerId, courses = [], onSaved }: Props) {
+export function StudentApplicationForm({ studentId, defaultName, mode, reviewerId, onSaved }: Props) {
   const coll: ApplicationCollection = mode === 'applicant' ? 'applicants' : 'student_applications'
   const asStaff = mode !== 'student'
   const [app, setApp] = useState<StudentApplication | null>(null)
@@ -197,25 +194,6 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
             <Field label="Login email (used to create their account when recruited)" required>
               <input type="email" value={app.email} onChange={(e) => set({ email: e.target.value })} placeholder="name@example.com" />
             </Field>
-            <div className="small" style={{ fontWeight: 600, marginBottom: '0.35rem' }}>Target level / syllabus</div>
-            <div style={{ display: 'flex', gap: '0.5rem 1rem', flexWrap: 'wrap', marginBottom: '0.5rem' }}>
-              {courses.map((c) => (
-                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 400 }}>
-                  <input
-                    type="checkbox"
-                    style={{ width: 'auto' }}
-                    checked={app.targetCourseIds.includes(c.id)}
-                    onChange={() => set({
-                      targetCourseIds: app.targetCourseIds.includes(c.id)
-                        ? app.targetCourseIds.filter((x) => x !== c.id)
-                        : [...app.targetCourseIds, c.id],
-                    })}
-                  />
-                  {c.title}
-                </label>
-              ))}
-              {courses.length === 0 && <span className="muted small">No courses yet.</span>}
-            </div>
           </Section>
         )}
         <Section title="Student details">
@@ -271,13 +249,13 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
             onChange={(v) => set({ hasStudentId: v })}
           />
           {app.hasStudentId && (
-            <>
-              <Grid>
-                <Field label="ID card type"><input value={app.studentIdType} onChange={(e) => set({ studentIdType: e.target.value })} placeholder="e.g. Aadhaar" /></Field>
-                <Field label="ID number"><input value={app.studentIdNumber} onChange={(e) => set({ studentIdNumber: e.target.value })} /></Field>
-              </Grid>
-              <FileSlot kind="student_id" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
-            </>
+            <IdCardBlock
+              typeLabel="ID card type" typeValue={app.studentIdType} onType={(v) => set({ studentIdType: v })}
+              numberValue={app.studentIdNumber} onNumber={(v) => set({ studentIdNumber: v })}
+              fileKind="student_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+              onPick={onPickFile} onRemove={onRemoveFile} required
+              isStaff={asStaff} received={app.studentIdReceived} onToggleReceived={(v) => set({ studentIdReceived: v })}
+            />
           )}
 
           <YesNo
@@ -288,6 +266,24 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
           {app.hasBirthCertificate && (
             <FileSlot kind="birth_certificate" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
           )}
+
+          <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Father's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
+          <IdCardBlock
+            typeLabel="ID card type" typeValue={app.fatherIdType} onType={(v) => set({ fatherIdType: v })}
+            numberValue={app.fatherIdNumber} onNumber={(v) => set({ fatherIdNumber: v })}
+            fileKind="father_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+            onPick={onPickFile} onRemove={onRemoveFile}
+            isStaff={asStaff} received={app.fatherIdReceived} onToggleReceived={(v) => set({ fatherIdReceived: v })}
+          />
+
+          <div className="small" style={{ fontWeight: 600, margin: '1rem 0 0.35rem' }}>Mother's ID card <span className="muted" style={{ fontWeight: 400 }}>(optional)</span></div>
+          <IdCardBlock
+            typeLabel="ID card type" typeValue={app.motherIdType} onType={(v) => set({ motherIdType: v })}
+            numberValue={app.motherIdNumber} onNumber={(v) => set({ motherIdNumber: v })}
+            fileKind="mother_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+            onPick={onPickFile} onRemove={onRemoveFile}
+            isStaff={asStaff} received={app.motherIdReceived} onToggleReceived={(v) => set({ motherIdReceived: v })}
+          />
 
           {needsParentDeclaration(app) && (
             <div className="panel" style={{ background: 'var(--surface-soft)', marginTop: '1rem' }}>
@@ -407,6 +403,68 @@ function YesNo({ label, value, onChange }: { label: string; value: boolean; onCh
         <button type="button" className={`btn small ${!value ? 'primary' : 'secondary'}`} onClick={() => onChange(false)}>No</button>
       </div>
     </div>
+  )
+}
+
+interface IdCardBlockProps {
+  typeLabel: string
+  typeValue: string
+  onType: (v: string) => void
+  numberValue: string
+  onNumber: (v: string) => void
+  fileKind: ApplicationFileKind
+  app: StudentApplication
+  studentId: string
+  uploading: ApplicationFileKind | null
+  disabled: boolean
+  required?: boolean
+  onPick: (kind: ApplicationFileKind, file: File | undefined) => void
+  onRemove: (kind: ApplicationFileKind) => void
+  /** Only staff can flip `received` either way — a student/parent filling
+   *  their own form can't self-attest that the office already has their
+   *  physical ID card. */
+  isStaff: boolean
+  received: boolean
+  onToggleReceived: (v: boolean) => void
+}
+
+/**
+ * ID type + number fields, plus either the usual upload slot or — once staff
+ * have physically collected a printout — a "received as hard copy" status in
+ * its place. Shared by the student's own ID card and each parent's.
+ */
+function IdCardBlock({
+  typeLabel, typeValue, onType, numberValue, onNumber, fileKind, app, studentId, uploading, disabled,
+  required, onPick, onRemove, isStaff, received, onToggleReceived,
+}: IdCardBlockProps) {
+  return (
+    <>
+      <Grid>
+        <Field label={typeLabel}><input value={typeValue} onChange={(e) => onType(e.target.value)} placeholder="e.g. Aadhaar" /></Field>
+        <Field label="ID number"><input value={numberValue} onChange={(e) => onNumber(e.target.value)} /></Field>
+      </Grid>
+      {received ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.7rem', border: '1px solid #b9e3cc', background: '#e7f6ee', borderRadius: 'var(--radius)', marginBottom: '0.6rem', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '1.3rem' }}>📋</span>
+          <div style={{ flex: 1, minWidth: 160 }}>
+            <div style={{ fontWeight: 600, color: 'var(--green)' }}>Received as hard copy</div>
+            <div className="muted small">A printout is on file at the office — no upload needed.</div>
+          </div>
+          {isStaff && !disabled && (
+            <button type="button" className="btn small ghost" onClick={() => onToggleReceived(false)}>Undo</button>
+          )}
+        </div>
+      ) : (
+        <>
+          <FileSlot kind={fileKind} app={app} studentId={studentId} uploading={uploading} disabled={disabled} onPick={onPick} onRemove={onRemove} required={required} />
+          {isStaff && !disabled && (
+            <div className="row" style={{ margin: '-0.3rem 0 0.6rem' }}>
+              <button type="button" className="btn small secondary" onClick={() => onToggleReceived(true)}>📋 Mark received as hard copy instead</button>
+            </div>
+          )}
+        </>
+      )}
+    </>
   )
 }
 

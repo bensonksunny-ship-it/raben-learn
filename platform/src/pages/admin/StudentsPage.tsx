@@ -302,7 +302,6 @@ export function StudentsPage() {
               defaultName=""
               mode="applicant"
               reviewerId={profile?.id}
-              courses={courses}
               onSaved={(status) => { if (status === 'submitted') { setStatusFilter('applications'); void load() } }}
             />
           </div>

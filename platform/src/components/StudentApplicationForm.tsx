@@ -214,6 +214,19 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
             <Field label="Student's phone"><input type="tel" value={app.phone} onChange={(e) => set({ phone: e.target.value })} /></Field>
             <Field label="Previous school name"><input value={app.schoolName} onChange={(e) => set({ schoolName: e.target.value })} /></Field>
             <Field label="Class / grade"><input value={app.grade} onChange={(e) => set({ grade: e.target.value })} placeholder="e.g. 7" /></Field>
+            <Field label="Previously schooled at">
+              <select value={app.priorSchooling} onChange={(e) => set({ priorSchooling: e.target.value })}>
+                <option value="">Select…</option>
+                <option value="formal">A formal school</option>
+                <option value="homeschool">Homeschooled already</option>
+                <option value="first_time">First time in any schooling</option>
+              </select>
+            </Field>
+            {app.priorSchooling === 'formal' && (
+              <Field label="Board / curriculum followed">
+                <input value={app.priorCurriculum} onChange={(e) => set({ priorCurriculum: e.target.value })} placeholder="e.g. CBSE, ICSE, State Board, IB" />
+              </Field>
+            )}
           </Grid>
           <Field label="Home address" required>
             <textarea rows={2} value={app.address} onChange={(e) => set({ address: e.target.value })} />
@@ -243,6 +256,21 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
           <Field label="Allergies / medical notes">
             <textarea rows={2} value={app.medicalNotes} onChange={(e) => set({ medicalNotes: e.target.value })} />
           </Field>
+
+          <p className="small" style={{ lineHeight: 1.5, background: 'var(--surface-soft)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.75rem', marginTop: '1rem' }}>
+            I/We acknowledge that <strong>{app.fullName || '__________'}</strong> is being enrolled in Raben Learn's
+            homeschooling tuition — not a formal school — and that I/we understand and consent to this with full
+            awareness, of our own free will.
+          </p>
+          <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontWeight: 600 }}>
+            <input
+              type="checkbox"
+              checked={app.homeschoolAcknowledged}
+              onChange={(e) => set({ homeschoolAcknowledged: e.target.checked, homeschoolAcknowledgedOn: todayLocal() })}
+              style={{ width: 'auto', marginTop: '0.2rem' }}
+            />
+            I/We acknowledge and consent to this{app.homeschoolAcknowledged && app.homeschoolAcknowledgedOn ? ` (signed ${app.homeschoolAcknowledgedOn})` : ''}
+          </label>
         </Section>
 
         <Section title="Photo & documents">

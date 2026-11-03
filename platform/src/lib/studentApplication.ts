@@ -66,6 +66,12 @@ export interface StudentApplication {
   address: string
   schoolName: string
   grade: string
+  /** '' | 'formal' | 'homeschool' | 'first_time' — where the student was
+   *  studying right before this application. */
+  priorSchooling: string
+  /** Board/curriculum at that prior formal school (e.g. CBSE, ICSE, State
+   *  Board, IB) — only meaningful when `priorSchooling === 'formal'`. */
+  priorCurriculum: string
 
   // Parents / guardian
   /** When true, the form asks for one parent's ID card instead of separate
@@ -83,6 +89,13 @@ export interface StudentApplication {
   emergencyRelation: string
   emergencyPhone: string
   medicalNotes: string
+  /** Parent's conscious acknowledgement that they're enrolling their child in
+   *  homeschooling tuition specifically (not a formal school) — separate
+   *  from `declaration` below, which is only about a missing ID/birth
+   *  certificate. Required before submission, same as that one. */
+  homeschoolAcknowledged: boolean
+  /** "YYYY-MM-DD" — set the moment the checkbox above is ticked. */
+  homeschoolAcknowledgedOn: string
 
   // Documents
   hasStudentId: boolean
@@ -115,9 +128,11 @@ export function emptyApplication(studentId: string, fullName = ''): StudentAppli
   return {
     studentId, status: 'draft', email: '', targetCourseIds: [],
     fullName, dateOfBirth: '', gender: '', bloodGroup: '', phone: '', address: '', schoolName: '', grade: '',
+    priorSchooling: '', priorCurriculum: '',
     isSingleParent: false,
     fatherName: '', fatherPhone: '', fatherOccupation: '', motherName: '', motherPhone: '', motherOccupation: '',
     parentEmail: '', emergencyName: '', emergencyRelation: '', emergencyPhone: '', medicalNotes: '',
+    homeschoolAcknowledged: false, homeschoolAcknowledgedOn: '',
     hasStudentId: true, studentIdType: '', studentIdNumber: '', studentIdReceived: false, hasBirthCertificate: true,
     fatherIdType: '', fatherIdNumber: '', fatherIdReceived: false,
     motherIdType: '', motherIdNumber: '', motherIdReceived: false,
@@ -147,11 +162,13 @@ export function normalizeApplication(studentId: string, d: Record<string, unknow
     fullName: str(d.fullName) || fallbackName,
     dateOfBirth: str(d.dateOfBirth), gender: str(d.gender), bloodGroup: str(d.bloodGroup), phone: str(d.phone),
     address: str(d.address), schoolName: str(d.schoolName), grade: str(d.grade),
+    priorSchooling: str(d.priorSchooling), priorCurriculum: str(d.priorCurriculum),
     isSingleParent: d.isSingleParent === true,
     fatherName: str(d.fatherName), fatherPhone: str(d.fatherPhone), fatherOccupation: str(d.fatherOccupation),
     motherName: str(d.motherName), motherPhone: str(d.motherPhone), motherOccupation: str(d.motherOccupation),
     parentEmail: str(d.parentEmail), emergencyName: str(d.emergencyName), emergencyRelation: str(d.emergencyRelation),
     emergencyPhone: str(d.emergencyPhone), medicalNotes: str(d.medicalNotes),
+    homeschoolAcknowledged: d.homeschoolAcknowledged === true, homeschoolAcknowledgedOn: str(d.homeschoolAcknowledgedOn),
     hasStudentId: d.hasStudentId !== false, studentIdType: str(d.studentIdType), studentIdNumber: str(d.studentIdNumber),
     studentIdReceived: d.studentIdReceived === true,
     hasBirthCertificate: d.hasBirthCertificate !== false,
@@ -184,6 +201,7 @@ export function validateApplication(a: StudentApplication): string[] {
   if (!a.fatherPhone.trim() && !a.motherPhone.trim()) missing.push("A parent's phone number")
   req(a.emergencyName, 'Emergency contact name')
   req(a.emergencyPhone, 'Emergency contact phone')
+  if (!a.homeschoolAcknowledged) missing.push('Homeschooling acknowledgement')
   if (!a.files.photo) missing.push('Student photo')
   if (a.hasStudentId && !a.files.student_id && !a.studentIdReceived) missing.push("Student's ID card upload (or mark it received as hard copy)")
   if (a.hasBirthCertificate && !a.files.birth_certificate) missing.push('Birth certificate upload')

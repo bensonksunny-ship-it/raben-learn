@@ -22,6 +22,9 @@ import { ConsultantDashboard } from './pages/consultant/ConsultantDashboard'
 const UserManagement = lazy(() =>
   import('./pages/admin/UserManagement').then((m) => ({ default: m.UserManagement })),
 )
+const ExamSchedulePage = lazy(() =>
+  import('./pages/ExamSchedulePage').then((m) => ({ default: m.ExamSchedulePage })),
+)
 const StudentApplicationPage = lazy(() =>
   import('./pages/student/StudentApplicationPage').then((m) => ({ default: m.StudentApplicationPage })),
 )
@@ -224,6 +227,10 @@ export default function App() {
             <Route path="history" element={<StudentHistory />} />
             <Route path="application" element={<Suspense fallback={<AdminRouteFallback />}><StudentApplicationPage /></Suspense>} />
           </Route>
+          <Route
+            path="exam-schedule"
+            element={<RequireCapability cap="scheduleExams"><Suspense fallback={<AdminRouteFallback />}><ExamSchedulePage /></Suspense></RequireCapability>}
+          />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="exam" element={<ExamPage />} />
           <Route

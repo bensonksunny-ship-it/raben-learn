@@ -9,14 +9,16 @@ import type { Role } from '../types'
 // `manageTimetable` now gates /schedule — the merged page that absorbed both the old
 // Timetable Planner (editable shared class schedule) and the old Student Diary
 // (read-only per-student log). Kept the original capability name to limit churn.
-export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable' | 'syllabusArea'
+export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable' | 'syllabusArea' | 'scheduleExams'
 
 const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // Admin can also reach /schedule and /manager (no separate /admin/* routes for
   // either) — in practice admin is the only account most people have day to day,
   // so without this neither page would ever actually get looked at.
-  admin: ['adminArea', 'manageTimetable', 'managerArea'],
-  mentor: ['mentorArea'],
+  admin: ['adminArea', 'manageTimetable', 'managerArea', 'scheduleExams'],
+  // `scheduleExams` — the Exam Schedule page (/exam-schedule): admin, manager,
+  // teachers (mentors) and academic consultants can all book subject exams.
+  mentor: ['mentorArea', 'scheduleExams'],
   student: ['studentArea'],
   // Manager is intentionally narrow: just the Dashboard, Users, Students,
   // Schedule, and (view/print-only — see SyllabusPage's own `effectiveReadOnly`)
@@ -24,11 +26,11 @@ const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // UserManagement/StudentsPage for the additional restriction that a manager
   // can't touch admin/manager accounts or grant those roles — that's enforced
   // server-side, this table only decides which pages are reachable at all.
-  manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable', 'syllabusArea'],
+  manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable', 'syllabusArea', 'scheduleExams'],
   // Academic Consultant — exactly one page, nothing else. `/syllabus` (App.tsx)
   // is the only route gated on `syllabusArea` for a FULL-edit visitor; manager
   // reaches the same route too, but SyllabusPage forces it read-only for them.
-  consultant: ['syllabusArea'],
+  consultant: ['syllabusArea', 'scheduleExams'],
 }
 
 export function can(roles: Role[], cap: Capability): boolean {

@@ -11,6 +11,10 @@ import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler, type ScheduleExamOption } from '../../components/manager/PriorityScheduler'
 import { liveClassKioskUrl } from '../../lib/liveClassKiosk'
+import { useAuth } from '../../context/AuthContext'
+import { createExamSchedule, loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
+import { ExamScheduleForm } from '../../components/ExamScheduleForm'
+import type { ExamType } from '../../types'
 import {
   WEEKDAYS, DAY_COLORS,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
@@ -84,6 +88,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   // here) — loaded once, independent of the student/week selection above.
   const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
   const [scheduleExams, setScheduleExams] = useState<ScheduleExamOption[]>([])
+  const { profile } = useAuth()
+  const [examSchedules, setExamSchedules] = useState<ExamScheduleEntry[]>([])
+  /** The exam booking form — 'new' from the "Schedule exam" button, or an
+   *  existing booking clicked on the grid. */
+  const [examFormEntry, setExamFormEntry] = useState<ExamScheduleEntry | 'new' | null>(null)
   // Custom non-subject activities (Lunch, Assembly, …) — the Title field's
   // Activity dropdown, managed from the "Manage Activity Types" panel below.
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
@@ -205,7 +214,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           const title = (x.title as string | undefined)?.trim() || 'Exam'
           const topicTitle = (x.topicTitle as string | null | undefined)?.trim()
           return {
-            option: { id: d.id, courseId: c.id, courseTitle: c.title || 'Untitled course', title: topicTitle ? `${title} · ${topicTitle}` : `${title} (Main)` },
+            option: {
+              id: d.id, courseId: c.id, courseTitle: c.title || 'Untitled course',
+              title: topicTitle ? `${title} · ${topicTitle}` : `${title} (Main)`,
+              type: (x.type === 'mcq' ? 'mcq' : 'written') as ExamType,
+            },
             isMain: !x.topicId,
           }
         }).sort((a, b) => Number(b.isMain) - Number(a.isMain) || a.option.title.localeCompare(b.option.title))
@@ -218,6 +231,11 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   }
 
   useEffect(() => { void loadSyllabus() }, [])
+
+  async function reloadExamSchedules() {
+    try { setExamSchedules(await loadExamSchedules()) } catch { /* grid just shows no exams */ }
+  }
+  useEffect(() => { void reloadExamSchedules() }, [])
 
   useEffect(() => {
     void (async () => {
@@ -470,7 +488,19 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         <button type="button" className="btn small secondary" onClick={() => setShowActivityTypesModal(true)}>
           ⚙️ Manage Activity Types
         </button>
+        <button type="button" className="btn small secondary" onClick={() => setExamFormEntry('new')}>
+          📝 Schedule exam
+        </button>
       </div>
+
+      {examFormEntry && (
+        <ExamScheduleForm
+          courses={syllabusCourses}
+          entry={examFormEntry === 'new' ? null : examFormEntry}
+          onClose={() => setExamFormEntry(null)}
+          onSaved={() => { setExamFormEntry(null); void reloadExamSchedules() }}
+        />
+      )}
 
       {showActivityTypesModal && (
         <ActivityTypesPanel
@@ -498,6 +528,18 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           activityTypes={activityTypes}
           onManageActivityTypes={() => setShowActivityTypesModal(true)}
           exams={scheduleExams}
+          examSchedules={examSchedules}
+          onOpenExamSchedule={(entry) => setExamFormEntry(entry)}
+          onScheduleExams={(drafts) => {
+            void (async () => {
+              try {
+                for (const d of drafts) await createExamSchedule(d, { uid: profile?.id ?? '', name: profile?.name ?? '' })
+              } catch (e) {
+                setError(e instanceof Error ? e.message : 'Could not schedule the exam')
+              }
+              await reloadExamSchedules()
+            })()
+          }}
         />
       )}
     </div>

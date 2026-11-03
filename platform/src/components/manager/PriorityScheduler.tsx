@@ -3,8 +3,9 @@ import { LockIcon, FlexIcon } from './StatIcons'
 import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, formatTime } from './schedulerShared'
 import type {
   ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, ElectiveSession,
-  LessonItemType, TimetableDay, TimetablePeriod, Weekday,
+  ExamType, LessonItemType, TimetableDay, TimetablePeriod, Weekday,
 } from '../../types'
+import type { ExamScheduleDraft, ExamScheduleEntry } from '../../lib/examSchedule'
 
 /** Priority 1 — locked school periods (green, matches LockIcon). */
 const PERIOD_COLOR = { bg: '#c3fae8', text: '#087f5b' }
@@ -21,6 +22,7 @@ export interface ScheduleExamOption {
   courseId: string
   title: string
   courseTitle: string
+  type: ExamType
 }
 
 /** Width of one 15-minute column — hours run left→right now, days top→bottom, so a
@@ -122,6 +124,7 @@ function computeGaps(windowStartMin: number, windowEndMin: number, occupied: { s
 type DayAgendaRow =
   | { type: 'locked'; startMin: number; endMin: number; period: TimetablePeriod }
   | { type: 'elective'; startMin: number; endMin: number; session: ElectiveSession }
+  | { type: 'exam'; startMin: number; endMin: number; exam: ExamScheduleEntry }
   | { type: 'free'; startMin: number; endMin: number }
   | { type: 'item'; startMin: number; endMin: number; item: DailyPlanItem }
 
@@ -220,6 +223,14 @@ export interface PrioritySchedulerProps {
   /** Exam papers for the Title selector's "Exam" category. Omitted/empty shows
    *  the category with nothing to pick. */
   exams?: ScheduleExamOption[]
+  /** Dated exam bookings (`exam_schedules`) — drawn on top of the week's grid
+   *  for whichever of them fall on `weekDates`. */
+  examSchedules?: ExamScheduleEntry[]
+  /** Clicking an exam card on the grid — omitted keeps exam cards view-only. */
+  onOpenExamSchedule?: (entry: ExamScheduleEntry) => void
+  /** Saving a slot with the "Exam" category books a dated exam (for that slot's
+   *  real date in `weekDates`) instead of a weekly period/elective. */
+  onScheduleExams?: (drafts: ExamScheduleDraft[]) => void
 }
 
 /**
@@ -242,6 +253,7 @@ export function PriorityScheduler({
   claimRole, claimerName, focusDay = null,
   syllabusCourses = [],
   activityTypes = [], onManageActivityTypes, exams = [],
+  examSchedules = [], onOpenExamSchedule, onScheduleExams,
 }: PrioritySchedulerProps) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
@@ -252,6 +264,18 @@ export function PriorityScheduler({
     if (examId) return EXAM_COLOR
     if (!activityTypeId) return fallback
     return activityTypeById.get(activityTypeId)?.color ?? fallback
+  }
+
+  /** A dated exam booking for the slot being saved — its date is the real
+   *  calendar date of `day` in the week being shown. */
+  function examDraftFor(day: Weekday, examId: string, startTime: string, durationMinutes: number): ExamScheduleDraft | null {
+    const opt = exams.find((x) => x.id === examId)
+    const date = weekDates[WEEKDAYS.indexOf(day)]
+    if (!opt || !date) return null
+    return {
+      courseId: opt.courseId, courseTitle: opt.courseTitle, examId: opt.id, examTitle: opt.title, examType: opt.type,
+      date, startTime, durationMinutes, notes: '',
+    }
   }
 
   function openLockedAddModal(day: Weekday = WEEKDAYS[0]) {
@@ -378,6 +402,7 @@ export function PriorityScheduler({
       const existingTimed = timedElectivesOf(existingSessions)
       const placedSoFar: { startMin: number; endMin: number }[] = []
       const newSessions: ElectiveSession[] = []
+      const examDrafts: ExamScheduleDraft[] = []
 
       for (let i = 0; i < modal.sections.length; i++) {
         const section = modal.sections[i]
@@ -385,6 +410,15 @@ export function PriorityScheduler({
         if (startMin == null) { setModalError(`Section ${i + 1}: enter a valid start time.`); return }
         if (!Number.isFinite(section.durationMinutes) || section.durationMinutes < 5) { setModalError(`Section ${i + 1}: duration must be at least 5 minutes.`); return }
         const endMin = startMin + section.durationMinutes
+
+        // An "Exam" section books a dated exam, not a weekly elective — exams sit
+        // on top of the timetable, so no clash checks against it.
+        if (section.examId && onScheduleExams) {
+          const draft = examDraftFor(modal.day, section.examId, section.startTime, section.durationMinutes)
+          if (!draft) { setModalError(`Section ${i + 1}: couldn't find that exam's date in this week.`); return }
+          examDrafts.push(draft)
+          continue
+        }
 
         const lockedClash = overlapsAny(startMin, endMin, lockedTimed, () => false)
         if (lockedClash) { setModalError(`Section ${i + 1}: overlaps the locked period "${lockedClash.period.title}" — pick an open slot.`); return }
@@ -412,7 +446,10 @@ export function PriorityScheduler({
         })
       }
 
-      onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: [...existingSessions, ...newSessions] } } })
+      if (newSessions.length > 0) {
+        onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: [...existingSessions, ...newSessions] } } })
+      }
+      if (examDrafts.length > 0) onScheduleExams?.(examDrafts)
       closeModal()
       return
     }
@@ -423,6 +460,25 @@ export function PriorityScheduler({
     if (startMin == null) { setModalError('Enter a valid start time.'); return }
     if (!Number.isFinite(modal.durationMinutes) || modal.durationMinutes < 5) { setModalError('Duration must be at least 5 minutes.'); return }
     const endMin = startMin + modal.durationMinutes
+
+    // "Exam" picked: book it as a dated exam for this slot's real date. Editing an
+    // existing slot into an exam swaps that slot out of this week for the exam.
+    if (modal.examId && onScheduleExams) {
+      const draft = examDraftFor(modal.day, modal.examId, modal.startTime, modal.durationMinutes)
+      if (!draft) { setModalError("Couldn't find this day's date in the week being shown."); return }
+      if (modal.mode === 'edit') {
+        if (modal.kind === 'locked') {
+          const day = timetable.days[modal.day]
+          onSaveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: day.periods.filter((p) => p.id !== modal.periodId) } } })
+        } else {
+          const sessions = electives.days[modal.day]?.sessions ?? []
+          onSaveElectives({ ...electives, days: { ...electives.days, [modal.day]: { sessions: sessions.filter((x) => x.id !== modal.sessionId) } } })
+        }
+      }
+      onScheduleExams([draft])
+      closeModal()
+      return
+    }
 
     if (modal.kind === 'locked') {
       const day = timetable.days[modal.day]
@@ -482,6 +538,17 @@ export function PriorityScheduler({
     lockedByDay[d] = timedPeriodsOf(timetable.days[d])
     electiveByDay[d] = timedElectivesOf(electives.days[d]?.sessions ?? [])
   }
+  // Dated exam bookings that fall in the week being shown, by weekday.
+  const examsByDay = {} as Record<Weekday, { exam: ExamScheduleEntry; startMin: number; endMin: number }[]>
+  for (const d of WEEKDAYS) {
+    const date = weekDates[WEEKDAYS.indexOf(d)]
+    examsByDay[d] = examSchedules
+      .filter((x) => x.date === date)
+      .flatMap((x) => {
+        const startMin = timeStrToMinutes(x.startTime)
+        return startMin == null ? [] : [{ exam: x, startMin, endMin: startMin + x.durationMinutes }]
+      })
+  }
   const timedByDate: Record<string, TimedItem[]> = {}
   if (!editingAllowed) {
     for (const d of weekDates) {
@@ -512,7 +579,7 @@ export function PriorityScheduler({
   const gapsByDay = {} as Record<Weekday, Gap[]>
   if (editingAllowed) {
     for (const d of WEEKDAYS) {
-      const occupied = [...lockedByDay[d], ...electiveByDay[d]]
+      const occupied = [...lockedByDay[d], ...electiveByDay[d], ...examsByDay[d]]
       gapsByDay[d] = computeGaps(windowStartMin, windowEndMin, occupied)
     }
   }
@@ -524,6 +591,7 @@ export function PriorityScheduler({
     const rows: DayAgendaRow[] = [
       ...lockedByDay[day].map((t) => ({ type: 'locked' as const, startMin: t.startMin, endMin: t.endMin, period: t.period })),
       ...electiveByDay[day].map((t) => ({ type: 'elective' as const, startMin: t.startMin, endMin: t.endMin, session: t.session })),
+      ...examsByDay[day].map((t) => ({ type: 'exam' as const, startMin: t.startMin, endMin: t.endMin, exam: t.exam })),
     ]
     if (editingAllowed) {
       rows.push(...gapsByDay[day].map((g) => ({ type: 'free' as const, startMin: g.startMin, endMin: g.endMin })))
@@ -556,6 +624,28 @@ export function PriorityScheduler({
               </button>
             )}
           </div>
+        </div>
+      )
+    }
+
+    if (row.type === 'exam') {
+      const x = row.exam
+      const content = (
+        <>
+          <span className="timetable-grid-card-lock">📝 EXAM</span>
+          <strong className="timetable-grid-card-title">{x.courseTitle} — {x.examTitle || 'Exam'}</strong>
+          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}{x.notes ? ` · ${x.notes}` : ''}</span>
+        </>
+      )
+      const style = { flex: 1, margin: 0, background: EXAM_COLOR.bg, borderTopColor: EXAM_COLOR.text, color: EXAM_COLOR.text }
+      return (
+        <div key={x.id} style={{ display: 'flex', gap: '0.65rem' }}>
+          {timeLabel}
+          {onOpenExamSchedule ? (
+            <button type="button" className="timetable-grid-card" style={style} onClick={() => { closeModal(); onOpenExamSchedule(x) }}>{content}</button>
+          ) : (
+            <div className="timetable-grid-card ghost" style={style}>{content}</div>
+          )}
         </div>
       )
     }
@@ -755,6 +845,32 @@ export function PriorityScheduler({
             }),
           )}
 
+          {/* Exams — dated bookings for this week, drawn on top of whatever's
+              scheduled underneath (an exam takes over that time). */}
+          {rowDays.map((d, di) =>
+            examsByDay[d].map(({ exam: x, startMin, endMin }) => {
+              const startSlot = Math.max(0, Math.round((startMin - gridTopMin) / slotMin))
+              const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
+              const style = {
+                gridRow: di + 2, gridColumn: `${2 + startSlot} / span ${span}`, zIndex: 3,
+                background: EXAM_COLOR.bg, borderTopColor: EXAM_COLOR.text, color: EXAM_COLOR.text,
+                boxShadow: `0 0 0 2px ${EXAM_COLOR.text}`,
+              }
+              const content = (
+                <>
+                  <span className="timetable-grid-card-lock">📝 EXAM</span>
+                  <strong className="timetable-grid-card-title">{x.courseTitle} — {x.examTitle || 'Exam'}</strong>
+                  <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                </>
+              )
+              return onOpenExamSchedule ? (
+                <button key={x.id} type="button" className="timetable-grid-card" style={style} title={x.notes || undefined} onClick={() => onOpenExamSchedule(x)}>{content}</button>
+              ) : (
+                <div key={x.id} className="timetable-grid-card ghost" style={style} title={x.notes || undefined}>{content}</div>
+              )
+            }),
+          )}
+
           {/* Priority 2 — elective sessions, in their own hue so they never read as mandatory.
               An open, unclaimed slot (blank title) renders as a dashed "pending" card
               instead — no real title to show yet. It's clickable for the manager (full
@@ -936,6 +1052,7 @@ export function PriorityScheduler({
                             activityTypeId={section.activityTypeId}
                             examId={section.examId}
                             exams={exams}
+                            allowExam={!!onScheduleExams}
                             courses={syllabusCourses}
                             activityTypes={activityTypes}
                             placeholder="— Open slot (leave for a student/mentor to claim) —"
@@ -1036,6 +1153,7 @@ export function PriorityScheduler({
                       activityTypeId={modal.activityTypeId}
                       examId={modal.examId}
                       exams={exams}
+                      allowExam={!!onScheduleExams}
                       courses={syllabusCourses}
                       activityTypes={activityTypes}
                       placeholder="Select a subject, activity or exam…"
@@ -1123,6 +1241,8 @@ interface SubjectOrActivitySelectProps {
   courses: Course[]
   activityTypes: ActivityType[]
   exams: ScheduleExamOption[]
+  /** Offer the "Exam" category — only where saving it can book an exam. */
+  allowExam: boolean
   placeholder: string
   required?: boolean
   onPick: (pick: PickResult) => void
@@ -1137,7 +1257,7 @@ interface SubjectOrActivitySelectProps {
  * papers grouped by course). Every period/elective is a real subject, a
  * defined Activity Type, or an exam — no free text.
  */
-function SubjectOrActivitySelect({ courseId, activityTypeId, examId, courses, activityTypes, exams, placeholder, required, onPick, onManageActivityTypes }: SubjectOrActivitySelectProps) {
+function SubjectOrActivitySelect({ courseId, activityTypeId, examId, courses, activityTypes, exams, allowExam, placeholder, required, onPick, onManageActivityTypes }: SubjectOrActivitySelectProps) {
   const leveledCourses = courses.filter((c) => c.levelId !== null && c.title.trim())
   // Local, not derived from the ids — picking a category but not yet an item
   // would otherwise have nothing to keep the second dropdown open against.
@@ -1175,7 +1295,7 @@ function SubjectOrActivitySelect({ courseId, activityTypeId, examId, courses, ac
         <option value="" disabled={required}>{placeholder}</option>
         <option value="subject">📚 Subject</option>
         <option value="activity">📌 Activity</option>
-        <option value="exam">📝 Exam</option>
+        {(allowExam || category === 'exam') && <option value="exam">📝 Exam</option>}
       </select>
       {category === 'subject' && (
         <select value={courseId ?? ''} onChange={handleItemChange} required={required}>

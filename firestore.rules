@@ -10,6 +10,8 @@ service cloud.firestore {
     // create, mentor_centres) is meant to widen to this role, so it's its own
     // function rather than folded into that one.
     function canEditSyllabus() { return isAdminOrMentor() || hasRole('consultant'); }
+    // Matches rbac.ts's `scheduleExams` capability (admin, mentor, manager, consultant).
+    function canScheduleExams() { return isAdminOrMentor() || hasRole('manager') || hasRole('consultant'); }
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function targetIsElevated(uid) {
       let roles = get(/databases/$(database)/documents/users/$(uid)).data.roles;
@@ -58,6 +60,15 @@ service cloud.firestore {
     match /sectionTemplates/{id} {
       allow read: if isSignedIn();
       allow write: if canEditSyllabus();
+    }
+
+    // Dated exam bookings (ExamSchedulePage's "+ Schedule exam") — one doc per
+    // sitting, shown on every timetable view, the students' Exams page, and the
+    // Live Class kiosk. Read stays open since students need it to know when
+    // their own papers are live; write matches `canScheduleExams()` above.
+    match /exam_schedules/{id} {
+      allow read: if isSignedIn();
+      allow write: if canScheduleExams();
     }
 
     match /student_lesson_progress/{id} {

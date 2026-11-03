@@ -8,6 +8,7 @@ import { LandscapePrompt } from '../../components/LandscapePrompt'
 import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
+import { loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
 import {
   todayStr, addDays, mondayOf, loadEffectiveWeekSchedule,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
@@ -55,6 +56,23 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   // to PriorityScheduler below).
   const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
+  // Exams booked for this student's own subjects — shown on top of their grid.
+  const [examSchedules, setExamSchedules] = useState<ExamScheduleEntry[]>([])
+
+  useEffect(() => {
+    if (!uid) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const [userSnap, all] = await Promise.all([getDoc(doc(db, 'users', uid)), loadExamSchedules()])
+        const courseIds = new Set<string>((userSnap.data()?.courseIds as string[] | undefined) ?? [])
+        if (!cancelled) setExamSchedules(all.filter((x) => courseIds.has(x.courseId)))
+      } catch {
+        // Non-critical — the grid just shows no exams.
+      }
+    })()
+    return () => { cancelled = true }
+  }, [uid])
 
   useEffect(() => {
     void (async () => {
@@ -184,6 +202,7 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
           focusDay={mode === 'today' ? todayWeekday : null}
           syllabusCourses={syllabusCourses}
           activityTypes={activityTypes}
+          examSchedules={examSchedules}
         />
       )}
     </div>

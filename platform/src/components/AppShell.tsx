@@ -54,17 +54,19 @@ export default function AppShell() {
   // the sidebar rail instead (see below), not as launcher tiles — the launcher is
   // for actionable modules/apps. "You" isn't here either — it's the avatar pinned
   // to the bottom of the sidebar rail now, not a launcher tile.
-  const launcherItems: LauncherItem[] = [
+  const allLauncherItems: LauncherItem[] = [
     ...(isAdmin ? [
       { to: '/admin/students', label: 'Students', icon: '🎓' },
       { to: '/admin/users', label: 'Users', icon: '👤' },
       { to: '/admin/syllabus', label: 'Syllabus', icon: '📚' },
       { to: '/schedule', label: 'Schedule', icon: '🗓️' },
+      { to: '/exam-schedule', label: 'Exam Schedule', icon: '📝' },
       { to: '/admin/reports', label: 'Reports', icon: '📊' },
     ] : []),
     ...(isMentor ? [
       { to: '/mentor/syllabus', label: 'Syllabus', icon: '📚' },
       { to: '/mentor/reports', label: 'Reports', icon: '📊' },
+      { to: '/exam-schedule', label: 'Exam Schedule', icon: '📝' },
     ] : []),
     ...(isStudent ? [
       { to: '/student/planner', label: "Today's Plan", icon: '📅' },
@@ -80,8 +82,15 @@ export default function AppShell() {
       // account even though this is the same /syllabus route the Academic
       // Consultant uses for full edit access.
       { to: '/syllabus', label: 'Syllabus', icon: '📚' },
+      { to: '/exam-schedule', label: 'Exam Schedule', icon: '📝' },
+    ] : []),
+    ...(isConsultant ? [
+      { to: '/syllabus', label: 'Syllabus', icon: '📚' },
+      { to: '/exam-schedule', label: 'Exam Schedule', icon: '📝' },
     ] : []),
   ]
+  // A multi-role account (e.g. admin + mentor) would otherwise get the same tile twice.
+  const launcherItems = allLauncherItems.filter((it, i, all) => all.findIndex((x) => x.to === it.to) === i)
 
   return (
     <div className="shell">

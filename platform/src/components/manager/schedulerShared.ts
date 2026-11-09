@@ -9,6 +9,16 @@ import type { ClassTimetable, Course, ElectiveSchedule, Weekday } from '../../ty
 
 export const WEEKDAYS: Weekday[] = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
+/** The regular school-day grid every student sees — 10 AM to 6 PM. */
+export const DEFAULT_GRID_START_MIN = 10 * 60
+export const DEFAULT_GRID_END_MIN = 18 * 60
+/** A Top Tier student's own grid (`UserProfile.isTopTier`) reaches further in
+ *  both directions — early morning and evening study, including at home —
+ *  on top of (not instead of) the regular school day. Passed to
+ *  `<PriorityScheduler />` as `gridStartMin`/`gridEndMin`. */
+export const EXTENDED_GRID_START_MIN = 6 * 60
+export const EXTENDED_GRID_END_MIN = 22 * 60
+
 /** Rainbow-bright, one hue per weekday — reads as a kid-friendly weekly chart. */
 export const DAY_COLORS: Record<Weekday, { bg: string; text: string }> = {
   Mon: { bg: '#ffe3e3', text: '#e03131' },
@@ -25,6 +35,13 @@ export function timeStrToMinutes(s: string): number | null {
   const hh = Number(m[1]); const mm = Number(m[2])
   if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return null
   return hh * 60 + mm
+}
+
+export function minutesToTimeStr(min: number): string {
+  const m = ((min % (24 * 60)) + (24 * 60)) % (24 * 60)
+  const hh = Math.floor(m / 60)
+  const mm = m % 60
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
 }
 
 export function formatTime(ms: number) {

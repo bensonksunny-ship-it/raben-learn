@@ -1,6 +1,6 @@
 import { useState, type ChangeEvent, type FormEvent } from 'react'
 import { LockIcon, FlexIcon } from './StatIcons'
-import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, formatTime } from './schedulerShared'
+import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, minutesToTimeStr, formatTime } from './schedulerShared'
 import type {
   ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, ElectiveSession,
   ExamType, LessonItemType, TimetableDay, TimetablePeriod, Weekday,
@@ -34,17 +34,13 @@ const SLOT_PX = 26
 const DAY_ROW_PX = 96
 const DAY_LABEL_COL_PX = 88
 const SLOTS_PER_HOUR = 4
-/** Operational hours — the grid always renders exactly this range, never wider. */
+/** Operational hours — the grid renders exactly this range, never wider. Default
+ *  for every caller except a Top Tier student's own override, which passes wider
+ *  `gridStartMin`/`gridEndMin` props (see `EXTENDED_GRID_START_MIN`/`_END_MIN` in
+ *  schedulerShared.ts) instead of these. */
 const GRID_START_MIN = 10 * 60
 const GRID_END_MIN = 18 * 60
 const DURATION_PRESETS = [30, 45, 60]
-
-function minutesToTimeStr(min: number): string {
-  const m = ((min % (24 * 60)) + (24 * 60)) % (24 * 60)
-  const hh = Math.floor(m / 60)
-  const mm = m % 60
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
-}
 function formatHourLabel(hour: number): string {
   const h = ((hour % 24) + 24) % 24
   const period = h < 12 ? 'AM' : 'PM'
@@ -231,6 +227,11 @@ export interface PrioritySchedulerProps {
   /** Saving a slot with the "Exam" category books a dated exam (for that slot's
    *  real date in `weekDates`) instead of a weekly period/elective. */
   onScheduleExams?: (drafts: ExamScheduleDraft[]) => void
+  /** Widens the grid beyond the regular 10 AM–6 PM school day — a Top Tier
+   *  student's own override, which reaches earlier/later for home study. Both
+   *  omitted (the default) keeps the regular bounds. */
+  gridStartMin?: number
+  gridEndMin?: number
 }
 
 /**
@@ -254,6 +255,7 @@ export function PriorityScheduler({
   syllabusCourses = [],
   activityTypes = [], onManageActivityTypes, exams = [],
   examSchedules = [], onOpenExamSchedule, onScheduleExams,
+  gridStartMin = GRID_START_MIN, gridEndMin = GRID_END_MIN,
 }: PrioritySchedulerProps) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
@@ -526,11 +528,12 @@ export function PriorityScheduler({
     closeModal()
   }
 
-  // ─── Grid bounds — fixed to operational hours (10 AM–6 PM). The grid no longer
-  // widens for whatever's scheduled; locked periods, electives, and logged diary
-  // items all render within this window, never outside it. ──
-  const windowStartMin = Math.min(Math.max(timeStrToMinutes(timetable.windowStart) ?? GRID_START_MIN, GRID_START_MIN), GRID_END_MIN)
-  const windowEndMin = Math.min(Math.max(timeStrToMinutes(timetable.windowEnd) ?? GRID_END_MIN, windowStartMin), GRID_END_MIN)
+  // ─── Grid bounds — fixed to `gridStartMin`/`gridEndMin` (10 AM–6 PM unless a
+  // caller widens it). The grid no longer widens for whatever's scheduled; locked
+  // periods, electives, and logged diary items all render within this window,
+  // never outside it. ──
+  const windowStartMin = Math.min(Math.max(timeStrToMinutes(timetable.windowStart) ?? gridStartMin, gridStartMin), gridEndMin)
+  const windowEndMin = Math.min(Math.max(timeStrToMinutes(timetable.windowEnd) ?? gridEndMin, windowStartMin), gridEndMin)
 
   const lockedByDay = {} as Record<Weekday, TimedPeriod[]>
   const electiveByDay = {} as Record<Weekday, TimedElective[]>
@@ -566,10 +569,10 @@ export function PriorityScheduler({
   const rowDays = validFocusDay ? [validFocusDay] : WEEKDAYS
   const rowDates = validFocusDay ? [weekDates[WEEKDAYS.indexOf(validFocusDay)] ?? weekDates[0]] : weekDates
 
-  const minHour = GRID_START_MIN / 60
-  const maxHour = GRID_END_MIN / 60 - 1
+  const minHour = gridStartMin / 60
+  const maxHour = gridEndMin / 60 - 1
   const hours = Array.from({ length: maxHour - minHour + 1 }, (_, i) => minHour + i)
-  const gridTopMin = GRID_START_MIN
+  const gridTopMin = gridStartMin
   const totalSlots = hours.length * SLOTS_PER_HOUR
   const slotMin = 60 / SLOTS_PER_HOUR
 

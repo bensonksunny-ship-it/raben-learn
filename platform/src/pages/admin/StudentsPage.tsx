@@ -195,6 +195,20 @@ export function StudentsPage() {
     return status === 'active' ? 'active' : 'inactive'
   }
 
+  /** Unlocks the extended early-morning/evening timetable window — see
+   *  `UserProfile.isTopTier`. A direct client write (like `saveCourses` below),
+   *  not a Cloud Function call — it's a plain flag, not a role/status change. */
+  async function toggleTopTier(u: UserProfile) {
+    if (!canManage) return
+    const next = !u.isTopTier
+    setError('')
+    try {
+      await updateDoc(doc(db, 'users', u.id), { isTopTier: next })
+      setStudents((prev) => prev.map((x) => (x.id === u.id ? { ...x, isTopTier: next } : x)))
+      setSelectedStudent((prev) => (prev && prev.id === u.id ? { ...prev, isTopTier: next } : prev))
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
+  }
+
   async function saveCourses(u: UserProfile, nextCourseIds: string[]) {
     if (!canManage) return
     setError(''); setSaving(true)
@@ -390,6 +404,9 @@ export function StudentsPage() {
                   <div className="user-card-email">{s.email}</div>
                   <div style={{ marginTop: '0.25rem' }}><ApplicationStatusTag status={appStatuses[s.id] ?? null} /></div>
                 </div>
+                {s.isTopTier && (
+                  <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6', flexShrink: 0 }}>⭐ Top Tier</span>
+                )}
                 <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
                   {statusLabel(s.status)}
                 </span>
@@ -404,6 +421,13 @@ export function StudentsPage() {
                     </button>
                     {openMenuId === s.id && (
                       <div className="topic-menu-dropdown">
+                        <button
+                          type="button"
+                          className="topic-menu-item"
+                          onClick={() => { setOpenMenuId(null); void toggleTopTier(s) }}
+                        >
+                          {s.isTopTier ? 'Remove Top Tier' : '⭐ Mark Top Tier'}
+                        </button>
                         {s.status === 'active' ? (
                           <button
                             type="button"
@@ -467,9 +491,19 @@ export function StudentsPage() {
                 <span className={`tag ${selectedStudent.status === 'active' ? '' : 'danger'}`} style={{ marginTop: '0.3rem', display: 'inline-block' }}>
                   {statusLabel(selectedStudent.status)}
                 </span>
+                {selectedStudent.isTopTier && (
+                  <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6', marginTop: '0.3rem', marginLeft: '0.4rem', display: 'inline-block' }}>
+                    ⭐ Top Tier
+                  </span>
+                )}
               </div>
             </div>
             <div style={{ display: 'flex', gap: '0.5rem' }}>
+              {canManage && (
+                <button type="button" className="btn small secondary" onClick={() => void toggleTopTier(selectedStudent)}>
+                  {selectedStudent.isTopTier ? 'Remove Top Tier' : '⭐ Mark Top Tier'}
+                </button>
+              )}
               <button type="button" className="btn small secondary" onClick={() => setTimetableStudentId(selectedStudent.id)}>
                 🗓️ Timetable
               </button>

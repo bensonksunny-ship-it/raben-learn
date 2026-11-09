@@ -25,13 +25,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstLogin', 'name']);
       allow create, update, delete: if hasRole('admin');
-      // Manager: may edit a non-elevated user's course assignment directly from the client
-      // (StudentsPage's one direct Firestore write), but never roles/status, and never an
-      // admin/manager account. Everything else for a manager goes through the Cloud Functions,
-      // which run on the Admin SDK and aren't subject to these rules at all.
+      // Manager: may edit a non-elevated user's course assignment and Top Tier flag
+      // directly from the client (StudentsPage's direct Firestore writes), but never
+      // roles/status, and never an admin/manager account. Everything else for a
+      // manager goes through the Cloud Functions, which run on the Admin SDK and
+      // aren't subject to these rules at all.
       allow update: if hasRole('manager')
         && !targetIsElevated(uid)
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['courseIds', 'courseId']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['courseIds', 'courseId', 'isTopTier']);
     }
 
     match /courses/{id} {

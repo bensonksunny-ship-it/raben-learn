@@ -20,6 +20,13 @@ export interface UserProfile {
    *  is the only way to mark them present — see `attendance.rules` and
    *  `lib/attendance.ts`. */
   qrToken?: string
+  /** Unlocks an extended personal timetable window (early morning/evening, "even
+   *  at home") on top of the regular 10 AM–6 PM school grid — see
+   *  `EXTENDED_GRID_START_MIN`/`EXTENDED_GRID_END_MIN` in `schedulerShared.ts`.
+   *  Set from the Students page by admin/manager; the student books into that
+   *  wider window themselves from their own Timetable view, same self-booking
+   *  flow every student already has. */
+  isTopTier?: boolean
 }
 
 /** Weekday key for the class timetable — Monday through Saturday, no Sunday. */

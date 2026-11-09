@@ -19,7 +19,7 @@ import {
   WEEKDAYS, DAY_COLORS,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
-  computeSubjectWeeklyHours,
+  computeSubjectWeeklyHours, minutesToTimeStr, EXTENDED_GRID_START_MIN, EXTENDED_GRID_END_MIN,
 } from '../../components/manager/schedulerShared'
 import type {
   ActivityType, ClassTimetable, Course, ElectiveSchedule, UserProfile, Weekday,
@@ -300,6 +300,12 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
     void saveTimetable({ ...timetable, ...patch })
   }
 
+  /** Same idea as `updateWindow` above, but for a Top Tier student's own
+   *  override window (extended hours) rather than the shared master. */
+  function updateOverrideWindow(patch: Partial<Pick<ClassTimetable, 'windowStart' | 'windowEnd'>>) {
+    void saveOverrideTimetable({ ...effectiveTimetable, ...patch })
+  }
+
   async function saveOverrideTimetable(next: ClassTimetable) {
     setSaving(true); setError('')
     setStudentTimetableOverride(next); setHasOverride(true) // optimistic, same as saveTimetable
@@ -463,6 +469,31 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         </div>
       </div>
 
+      {isOverrideMode && selectedStudent?.isTopTier && (
+        <div className="panel" style={{ marginBottom: '1.25rem', borderColor: '#ddd6fe' }}>
+          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6' }}>⭐ Top Tier — extended window</span>
+            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              Start
+              <input
+                type="time" className="date-picker"
+                min={minutesToTimeStr(EXTENDED_GRID_START_MIN)} max={minutesToTimeStr(EXTENDED_GRID_END_MIN)}
+                value={effectiveTimetable.windowStart} onChange={(e) => updateOverrideWindow({ windowStart: e.target.value })}
+              />
+            </label>
+            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              End
+              <input
+                type="time" className="date-picker"
+                min={minutesToTimeStr(EXTENDED_GRID_START_MIN)} max={minutesToTimeStr(EXTENDED_GRID_END_MIN)}
+                value={effectiveTimetable.windowEnd} onChange={(e) => updateOverrideWindow({ windowEnd: e.target.value })}
+              />
+            </label>
+            <span className="muted small">Early morning/evening hours, on top of the regular school day above.</span>
+          </div>
+        </div>
+      )}
+
       {(() => {
         const subjectHours = computeSubjectWeeklyHours(effectiveTimetable, effectiveElectives, syllabusCourses)
         if (subjectHours.length === 0) return null
@@ -530,6 +561,8 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           exams={scheduleExams}
           examSchedules={examSchedules}
           onOpenExamSchedule={(entry) => setExamFormEntry(entry)}
+          gridStartMin={isOverrideMode && selectedStudent?.isTopTier ? EXTENDED_GRID_START_MIN : undefined}
+          gridEndMin={isOverrideMode && selectedStudent?.isTopTier ? EXTENDED_GRID_END_MIN : undefined}
           onScheduleExams={(drafts) => {
             void (async () => {
               try {

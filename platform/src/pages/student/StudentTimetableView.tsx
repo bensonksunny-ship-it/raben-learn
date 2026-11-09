@@ -12,6 +12,7 @@ import { loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedul
 import {
   todayStr, addDays, mondayOf, loadEffectiveWeekSchedule,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
+  EXTENDED_GRID_START_MIN, EXTENDED_GRID_END_MIN, minutesToTimeStr,
 } from '../../components/manager/schedulerShared'
 import type { ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, Weekday } from '../../types'
 
@@ -58,6 +59,9 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
   // Exams booked for this student's own subjects — shown on top of their grid.
   const [examSchedules, setExamSchedules] = useState<ExamScheduleEntry[]>([])
+  // Top Tier (UserProfile.isTopTier) — unlocks the wider early-morning/evening
+  // grid below instead of the regular 10 AM–6 PM school day.
+  const [isTopTier, setIsTopTier] = useState(false)
 
   useEffect(() => {
     if (!uid) return
@@ -66,7 +70,10 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
       try {
         const [userSnap, all] = await Promise.all([getDoc(doc(db, 'users', uid)), loadExamSchedules()])
         const courseIds = new Set<string>((userSnap.data()?.courseIds as string[] | undefined) ?? [])
-        if (!cancelled) setExamSchedules(all.filter((x) => courseIds.has(x.courseId)))
+        if (!cancelled) {
+          setExamSchedules(all.filter((x) => courseIds.has(x.courseId)))
+          setIsTopTier(Boolean(userSnap.data()?.isTopTier))
+        }
       } catch {
         // Non-critical — the grid just shows no exams.
       }
@@ -169,6 +176,24 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
     }
   }
 
+  // A Top Tier student's own window extension — always forks straight into the
+  // override (unlike saveTimetable/saveElectives above, which only fork once
+  // `hasOverride` is already true): widening hours is a personal customization,
+  // never something that should land in the shared master doc everyone else sees.
+  async function saveWindow(patch: Partial<Pick<ClassTimetable, 'windowStart' | 'windowEnd'>>) {
+    if (!uid) return
+    setSaving(true); setError('')
+    const next = { ...effectiveTimetable, ...patch }
+    setTimetableOverride(next); setHasOverride(true)
+    try {
+      await setDoc(doc(db, 'student_timetables', uid), next)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save the timetable window')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading || !timetable || !electives) return <p className="muted">Loading…</p>
 
   const effectiveTimetable = hasOverride ? (timetableOverride ?? timetable) : timetable
@@ -184,6 +209,31 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
         <button type="button" className={`btn small ${mode === 'today' ? 'primary' : 'secondary'}`} onClick={() => setMode('today')}>Today</button>
         <button type="button" className={`btn small ${mode === 'week' ? 'primary' : 'secondary'}`} onClick={() => setMode('week')}>Full Week</button>
       </div>
+
+      {isTopTier && (
+        <div className="panel" style={{ marginBottom: '1rem' }}>
+          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.75rem' }}>
+            <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6' }}>⭐ Top Tier</span>
+            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              Start
+              <input
+                type="time" className="date-picker"
+                min={minutesToTimeStr(EXTENDED_GRID_START_MIN)} max={minutesToTimeStr(EXTENDED_GRID_END_MIN)}
+                value={effectiveTimetable.windowStart} onChange={(e) => void saveWindow({ windowStart: e.target.value })}
+              />
+            </label>
+            <label className="muted small" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+              End
+              <input
+                type="time" className="date-picker"
+                min={minutesToTimeStr(EXTENDED_GRID_START_MIN)} max={minutesToTimeStr(EXTENDED_GRID_END_MIN)}
+                value={effectiveTimetable.windowEnd} onChange={(e) => void saveWindow({ windowEnd: e.target.value })}
+              />
+            </label>
+            <span className="muted small">Extra hours beyond the regular school day — add them here, then book them below.</span>
+          </div>
+        </div>
+      )}
 
       {mode === 'today' && todayWeekday === null ? (
         <p className="muted" style={{ marginBottom: '0.75rem' }}>
@@ -203,6 +253,8 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
           syllabusCourses={syllabusCourses}
           activityTypes={activityTypes}
           examSchedules={examSchedules}
+          gridStartMin={isTopTier ? EXTENDED_GRID_START_MIN : undefined}
+          gridEndMin={isTopTier ? EXTENDED_GRID_END_MIN : undefined}
         />
       )}
     </div>

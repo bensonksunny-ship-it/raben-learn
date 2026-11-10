@@ -425,7 +425,7 @@ export function PriorityScheduler({
         const lockedClash = overlapsAny(startMin, endMin, lockedTimed, () => false)
         if (lockedClash) { setModalError(`Section ${i + 1}: overlaps the locked period "${lockedClash.period.title}" — pick an open slot.`); return }
         const existingClash = overlapsAny(startMin, endMin, existingTimed, () => false)
-        if (existingClash) { setModalError(`Section ${i + 1}: overlaps the elective "${existingClash.session.title}" (${minutesToTimeStr(existingClash.startMin)}–${minutesToTimeStr(existingClash.endMin)}).`); return }
+        if (existingClash) { setModalError(`Section ${i + 1}: overlaps the session "${existingClash.session.title}" (${minutesToTimeStr(existingClash.startMin)}–${minutesToTimeStr(existingClash.endMin)}).`); return }
         const batchClash = overlapsAny(startMin, endMin, placedSoFar, () => false)
         if (batchClash) { setModalError(`Section ${i + 1}: overlaps another section in this batch.`); return }
 
@@ -489,7 +489,7 @@ export function PriorityScheduler({
       if (clash) { setModalError(`Overlaps "${clash.period.title}" (${minutesToTimeStr(clash.startMin)}–${minutesToTimeStr(clash.endMin)}).`); return }
       // A new/moved locked period can't silently swallow an elective already booked there.
       const electiveClash = overlapsAny(startMin, endMin, timedElectivesOf(electives.days[modal.day]?.sessions ?? []), () => false)
-      if (electiveClash) { setModalError(`Overlaps the elective "${electiveClash.session.title}" (${minutesToTimeStr(electiveClash.startMin)}–${minutesToTimeStr(electiveClash.endMin)}). Move or remove it first.`); return }
+      if (electiveClash) { setModalError(`Overlaps the session "${electiveClash.session.title}" (${minutesToTimeStr(electiveClash.startMin)}–${minutesToTimeStr(electiveClash.endMin)}). Move or remove it first.`); return }
 
       const nextPeriods = modal.mode === 'add'
         ? [...day.periods, { id: crypto.randomUUID(), title, startTime: modal.startTime, durationMinutes: modal.durationMinutes, activityTypeId: modal.activityTypeId, courseId: modal.courseId, examId: modal.examId }]
@@ -500,7 +500,7 @@ export function PriorityScheduler({
       if (lockedClash) { setModalError(`That overlaps the locked period "${lockedClash.period.title}" — pick an open slot.`); return }
       const sessions = electives.days[modal.day]?.sessions ?? []
       const clash = overlapsAny(startMin, endMin, timedElectivesOf(sessions), (t) => t.session.id === modal.sessionId)
-      if (clash) { setModalError(`Overlaps the elective "${clash.session.title}" (${minutesToTimeStr(clash.startMin)}–${minutesToTimeStr(clash.endMin)}).`); return }
+      if (clash) { setModalError(`Overlaps the session "${clash.session.title}" (${minutesToTimeStr(clash.startMin)}–${minutesToTimeStr(clash.endMin)}).`); return }
 
       const mentorName = modal.mentorName.trim() || null
       // A manager filling this in via the full edit modal counts as claimed, whether
@@ -517,7 +517,7 @@ export function PriorityScheduler({
 
   function deleteModalEntry() {
     if (!modal || modal.kind === 'claim' || modal.kind === 'copyDay' || modal.kind === 'dayView' || modal.mode !== 'edit') return
-    if (!window.confirm(modal.kind === 'locked' ? 'Delete this school period?' : 'Delete this elective session?')) return
+    if (!window.confirm(modal.kind === 'locked' ? 'Delete this school period?' : 'Delete this session?')) return
     if (modal.kind === 'locked') {
       const day = timetable.days[modal.day]
       onSaveTimetable({ ...timetable, days: { ...timetable.days, [modal.day]: { periods: day.periods.filter((p) => p.id !== modal.periodId) } } })
@@ -607,7 +607,7 @@ export function PriorityScheduler({
 
   /** One row of the Day View agenda — locked/elective rows stay clickable through
    *  to their own edit/claim modal (closing the Day View first); free gaps offer a
-   *  "+ Book elective" shortcut; diary items are always plain (view-only). */
+   *  "+ Book session" shortcut; diary items are always plain (view-only). */
   function renderAgendaRow(day: Weekday, row: DayAgendaRow) {
     const timeLabel = (
       <div style={{ width: 72, flexShrink: 0, textAlign: 'right', paddingTop: '0.45rem' }}>
@@ -623,7 +623,7 @@ export function PriorityScheduler({
             <span className="muted small">Free · {row.endMin - row.startMin} min</span>
             {editingAllowed && (
               <button type="button" className="btn small secondary" onClick={() => { closeModal(); openElectiveAddModal(day, row.startMin, row.endMin - row.startMin) }}>
-                + Book elective
+                + Book session
               </button>
             )}
           </div>
@@ -695,7 +695,7 @@ export function PriorityScheduler({
         </>
       ) : (
         <>
-          <span className="timetable-grid-card-lock"><FlexIcon color={electiveColor.text} /><span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Elective'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
+          <span className="timetable-grid-card-lock"><FlexIcon color={electiveColor.text} /><span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Session'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
           <strong className="timetable-grid-card-title">{session.title}</strong>
           <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
         </>
@@ -812,11 +812,11 @@ export function PriorityScheduler({
                   className="timetable-grid-cell gap"
                   style={{ gridRow: di + 2, gridColumn: `${2 + startSlot} / span ${span}` }}
                   onClick={() => openElectiveAddModal(d, g.startMin, g.endMin - g.startMin)}
-                  title={`Book an elective — ${minutesToTimeStr(g.startMin)}–${minutesToTimeStr(g.endMin)}`}
-                  aria-label={`Book an elective session — ${d} ${minutesToTimeStr(g.startMin)} to ${minutesToTimeStr(g.endMin)}`}
+                  title={`Book a session — ${minutesToTimeStr(g.startMin)}–${minutesToTimeStr(g.endMin)}`}
+                  aria-label={`Book a session — ${d} ${minutesToTimeStr(g.startMin)} to ${minutesToTimeStr(g.endMin)}`}
                 >
                   <span className="timetable-grid-cell-plus" aria-hidden>＋</span>
-                  <span className="timetable-grid-gap-label">Book elective</span>
+                  <span className="timetable-grid-gap-label">Book session</span>
                 </button>
               )
             }),
@@ -920,7 +920,7 @@ export function PriorityScheduler({
               const badge = (
                 <span className="timetable-grid-card-lock">
                   <FlexIcon color={electiveColor.text} />
-                  <span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Elective'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span>
+                  <span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Session'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span>
                 </span>
               )
               if (editingAllowed) {
@@ -1013,7 +1013,7 @@ export function PriorityScheduler({
                       ? (modal.role === 'student' ? 'Claim your slot' : 'Claim this mentor spot')
                       : modal.kind === 'locked'
                         ? (modal.mode === 'add' ? 'Add school period' : `Edit school period — ${modal.day}`)
-                        : (modal.mode === 'add' ? `Add elective — ${modal.day}` : modal.viewMode ? `View Elective — ${modal.day}` : `Edit elective — ${modal.day}`)}
+                        : (modal.mode === 'add' ? `Add session — ${modal.day}` : modal.viewMode ? `View Session — ${modal.day}` : `Edit session — ${modal.day}`)}
                 </h3>
                 <form className="form" onSubmit={submitModal}>
               {modal.kind === 'copyDay' ? (

@@ -730,7 +730,7 @@ function ActivityTypesPanel({ activityTypes, setActivityTypes, onClose }: {
   }
 
   async function removeType(a: ActivityType) {
-    if (!window.confirm(`Delete "${a.name}"? Periods/electives already using it keep their own color — it just won't show up in search anymore.`)) return
+    if (!window.confirm(`Delete "${a.name}"? Periods/sessions already using it keep their own color — it just won't show up in search anymore.`)) return
     setError('')
     try {
       await deleteDoc(doc(db, 'activity_types', a.id))

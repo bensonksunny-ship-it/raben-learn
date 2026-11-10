@@ -13,6 +13,6 @@ import { homePath } from '../lib/roles'
 export function RequireCapability({ cap, children }: { cap: Capability; children: ReactNode }) {
   const { profile } = useAuth()
   if (!profile) return <Navigate to="/login" replace />
-  if (!can(profile.roles, cap)) return <Navigate to={homePath(profile)} replace />
+  if (!can(profile.roles, cap)) return <Navigate to={homePath(profile.roles)} replace />
   return <>{children}</>
 }

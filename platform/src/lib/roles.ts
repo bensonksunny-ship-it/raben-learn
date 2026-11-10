@@ -1,4 +1,4 @@
-import type { Role, UserProfile } from '../types'
+import type { Role } from '../types'
 
 export function normalizeRoles(data: Record<string, unknown>): Role[] {
   const raw = data.roles
@@ -8,10 +8,10 @@ export function normalizeRoles(data: Record<string, unknown>): Role[] {
   return ['student']
 }
 
-export function homePath(profile: UserProfile): string {
-  if (profile.roles.includes('admin')) return '/admin'
-  if (profile.roles.includes('manager')) return '/manager'
-  if (profile.roles.includes('mentor')) return '/mentor'
-  if (profile.roles.includes('consultant')) return '/consultant'
+export function homePath(roles: Role[]): string {
+  if (roles.includes('admin')) return '/admin'
+  if (roles.includes('manager')) return '/manager'
+  if (roles.includes('mentor')) return '/mentor'
+  if (roles.includes('consultant')) return '/consultant'
   return '/student'
 }

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { doc, getDoc } from 'firebase/firestore'
 import { useAuth } from '../context/AuthContext'
 import { auth, db } from '../firebase/config'
-import { normalizeRoles } from '../lib/roles'
+import { normalizeRoles, homePath } from '../lib/roles'
 
 export function Login() {
   const { signIn } = useAuth()
@@ -26,9 +26,11 @@ export function Login() {
           const d = snap.data()
           if (d.firstLogin) { navigate('/change-password', { replace: true }); return }
           const roles = normalizeRoles(d)
-          if (roles.includes('admin')) navigate('/admin', { replace: true })
-          else if (roles.includes('mentor')) navigate('/mentor', { replace: true })
-          else navigate('/student', { replace: true })
+          // Same precedence as every other role-based redirect in the app
+          // (RequireCapability, HomeRedirect) — this hand-rolled version used to
+          // skip `manager`/`consultant` entirely, sending them to `/student`
+          // first (then bounced back here by the route guard).
+          navigate(homePath(roles), { replace: true })
           return
         }
       }

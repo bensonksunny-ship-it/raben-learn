@@ -68,8 +68,12 @@ async function assertAdmin(uid: string) {
   if (!roles.includes('admin')) {
     throw new HttpsError('permission-denied', `Admin only: missing admin role (has: ${roles.join(',')})`)
   }
-  if (status !== 'active') {
-    throw new HttpsError('permission-denied', `Admin only: status is "${status}" not "active"`)
+  // Only an explicit 'disabled' blocks — a legacy/manually-created account with
+  // no `status` field at all (never ran through `adminCreateUser`, which is the
+  // only place that stamps 'active') is otherwise a real, usable account, not a
+  // disabled one; `status !== 'active'` used to reject those too.
+  if (status === 'disabled') {
+    throw new HttpsError('permission-denied', 'Admin only: account is disabled')
   }
 }
 
@@ -86,8 +90,10 @@ async function assertUserManagerAccess(uid: string): Promise<'admin' | 'manager'
   if (!snap.exists) {
     throw new HttpsError('permission-denied', 'Admin or manager only: user doc not found')
   }
-  if (status !== 'active') {
-    throw new HttpsError('permission-denied', `Admin or manager only: status is "${status}" not "active"`)
+  // Same relaxation as assertAdmin above — a missing `status` field isn't a
+  // disabled account, just one that predates (or bypassed) `adminCreateUser`.
+  if (status === 'disabled') {
+    throw new HttpsError('permission-denied', 'Admin or manager only: account is disabled')
   }
   if (roles.includes('admin')) return 'admin'
   if (roles.includes('manager')) return 'manager'

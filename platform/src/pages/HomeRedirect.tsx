@@ -8,5 +8,5 @@ export function HomeRedirect() {
   if (!firebaseUser) return <Navigate to="/login" replace />
   if (!profile) return <div className="shell"><p className="muted">Loading profile…</p></div>
   if (profile.firstLogin) return <Navigate to="/change-password" replace />
-  return <Navigate to={homePath(profile)} replace />
+  return <Navigate to={homePath(profile.roles)} replace />
 }

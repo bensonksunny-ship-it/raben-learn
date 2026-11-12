@@ -183,6 +183,21 @@ service cloud.firestore {
       allow write: if hasRole('manager') || hasRole('admin');
     }
 
+    // Places of study (desk/cabin/lab table + seats) — manager-defined from the
+    // Schedule page's "Places" panel, same shape as activity_types above.
+    match /study_places/{id} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager') || hasRole('admin');
+    }
+    // One doc per student: which place they use for each subject. Readable by
+    // everyone signed in (seat counts are summed client-side across students);
+    // written by staff from the Places panel, or by the student's own Timetable
+    // view when it auto-fills a subject that has no place yet.
+    match /study_place_assignments/{studentId} {
+      allow read: if isSignedIn();
+      allow write: if hasRole('manager') || hasRole('admin') || isOwner(studentId);
+    }
+
     // Live Class kiosk link's secret token (`settings/liveClassKiosk`, field
     // `token`) — generated/rotated from the Schedule page, same role shape as
     // `class_timetable`/`elective_sessions` above (manager reaches /schedule

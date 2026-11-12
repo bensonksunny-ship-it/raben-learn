@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react'
+import { forwardRef, useImperativeHandle, useState, type ChangeEvent, type FormEvent } from 'react'
 import { LockIcon, FlexIcon } from './StatIcons'
 import { WEEKDAYS, DAY_COLORS, timeStrToMinutes, minutesToTimeStr, formatTime } from './schedulerShared'
 import type {
@@ -26,12 +26,15 @@ export interface ScheduleExamOption {
 }
 
 /** Width of one 15-minute column — hours run left→right now, days top→bottom, so a
- *  day reads as one long horizontal strip ("lengthier" view of how its day flows). */
-const SLOT_PX = 26
+ *  day reads as one long horizontal strip ("lengthier" view of how its day flows).
+ *  Wide enough that even a single 15-minute slot can show a readable subject name
+ *  instead of a 2-letter truncation; `.timetable-grid-wrap`'s own `overflow-x: auto`
+ *  is what makes the resulting wider grid scroll cleanly instead of squeezing. */
+const SLOT_PX = 44
 /** Minimum height of one day's row — it stretches taller than this to fill
  *  leftover vertical space (see the `1fr` in gridTemplateRows below), so this is
  *  a floor, not the typical size. */
-const DAY_ROW_PX = 96
+const DAY_ROW_PX = 112
 const DAY_LABEL_COL_PX = 88
 const SLOTS_PER_HOUR = 4
 /** Operational hours — the grid renders exactly this range, never wider. Default
@@ -232,6 +235,20 @@ export interface PrioritySchedulerProps {
    *  omitted (the default) keeps the regular bounds. */
   gridStartMin?: number
   gridEndMin?: number
+  /** courseId → place-of-study name for the one student whose grid this is
+   *  (see `lib/studyPlaces.ts`) — drawn as "📍 Desk A" on that subject's cards.
+   *  Omitted on the shared/master grid, where there's no single student. */
+  studyPlaceByCourseId?: Record<string, string>
+  /** Hides this component's own "Add school period" row — set when the caller
+   *  (SchedulePage) instead places that action in its own consolidated toolbar
+   *  and drives it imperatively via `ref` (see `PrioritySchedulerHandle`). */
+  hideOwnToolbar?: boolean
+}
+
+/** Imperative handle for callers that hide this component's own toolbar (see
+ *  `hideOwnToolbar`) and need to trigger "Add school period" from elsewhere. */
+export interface PrioritySchedulerHandle {
+  openAddSchoolPeriod: () => void
 }
 
 /**
@@ -248,7 +265,7 @@ export interface PrioritySchedulerProps {
  * With a student selected, the whole grid goes read-only and fades into a backdrop
  * for that student's actual logged activities (the "diary"), shown on top in full color.
  */
-export function PriorityScheduler({
+export const PriorityScheduler = forwardRef<PrioritySchedulerHandle, PrioritySchedulerProps>(function PriorityScheduler({
   timetable, electives, editingAllowed, saving,
   onSaveTimetable, onSaveElectives, weekDates, weekPlans,
   claimRole, claimerName, focusDay = null,
@@ -256,9 +273,15 @@ export function PriorityScheduler({
   activityTypes = [], onManageActivityTypes, exams = [],
   examSchedules = [], onOpenExamSchedule, onScheduleExams,
   gridStartMin = GRID_START_MIN, gridEndMin = GRID_END_MIN,
-}: PrioritySchedulerProps) {
+  studyPlaceByCourseId = {},
+  hideOwnToolbar = false,
+}, ref) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
+  const placeSuffix = (courseId: string | null | undefined) => {
+    const name = courseId ? studyPlaceByCourseId[courseId] : undefined
+    return name ? ` · 📍 ${name}` : ''
+  }
   const activityTypeById = new Map(activityTypes.map((a) => [a.id, a]))
   /** A period's/session's own Activity Type color if it has one, else the plain
    *  Priority-1/2 fallback — every card color usage below goes through this. */
@@ -284,6 +307,8 @@ export function PriorityScheduler({
     setModalError('')
     setModal({ kind: 'locked', mode: 'add', day, title: '', startTime: '09:00', durationMinutes: 45, activityTypeId: null, courseId: null, examId: null })
   }
+
+  useImperativeHandle(ref, () => ({ openAddSchoolPeriod: () => openLockedAddModal() }))
   function openLockedEditModal(day: Weekday, period: TimetablePeriod) {
     setModalError('')
     setModal({
@@ -659,7 +684,7 @@ export function PriorityScheduler({
         <>
           <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{row.period.examId ? '📝 EXAM' : 'School period'}</span>
           <strong className="timetable-grid-card-title">{row.period.title}</strong>
-          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
+          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}{placeSuffix(row.period.courseId)}</span>
         </>
       )
       return (
@@ -697,7 +722,7 @@ export function PriorityScheduler({
         <>
           <span className="timetable-grid-card-lock"><FlexIcon color={electiveColor.text} /><span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Session'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span></span>
           <strong className="timetable-grid-card-title">{session.title}</strong>
-          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}</span>
+          <span className="timetable-grid-card-meta">{minutesToTimeStr(row.startMin)}–{minutesToTimeStr(row.endMin)}{placeSuffix(session.courseId)}</span>
         </>
       )
       const cardStyle = {
@@ -739,7 +764,7 @@ export function PriorityScheduler({
 
   return (
     <>
-      {editingAllowed && (
+      {editingAllowed && !hideOwnToolbar && (
         <div className="row" style={{ marginBottom: '0.85rem', alignItems: 'center' }}>
           <button type="button" className="btn small secondary" onClick={() => openLockedAddModal()}>
             <LockIcon color="currentColor" /> Add school period
@@ -822,27 +847,36 @@ export function PriorityScheduler({
             }),
           )}
 
-          {/* Priority 1 — locked school periods. */}
+          {/* Priority 1 — locked school periods. The lock icon alone already marks
+              these as Priority 1 (vs. the flex icon on electives below), so the
+              badge only spells out a word for the one case that's genuinely extra
+              information — an exam taking over this slot — rather than repeating
+              "School period" on every single card and crowding out the title. */}
           {rowDays.map((d, di) =>
             lockedByDay[d].map(({ period, startMin, endMin }) => {
               const startSlot = Math.round((startMin - gridTopMin) / slotMin)
               const span = Math.max(1, Math.round((endMin - startMin) / slotMin))
               const gridPos = { gridRow: di + 2, gridColumn: `${2 + startSlot} / span ${span}` }
               const periodColor = colorFor(period.activityTypeId, PERIOD_COLOR, period.examId)
+              const timeRange = `${minutesToTimeStr(startMin)}–${minutesToTimeStr(endMin)}`
+              const tooltip = `${period.title} · ${timeRange} · ${period.examId ? 'Exam' : 'School period'}`
+              const content = (
+                <>
+                  <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{period.examId ? '📝 EXAM' : null}</span>
+                  <strong className="timetable-grid-card-title">{period.title}</strong>
+                  <span className="timetable-grid-card-meta">{timeRange}{placeSuffix(period.courseId)}</span>
+                </>
+              )
               if (editingAllowed) {
                 return (
-                  <button key={period.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }} onClick={() => openLockedEditModal(d, period)}>
-                    <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{period.examId ? '📝 EXAM' : 'School period'}</span>
-                    <strong className="timetable-grid-card-title">{period.title}</strong>
-                    <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                  <button key={period.id} type="button" className="timetable-grid-card" title={tooltip} style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }} onClick={() => openLockedEditModal(d, period)}>
+                    {content}
                   </button>
                 )
               }
               return (
-                <div key={period.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }}>
-                  <span className="timetable-grid-card-lock"><LockIcon color={periodColor.text} />{period.examId ? '📝 EXAM' : 'School period'}</span>
-                  <strong className="timetable-grid-card-title">{period.title}</strong>
-                  <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                <div key={period.id} className="timetable-grid-card ghost" title={tooltip} style={{ ...gridPos, background: periodColor.bg, borderTopColor: periodColor.text, color: periodColor.text }}>
+                  {content}
                 </div>
               )
             }),
@@ -859,17 +893,19 @@ export function PriorityScheduler({
                 background: EXAM_COLOR.bg, borderTopColor: EXAM_COLOR.text, color: EXAM_COLOR.text,
                 boxShadow: `0 0 0 2px ${EXAM_COLOR.text}`,
               }
+              const examTimeRange = `${minutesToTimeStr(startMin)}–${minutesToTimeStr(endMin)}`
+              const examTooltip = `${x.courseTitle} — ${x.examTitle || 'Exam'} · ${examTimeRange} · Exam${x.notes ? ` · ${x.notes}` : ''}`
               const content = (
                 <>
                   <span className="timetable-grid-card-lock">📝 EXAM</span>
                   <strong className="timetable-grid-card-title">{x.courseTitle} — {x.examTitle || 'Exam'}</strong>
-                  <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                  <span className="timetable-grid-card-meta">{examTimeRange}</span>
                 </>
               )
               return onOpenExamSchedule ? (
-                <button key={x.id} type="button" className="timetable-grid-card" style={style} title={x.notes || undefined} onClick={() => onOpenExamSchedule(x)}>{content}</button>
+                <button key={x.id} type="button" className="timetable-grid-card" style={style} title={examTooltip} onClick={() => onOpenExamSchedule(x)}>{content}</button>
               ) : (
-                <div key={x.id} className="timetable-grid-card ghost" style={style} title={x.notes || undefined}>{content}</div>
+                <div key={x.id} className="timetable-grid-card ghost" style={style} title={examTooltip}>{content}</div>
               )
             }),
           )}
@@ -888,55 +924,64 @@ export function PriorityScheduler({
               const isPending = !session.claimed
 
               if (isPending) {
+                const pendingTimeRange = `${minutesToTimeStr(startMin)}–${minutesToTimeStr(endMin)}`
+                const pendingTooltip = `Open Slot · ${pendingTimeRange}`
                 const content = (
                   <>
                     <span className="timetable-grid-card-lock pending-badge">🔓 Open Slot</span>
-                    <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                    <span className="timetable-grid-card-meta">{pendingTimeRange}</span>
                   </>
                 )
                 if (editingAllowed) {
                   return (
-                    <button key={session.id} type="button" className="timetable-grid-card pending" style={{ ...gridPos, borderColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }} onClick={() => openElectiveEditModal(d, session)}>
+                    <button key={session.id} type="button" className="timetable-grid-card pending" title={pendingTooltip} style={{ ...gridPos, borderColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }} onClick={() => openElectiveEditModal(d, session)}>
                       {content}
                     </button>
                   )
                 }
                 if (claimRole) {
                   return (
-                    <button key={session.id} type="button" className="timetable-grid-card pending claimable" style={{ ...gridPos, borderColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }} onClick={() => openClaimModal(d, session, claimRole)}>
+                    <button key={session.id} type="button" className="timetable-grid-card pending claimable" title={pendingTooltip} style={{ ...gridPos, borderColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }} onClick={() => openClaimModal(d, session, claimRole)}>
                       {content}
                       <span className="timetable-grid-gap-label">Tap to claim</span>
                     </button>
                   )
                 }
                 return (
-                  <div key={session.id} className="timetable-grid-card pending ghost" style={{ ...gridPos, borderColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }}>
+                  <div key={session.id} className="timetable-grid-card pending ghost" title={pendingTooltip} style={{ ...gridPos, borderColor: ELECTIVE_COLOR.text, color: ELECTIVE_COLOR.text }}>
                     {content}
                   </div>
                 )
               }
 
               const electiveColor = colorFor(session.activityTypeId, ELECTIVE_COLOR, session.examId)
-              const badge = (
+              // Same reasoning as the locked-period badge above — "Session" on every
+              // card was pure noise once the flex icon + color already say that; a
+              // badge now only appears when there's something real to add (an exam,
+              // or which mentor is running it).
+              const badgeText = session.examId ? '📝 EXAM' : session.mentorName || null
+              const badge = badgeText ? (
                 <span className="timetable-grid-card-lock">
                   <FlexIcon color={electiveColor.text} />
-                  <span className="timetable-grid-card-lock-text">{session.examId ? '📝 EXAM' : 'Session'}{session.mentorName ? ` · ${session.mentorName}` : ''}</span>
+                  <span className="timetable-grid-card-lock-text">{badgeText}</span>
                 </span>
-              )
+              ) : null
+              const timeRange = `${minutesToTimeStr(startMin)}–${minutesToTimeStr(endMin)}`
+              const tooltip = `${session.title} · ${timeRange}${session.mentorName ? ` · ${session.mentorName}` : ''}${session.examId ? ' · Exam' : ''}`
               if (editingAllowed) {
                 return (
-                  <button key={session.id} type="button" className="timetable-grid-card" style={{ ...gridPos, background: electiveColor.bg, borderTopColor: electiveColor.text, color: electiveColor.text }} onClick={() => openElectiveEditModal(d, session)}>
+                  <button key={session.id} type="button" className="timetable-grid-card" title={tooltip} style={{ ...gridPos, background: electiveColor.bg, borderTopColor: electiveColor.text, color: electiveColor.text }} onClick={() => openElectiveEditModal(d, session)}>
                     {badge}
                     <strong className="timetable-grid-card-title">{session.title}</strong>
-                    <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                    <span className="timetable-grid-card-meta">{timeRange}{placeSuffix(session.courseId)}</span>
                   </button>
                 )
               }
               return (
-                <div key={session.id} className="timetable-grid-card ghost" style={{ ...gridPos, background: electiveColor.bg, borderTopColor: electiveColor.text, color: electiveColor.text }}>
+                <div key={session.id} className="timetable-grid-card ghost" title={tooltip} style={{ ...gridPos, background: electiveColor.bg, borderTopColor: electiveColor.text, color: electiveColor.text }}>
                   {badge}
                   <strong className="timetable-grid-card-title">{session.title}</strong>
-                  <span className="timetable-grid-card-meta">{minutesToTimeStr(startMin)}–{minutesToTimeStr(endMin)}</span>
+                  <span className="timetable-grid-card-meta">{timeRange}{placeSuffix(session.courseId)}</span>
                 </div>
               )
             }),
@@ -1232,7 +1277,7 @@ export function PriorityScheduler({
       )}
     </>
   )
-}
+})
 
 type PickResult = { title: string; courseId: string | null; activityTypeId: string | null; examId: string | null; durationMinutes?: number }
 const EMPTY_PICK: PickResult = { title: '', courseId: null, activityTypeId: null, examId: null }

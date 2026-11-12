@@ -9,6 +9,7 @@ import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import { loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
+import { autoAssignMissing, loadAllPlaceAssignments, loadStudyPlaces, placeNamesByCourse } from '../../lib/studyPlaces'
 import {
   todayStr, addDays, mondayOf, loadEffectiveWeekSchedule,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
@@ -62,20 +63,34 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   // Top Tier (UserProfile.isTopTier) — unlocks the wider early-morning/evening
   // grid below instead of the regular 10 AM–6 PM school day.
   const [isTopTier, setIsTopTier] = useState(false)
+  // This student's place of study per subject (courseId → place name) — drawn
+  // on their cards and listed above the grid. Any subject with no place yet is
+  // given the first place with a free seat right here, so it never stays blank.
+  const [studyPlaceByCourseId, setStudyPlaceByCourseId] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!uid) return
     let cancelled = false
     void (async () => {
+      let courseIds: string[] = []
       try {
         const [userSnap, all] = await Promise.all([getDoc(doc(db, 'users', uid)), loadExamSchedules()])
-        const courseIds = new Set<string>((userSnap.data()?.courseIds as string[] | undefined) ?? [])
+        courseIds = (userSnap.data()?.courseIds as string[] | undefined) ?? []
+        const mine = new Set(courseIds)
         if (!cancelled) {
-          setExamSchedules(all.filter((x) => courseIds.has(x.courseId)))
+          setExamSchedules(all.filter((x) => mine.has(x.courseId)))
           setIsTopTier(Boolean(userSnap.data()?.isTopTier))
         }
       } catch {
         // Non-critical — the grid just shows no exams.
+      }
+      try {
+        const [places, allAssignments] = await Promise.all([loadStudyPlaces(), loadAllPlaceAssignments()])
+        if (places.length === 0) return
+        const mine = await autoAssignMissing(uid, courseIds, places, allAssignments)
+        if (!cancelled) setStudyPlaceByCourseId(placeNamesByCourse(mine, places))
+      } catch {
+        // Non-critical — cards just show no place.
       }
     })()
     return () => { cancelled = true }
@@ -235,6 +250,19 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
         </div>
       )}
 
+      {Object.keys(studyPlaceByCourseId).length > 0 && (
+        <div className="panel" style={{ marginBottom: '1rem' }}>
+          <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+            <strong style={{ fontSize: '0.88rem' }}>📍 Study places</strong>
+            {Object.entries(studyPlaceByCourseId).map(([courseId, place]) => (
+              <span key={courseId} className="tag">
+                {syllabusCourses.find((c) => c.id === courseId)?.title ?? 'Subject'} — {place}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
       {mode === 'today' && todayWeekday === null ? (
         <p className="muted" style={{ marginBottom: '0.75rem' }}>
           No school day scheduled for Sunday — switch to <strong>Full Week</strong> or check back tomorrow.
@@ -255,6 +283,7 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
           examSchedules={examSchedules}
           gridStartMin={isTopTier ? EXTENDED_GRID_START_MIN : undefined}
           gridEndMin={isTopTier ? EXTENDED_GRID_END_MIN : undefined}
+          studyPlaceByCourseId={studyPlaceByCourseId}
         />
       )}
     </div>

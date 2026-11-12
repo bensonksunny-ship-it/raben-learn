@@ -138,6 +138,25 @@ export interface ActivityType {
   defaultDurationMinutes: number
 }
 
+/**
+ * A place of study (a desk, cabin, lab table, …) — `study_places/{id}`, defined
+ * by the manager from the Schedule page's "Places" panel. `capacity` is seats
+ * per subject: a 2-seat place can hold two students for Math and, separately,
+ * two for Science (see `lib/studyPlaces.ts`).
+ */
+export interface StudyPlace {
+  id: string
+  name: string
+  capacity: number
+}
+
+/** One student's place per subject — `study_place_assignments/{studentId}`,
+ *  keyed by course id. Filled in automatically the first time a subject with
+ *  no place is seen (first place with a free seat), editable by the manager. */
+export interface StudyPlaceAssignments {
+  byCourseId: Record<string, string>
+}
+
 /** Grade/class level — 0 ("Basement") through 10. Fixed range, not Firestore-backed
  *  (same pattern as `Weekday`/`WEEKDAYS`) — no admin UI to add/remove levels. */
 export type LevelId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10

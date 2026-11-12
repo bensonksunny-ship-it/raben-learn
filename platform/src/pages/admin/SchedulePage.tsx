@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
@@ -9,12 +9,16 @@ import { WeekDaySelect, type WeekDayOption } from '../../components/WeekDaySelec
 import { LandscapePrompt } from '../../components/LandscapePrompt'
 import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
-import { PriorityScheduler, type ScheduleExamOption } from '../../components/manager/PriorityScheduler'
+import { PriorityScheduler, type PrioritySchedulerHandle, type ScheduleExamOption } from '../../components/manager/PriorityScheduler'
 import { liveClassKioskUrl } from '../../lib/liveClassKiosk'
 import { useAuth } from '../../context/AuthContext'
 import { createExamSchedule, loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
 import { ExamScheduleForm } from '../../components/ExamScheduleForm'
-import type { ExamType } from '../../types'
+import {
+  autoAssignMissing, loadAllPlaceAssignments, loadStudyPlaces, placeNamesByCourse, savePlaceAssignment, seatsUsed,
+  type AllPlaceAssignments,
+} from '../../lib/studyPlaces'
+import type { ExamType, StudyPlace } from '../../types'
 import {
   WEEKDAYS, DAY_COLORS,
   todayStr, addDays, mondayOf, formatDayName, formatDayFullName, formatDayDate, formatWeekRangeLabel,
@@ -97,6 +101,25 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   // Activity dropdown, managed from the "Manage Activity Types" panel below.
   const [activityTypes, setActivityTypes] = useState<ActivityType[]>([])
   const [showActivityTypesModal, setShowActivityTypesModal] = useState(false)
+  // Places of study + every student's per-subject place — defined/assigned from
+  // the "Places" panel; a picked student's places also show on their grid here.
+  const [studyPlaces, setStudyPlaces] = useState<StudyPlace[]>([])
+  const [placeAssignments, setPlaceAssignments] = useState<AllPlaceAssignments>({})
+  const [showPlacesModal, setShowPlacesModal] = useState(false)
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const [places, all] = await Promise.all([loadStudyPlaces(), loadAllPlaceAssignments()])
+        setStudyPlaces(places); setPlaceAssignments(all)
+      } catch {
+        // Non-critical — the Places panel just starts empty.
+      }
+    })()
+  }, [])
+  // Drives the grid's "Add school period" modal from this page's own consolidated
+  // toolbar button, now that PriorityScheduler's matching internal row is hidden here.
+  const schedulerRef = useRef<PrioritySchedulerHandle>(null)
 
   const weekStart = mondayOf(date)
   // Mon–Sat only — no Sunday column. Index-aligned with WEEKDAYS (both start Monday),
@@ -515,13 +538,21 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         )
       })()}
 
-      <div className="row" style={{ marginBottom: '1.25rem' }}>
+      <div className="row" style={{ marginBottom: '1.25rem', flexWrap: 'wrap', alignItems: 'center', gap: '0.6rem' }}>
+        <button type="button" className="btn small secondary" onClick={() => schedulerRef.current?.openAddSchoolPeriod()}>
+          🔒 Add school period
+        </button>
         <button type="button" className="btn small secondary" onClick={() => setShowActivityTypesModal(true)}>
           ⚙️ Manage Activity Types
+        </button>
+        <button type="button" className="btn small secondary" onClick={() => setShowPlacesModal(true)}>
+          📍 Places
         </button>
         <button type="button" className="btn small secondary" onClick={() => setExamFormEntry('new')}>
           📝 Schedule exam
         </button>
+        <LiveClassLinkPanel />
+        {saving ? <span className="muted small">Saving…</span> : null}
       </div>
 
       {examFormEntry && (
@@ -541,12 +572,24 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         />
       )}
 
-      <LiveClassLinkPanel />
+      {showPlacesModal && (
+        <StudyPlacesPanel
+          places={studyPlaces}
+          setPlaces={setStudyPlaces}
+          assignments={placeAssignments}
+          setAssignments={setPlaceAssignments}
+          students={students}
+          courses={syllabusCourses}
+          onClose={() => setShowPlacesModal(false)}
+        />
+      )}
 
       {error ? <p className="error">{error}</p> : null}
 
       {!loadingOverride && (
         <PriorityScheduler
+          ref={schedulerRef}
+          hideOwnToolbar
           timetable={effectiveTimetable}
           electives={effectiveElectives}
           editingAllowed
@@ -563,6 +606,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
           onOpenExamSchedule={(entry) => setExamFormEntry(entry)}
           gridStartMin={isOverrideMode && selectedStudent?.isTopTier ? EXTENDED_GRID_START_MIN : undefined}
           gridEndMin={isOverrideMode && selectedStudent?.isTopTier ? EXTENDED_GRID_END_MIN : undefined}
+          studyPlaceByCourseId={isOverrideMode ? placeNamesByCourse(placeAssignments[selectedStudentId], studyPlaces) : undefined}
           onScheduleExams={(drafts) => {
             void (async () => {
               try {
@@ -647,11 +691,9 @@ function LiveClassLinkPanel() {
 
   return (
     <>
-      <div className="row" style={{ marginBottom: '1.25rem' }}>
-        <button type="button" className="btn small secondary" onClick={() => setOpen(true)}>
-          🟢 Live Class Link
-        </button>
-      </div>
+      <button type="button" className="btn small secondary" onClick={() => setOpen(true)}>
+        🟢 Live Class Link
+      </button>
 
       {open && (
         <>
@@ -798,6 +840,158 @@ function ActivityTypesPanel({ activityTypes, setActivityTypes, onClose }: {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Places of study (`study_places`) and who sits where for each subject
+ * (`study_place_assignments`). Capacity is per subject — see `lib/studyPlaces`.
+ * Opening a subject auto-fills any of its students who still have no place
+ * (first place with a free seat); the dropdowns then let the manager move them.
+ */
+function StudyPlacesPanel({ places, setPlaces, assignments, setAssignments, students, courses, onClose }: {
+  places: StudyPlace[]
+  setPlaces: (next: StudyPlace[]) => void
+  assignments: AllPlaceAssignments
+  setAssignments: (next: AllPlaceAssignments) => void
+  students: UserProfile[]
+  courses: Course[]
+  onClose: () => void
+}) {
+  const sortedCourses = [...courses].sort((a, b) => a.title.localeCompare(b.title))
+  const [name, setName] = useState('')
+  const [capacity, setCapacity] = useState(1)
+  const [courseId, setCourseId] = useState(sortedCourses[0]?.id ?? '')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const studentsInCourse = students.filter((s) => (s.courseIds ?? []).includes(courseId))
+
+  useEffect(() => {
+    if (!courseId || places.length === 0 || studentsInCourse.length === 0) return
+    let cancelled = false
+    void (async () => {
+      const all: AllPlaceAssignments = { ...assignments }
+      let changed = false
+      try {
+        for (const s of studentsInCourse) {
+          const before = all[s.id]?.[courseId]
+          await autoAssignMissing(s.id, [courseId], places, all)
+          if (all[s.id]?.[courseId] !== before) changed = true
+        }
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to assign places')
+      }
+      if (changed && !cancelled) setAssignments({ ...all })
+    })()
+    return () => { cancelled = true }
+    // Re-run when the subject or the set of places/students changes, not on every
+    // assignments update (which this effect itself produces).
+  }, [courseId, places.length, students.length]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function addPlace(e: FormEvent) {
+    e.preventDefault()
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setSaving(true); setError('')
+    try {
+      const data = { name: trimmed, capacity: Math.max(1, Math.floor(capacity) || 1) }
+      const ref = await addDoc(collection(db, 'study_places'), data)
+      setPlaces([...places, { id: ref.id, ...data }].sort((a, b) => a.name.localeCompare(b.name)))
+      setName(''); setCapacity(1)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to add this place')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removePlace(p: StudyPlace) {
+    if (!window.confirm(`Delete "${p.name}"? Students assigned there get a new place automatically.`)) return
+    setError('')
+    try {
+      await deleteDoc(doc(db, 'study_places', p.id))
+      setPlaces(places.filter((x) => x.id !== p.id))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete this place')
+    }
+  }
+
+  async function assign(studentId: string, placeId: string | null) {
+    setError('')
+    const all: AllPlaceAssignments = { ...assignments }
+    try {
+      await savePlaceAssignment(studentId, courseId, placeId, all)
+      setAssignments({ ...all })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to save this assignment')
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" style={{ maxWidth: 560 }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+          <h3 style={{ margin: 0 }}>📍 Places</h3>
+          <button type="button" className="btn small ghost" onClick={onClose}>✕</button>
+        </div>
+
+        {error ? <p className="error small" style={{ margin: '0 0 0.75rem' }}>{error}</p> : null}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1rem', maxHeight: 180, overflowY: 'auto' }}>
+          {places.length === 0 ? <p className="muted small" style={{ margin: 0 }}>No places yet.</p> : null}
+          {places.map((p) => (
+            <div key={p.id} className="row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+              <span className="tag">📍 {p.name} · {p.capacity} seat{p.capacity === 1 ? '' : 's'}</span>
+              <button type="button" className="btn small ghost" title={`Delete ${p.name}`} aria-label={`Delete ${p.name}`} onClick={() => void removePlace(p)}>🗑️</button>
+            </div>
+          ))}
+        </div>
+
+        <form className="form" onSubmit={(e) => void addPlace(e)} style={{ marginBottom: '1.25rem' }}>
+          <div className="row">
+            <label style={{ flex: 1 }}>Name
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Desk A" required />
+            </label>
+            <label style={{ flex: '0 0 100px' }}>Seats
+              <input type="number" min={1} max={99} value={capacity} onChange={(e) => setCapacity(Number(e.target.value))} />
+            </label>
+          </div>
+          <div className="full">
+            <button type="submit" className="btn primary small" disabled={saving}>{saving ? 'Adding…' : '+ Add Place'}</button>
+          </div>
+        </form>
+
+        {places.length > 0 && sortedCourses.length > 0 && (
+          <>
+            <label>Subject
+              <select value={courseId} onChange={(e) => setCourseId(e.target.value)}>
+                {sortedCourses.map((c) => <option key={c.id} value={c.id}>{c.title}</option>)}
+              </select>
+            </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem', maxHeight: 260, overflowY: 'auto' }}>
+              {studentsInCourse.length === 0 ? <p className="muted small" style={{ margin: 0 }}>No students in this subject.</p> : null}
+              {studentsInCourse.map((s) => {
+                const current = assignments[s.id]?.[courseId] ?? ''
+                return (
+                  <div key={s.id} className="row" style={{ alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem' }}>
+                    <span style={{ fontSize: '0.9rem' }}>{s.name || s.email}</span>
+                    <select value={current} style={{ width: 'auto' }} onChange={(e) => void assign(s.id, e.target.value || null)}>
+                      <option value="">— No place —</option>
+                      {places.map((p) => {
+                        const used = seatsUsed(p.id, courseId, assignments)
+                        const full = used >= p.capacity && current !== p.id
+                        return <option key={p.id} value={p.id} disabled={full}>{p.name} ({used}/{p.capacity})</option>
+                      })}
+                    </select>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

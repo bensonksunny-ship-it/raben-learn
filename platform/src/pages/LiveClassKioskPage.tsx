@@ -220,7 +220,7 @@ export function LiveClassKioskPage() {
     for (const e of (weekday && electives?.days[weekday]?.sessions) || []) {
       const startMin = timeStrToMinutes(e.startTime)
       if (startMin == null || !(e.durationMinutes > 0)) continue
-      out.push({ id: e.id, title: e.title || 'Open slot', label: 'Elective', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
+      out.push({ id: e.id, title: e.title || 'Open slot', label: '', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
     }
     for (const x of todaysExams) {
       const startMin = timeStrToMinutes(x.startTime)
@@ -449,7 +449,7 @@ function NowPanel({ state, nowMin }: { state: ClockState; nowMin: number }) {
       body = (
         <>
           <p style={{ margin: '0 0 0.2rem', fontSize: '1.6rem', fontWeight: 700 }}>
-            <span className="muted" style={{ fontSize: '1rem', fontWeight: 600 }}>{current.label} · </span>{current.title}
+            {current.label && <span className="muted" style={{ fontSize: '1rem', fontWeight: 600 }}>{current.label} · </span>}{current.title}
           </p>
           <p className="muted" style={{ margin: '0 0 0.6rem', fontSize: '1.05rem' }}>
             {formatClock(current.startMin)} – {formatClock(current.endMin)} · <strong style={{ color: 'var(--text)' }}>ends in {formatSpan(current.endMin - nowMin)}</strong>
@@ -495,7 +495,11 @@ function TimetableStrip({ timed, nowMin }: { timed: TimedPeriod[]; nowMin: numbe
               background: current ? 'var(--primary-soft)' : undefined,
             }}
           >
-            <div className="muted small" style={{ fontWeight: 700 }}>{t.label}{current ? ' · NOW' : done ? ' · done' : ''}</div>
+            {(() => {
+              const status = current ? 'NOW' : done ? 'done' : ''
+              const tag = [t.label, status].filter(Boolean).join(' · ')
+              return tag ? <div className="muted small" style={{ fontWeight: 700 }}>{tag}</div> : null
+            })()}
             <div style={{ fontWeight: 700, fontSize: '1.05rem' }}>{t.title}</div>
             <div className="muted small">{formatClock(t.startMin)} – {formatClock(t.endMin)}</div>
           </div>

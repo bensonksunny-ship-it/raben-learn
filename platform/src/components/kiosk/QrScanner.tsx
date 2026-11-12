@@ -13,9 +13,12 @@ const ELEMENT_ID = 'kiosk-qr-reader'
  */
 export function QrScanner({ active, onDecode }: { active: boolean; onDecode: (text: string) => void }) {
   const onDecodeRef = useRef(onDecode)
-  onDecodeRef.current = onDecode
   const readerRef = useRef<Html5Qrcode | null>(null)
   const [cameraError, setCameraError] = useState(false)
+
+  useEffect(() => {
+    onDecodeRef.current = onDecode
+  }, [onDecode])
 
   useEffect(() => {
     let cancelled = false

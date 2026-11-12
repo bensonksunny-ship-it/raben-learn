@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useParams } from 'react-router-dom'
 import { signInWithCustomToken } from 'firebase/auth'
 import { collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where, type Timestamp } from 'firebase/firestore'
@@ -10,6 +10,9 @@ import {
   GRACE_MINUTES, todaysPeriods, todayWeekday, formatClock, formatSpan,
   buildTimedPeriods, clockState, type TimedPeriod, type ClockState,
 } from '../lib/attendance'
+import { parseScanQr } from '../lib/kioskScan'
+import { QrScanner } from '../components/kiosk/QrScanner'
+import { StudentScanOverlay } from '../components/kiosk/StudentScanOverlay'
 import type { AttendanceCheckpoint, ClassTimetable, ElectiveSchedule, TimetablePeriod, UserProfile } from '../types'
 
 type Phase = 'resolving' | 'ready' | 'error'
@@ -77,6 +80,10 @@ export function LiveClassKioskPage() {
   const [startedAt, setStartedAt] = useState<Date | null | undefined>(undefined)
   const [startBusy, setStartBusy] = useState(false)
   const [startError, setStartError] = useState('')
+  /** The student currently showing in the personalized scan overlay, or
+   *  `null` in the kiosk's normal neutral state. */
+  const [scan, setScan] = useState<{ studentId: string; qrToken: string } | null>(null)
+  const lastDecodeRef = useRef<{ text: string; at: number } | null>(null)
 
   const now = useNow()
   // Recomputed from the ticking clock so a TV left on overnight rolls into the new day.
@@ -221,6 +228,23 @@ export function LiveClassKioskPage() {
     }
   }
 
+  // One QR card held in frame fires this repeatedly every ~100ms — ignore
+  // repeats of the same decoded text within a few seconds (the camera itself
+  // is also paused the moment an overlay opens, but that pause only takes
+  // effect on the next animation frame). Unrecognized text (a stray QR code
+  // that isn't a student's ID card) is silently ignored — never worth
+  // interrupting the TV display over.
+  function handleDecode(text: string) {
+    if (scan) return
+    const last = lastDecodeRef.current
+    if (last && last.text === text && Date.now() - last.at < 4000) return
+    lastDecodeRef.current = { text, at: Date.now() }
+    const parsed = parseScanQr(text)
+    if (!parsed) return
+    if (!students.some((s) => s.id === parsed.studentId)) return
+    setScan(parsed)
+  }
+
   if (phase === 'resolving') {
     return <KioskShell><p className="muted" style={{ fontSize: '1.1rem' }}>Opening Live Class…</p></KioskShell>
   }
@@ -239,8 +263,27 @@ export function LiveClassKioskPage() {
     return cps.some((c) => c.kind === 'login') && !cps.some((c) => c.kind === 'logout')
   }).length
 
+  const scanStudent = scan ? students.find((s) => s.id === scan.studentId) : undefined
+
   return (
     <div className="kid-theme" style={{ minHeight: '100dvh', padding: '2rem' }}>
+      <QrScanner active={!scan} onDecode={handleDecode} />
+
+      {scan && scanStudent && timetable && electives && (
+        <StudentScanOverlay
+          studentId={scan.studentId}
+          qrToken={scan.qrToken}
+          student={scanStudent}
+          kioskDb={kioskDb}
+          date={date}
+          weekday={weekday}
+          fallbackTimetable={timetable}
+          fallbackElectives={electives}
+          existingCheckpoints={checkpointsByStudent[scan.studentId] ?? []}
+          onClose={() => setScan(null)}
+        />
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '0.75rem', marginBottom: '1.75rem' }}>
         <div>
           <h1 style={{ marginBottom: '0.2rem', fontSize: '2rem' }}>🟢 Live Class</h1>

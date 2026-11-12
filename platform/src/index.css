@@ -1371,3 +1371,36 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
   content: attr(data-placeholder); color: var(--muted-2); float: left; height: 0; pointer-events: none;
 }
 .lesson-notes-view { line-height: 1.6; }
+
+/* Live Class kiosk's always-on camera box — a student holds their ID card up
+   to it, no tap needed. Small and corner-pinned so it never competes with the
+   roster/timetable for attention; the pulsing dot is the only status
+   indicator (red once still, on a real camera error) — no instructional
+   text, same standing minimalism rule as everywhere else in the app. */
+.kiosk-scan-box {
+  position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 200;
+  width: 150px; height: 150px; border-radius: 16px; overflow: hidden;
+  background: #0b1020; border: 2px solid var(--border); box-shadow: 0 10px 30px rgba(10,18,40,0.25);
+}
+.kiosk-scan-video { width: 100%; height: 100%; }
+.kiosk-scan-video video { width: 100%; height: 100%; object-fit: cover; }
+.kiosk-scan-dot {
+  position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 0 0 rgba(28,138,92,0.6);
+  animation: kiosk-scan-pulse 1.8s ease-out infinite;
+}
+.kiosk-scan-dot.error { background: var(--danger); animation: none; }
+@keyframes kiosk-scan-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(28,138,92,0.55); }
+  70% { box-shadow: 0 0 0 8px rgba(28,138,92,0); }
+  100% { box-shadow: 0 0 0 0 rgba(28,138,92,0); }
+}
+
+/* Full-screen takeover once a card is scanned — same centered-card convention
+   as `KioskShell`, just dismissible (tap anywhere) and auto-reverting. */
+.kiosk-overlay-backdrop {
+  position: fixed; inset: 0; z-index: 400; background: rgba(10,18,40,0.72);
+  display: flex; align-items: center; justify-content: center; padding: 2rem;
+}
+.kiosk-overlay-panel { max-width: 480px; width: 100%; text-align: center; padding: 2.5rem 2rem; }
+.kiosk-overlay-avatar { width: 72px; height: 72px; font-size: 1.4rem; margin: 0 auto; }

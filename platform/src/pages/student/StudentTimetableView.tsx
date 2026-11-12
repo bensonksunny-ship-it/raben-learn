@@ -9,13 +9,13 @@ import { LandscapeExitButton } from '../../components/LandscapeExitButton'
 import { useLandscapeFullscreen } from '../../hooks/useLandscapeFullscreen'
 import { PriorityScheduler } from '../../components/manager/PriorityScheduler'
 import { loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
-import { autoAssignMissing, loadAllPlaceAssignments, loadStudyPlaces, placeNamesByCourse } from '../../lib/studyPlaces'
+import { autoAssignMissing, courseIdsOnSchedule, loadAllPlaceAssignments, loadStudyPlaces, placeNamesByCourse, type AllPlaceAssignments } from '../../lib/studyPlaces'
 import {
   todayStr, addDays, mondayOf, loadEffectiveWeekSchedule,
   createDefaultTimetable, normalizeTimetable, createDefaultElectives, normalizeElectives,
   EXTENDED_GRID_START_MIN, EXTENDED_GRID_END_MIN, minutesToTimeStr,
 } from '../../components/manager/schedulerShared'
-import type { ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, Weekday } from '../../types'
+import type { ActivityType, ClassTimetable, Course, DailyPlan, DailyPlanItem, ElectiveSchedule, StudyPlace, Weekday } from '../../types'
 
 const JS_DAY_TO_WEEKDAY: (Weekday | null)[] = [null, 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -67,34 +67,50 @@ export function StudentTimetableView({ studentId }: StudentTimetableViewProps = 
   // on their cards and listed above the grid. Any subject with no place yet is
   // given the first place with a free seat right here, so it never stays blank.
   const [studyPlaceByCourseId, setStudyPlaceByCourseId] = useState<Record<string, string>>({})
+  const [profileCourseIds, setProfileCourseIds] = useState<string[]>([])
+  const [placeData, setPlaceData] = useState<{ places: StudyPlace[]; all: AllPlaceAssignments } | null>(null)
 
   useEffect(() => {
     if (!uid) return
     let cancelled = false
     void (async () => {
-      let courseIds: string[] = []
       try {
         const [userSnap, all] = await Promise.all([getDoc(doc(db, 'users', uid)), loadExamSchedules()])
-        courseIds = (userSnap.data()?.courseIds as string[] | undefined) ?? []
+        const courseIds = (userSnap.data()?.courseIds as string[] | undefined) ?? []
         const mine = new Set(courseIds)
         if (!cancelled) {
           setExamSchedules(all.filter((x) => mine.has(x.courseId)))
           setIsTopTier(Boolean(userSnap.data()?.isTopTier))
+          setProfileCourseIds(courseIds)
         }
       } catch {
         // Non-critical — the grid just shows no exams.
       }
       try {
-        const [places, allAssignments] = await Promise.all([loadStudyPlaces(), loadAllPlaceAssignments()])
-        if (places.length === 0) return
-        const mine = await autoAssignMissing(uid, courseIds, places, allAssignments)
-        if (!cancelled) setStudyPlaceByCourseId(placeNamesByCourse(mine, places))
+        const [places, all] = await Promise.all([loadStudyPlaces(), loadAllPlaceAssignments()])
+        if (!cancelled) setPlaceData({ places, all })
       } catch {
         // Non-critical — cards just show no place.
       }
     })()
     return () => { cancelled = true }
   }, [uid])
+
+  // Every subject on this student's schedule (shared master or their own
+  // override) gets a place by default — the first with a free seat — the
+  // moment the timetable is on screen, not only the subjects on their profile.
+  useEffect(() => {
+    if (!uid || !placeData || placeData.places.length === 0) return
+    const tt = hasOverride ? (timetableOverride ?? timetable) : timetable
+    const el = hasOverride ? (electiveOverride ?? electives) : electives
+    if (!tt) return
+    const courseIds = courseIdsOnSchedule(tt, el, profileCourseIds)
+    let cancelled = false
+    void autoAssignMissing(uid, courseIds, placeData.places, placeData.all)
+      .then((mine) => { if (!cancelled) setStudyPlaceByCourseId(placeNamesByCourse(mine, placeData.places)) })
+      .catch(() => { /* Non-critical — cards just show no place. */ })
+    return () => { cancelled = true }
+  }, [uid, placeData, profileCourseIds, hasOverride, timetable, electives, timetableOverride, electiveOverride])
 
   useEffect(() => {
     void (async () => {

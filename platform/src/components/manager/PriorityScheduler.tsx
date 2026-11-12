@@ -278,8 +278,11 @@ export const PriorityScheduler = forwardRef<PrioritySchedulerHandle, PrioritySch
 }, ref) {
   const [modal, setModal] = useState<ModalState | null>(null)
   const [modalError, setModalError] = useState('')
+  // Only subjects have a place — never an Activity Type (Lunch, Break, …), which
+  // carries no courseId in the first place.
+  const placeName = (courseId: string | null | undefined) => (courseId ? studyPlaceByCourseId[courseId] ?? null : null)
   const placeSuffix = (courseId: string | null | undefined) => {
-    const name = courseId ? studyPlaceByCourseId[courseId] : undefined
+    const name = placeName(courseId)
     return name ? ` · 📍 ${name}` : ''
   }
   const activityTypeById = new Map(activityTypes.map((a) => [a.id, a]))
@@ -1178,6 +1181,12 @@ export const PriorityScheduler = forwardRef<PrioritySchedulerHandle, PrioritySch
                     <div className="muted small">Mentor</div>
                     <div style={{ fontWeight: 600 }}>{modal.mentorName || '—'}</div>
                   </div>
+                  {placeName(modal.courseId) && (
+                    <div>
+                      <div className="muted small">Place</div>
+                      <div style={{ fontWeight: 600 }}>📍 {placeName(modal.courseId)}</div>
+                    </div>
+                  )}
                   <div>
                     <div className="muted small">Duration</div>
                     <div style={{ fontWeight: 600 }}>
@@ -1213,6 +1222,9 @@ export const PriorityScheduler = forwardRef<PrioritySchedulerHandle, PrioritySch
                       onManageActivityTypes={onManageActivityTypes}
                     />
                   </label>
+                  {placeName(modal.courseId) && (
+                    <p className="muted small" style={{ margin: 0 }}>📍 {placeName(modal.courseId)}</p>
+                  )}
                   {modal.kind === 'elective' && (
                     <label>Mentor <span className="muted small">(optional)</span>
                       <input value={modal.mentorName} onChange={(e) => setModal({ ...modal, mentorName: e.target.value })} placeholder="e.g. Ms. Alvarez" />

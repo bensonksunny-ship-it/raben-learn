@@ -15,7 +15,7 @@ import { useAuth } from '../../context/AuthContext'
 import { createExamSchedule, loadExamSchedules, type ExamScheduleEntry } from '../../lib/examSchedule'
 import { ExamScheduleForm } from '../../components/ExamScheduleForm'
 import {
-  autoAssignMissing, loadAllPlaceAssignments, loadStudyPlaces, placeNamesByCourse, savePlaceAssignment, seatsUsed,
+  autoAssignMissing, courseIdsOnSchedule, loadAllPlaceAssignments, loadStudyPlaces, placeNamesByCourse, savePlaceAssignment, seatsUsed,
   type AllPlaceAssignments,
 } from '../../lib/studyPlaces'
 import type { ExamType, StudyPlace } from '../../types'
@@ -117,6 +117,25 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
       }
     })()
   }, [])
+
+  // Opening a student's schedule gives every subject on it a place by default
+  // (first with a free seat), same as their own Timetable view does.
+  useEffect(() => {
+    if (selectedStudentId === DEFAULT_STUDENT_ID || studyPlaces.length === 0 || loadingOverride) return
+    const tt = studentTimetableOverride ?? timetable
+    const el = studentElectiveOverride ?? electives
+    if (!tt) return
+    const student = students.find((s) => s.id === selectedStudentId)
+    const courseIds = courseIdsOnSchedule(tt, el, student?.courseIds ?? [])
+    const all: AllPlaceAssignments = { ...placeAssignments }
+    const before = all[selectedStudentId]
+    let cancelled = false
+    void autoAssignMissing(selectedStudentId, courseIds, studyPlaces, all)
+      .then((mine) => { if (!cancelled && mine !== before) setPlaceAssignments({ ...all }) })
+      .catch(() => { /* Non-critical — the grid just shows no places. */ })
+    return () => { cancelled = true }
+    // Keyed on what decides the answer, not on `placeAssignments` (which this writes).
+  }, [selectedStudentId, studyPlaces, loadingOverride, studentTimetableOverride, studentElectiveOverride, timetable, electives, students]) // eslint-disable-line react-hooks/exhaustive-deps
   // Drives the grid's "Add school period" modal from this page's own consolidated
   // toolbar button, now that PriorityScheduler's matching internal row is hidden here.
   const schedulerRef = useRef<PrioritySchedulerHandle>(null)
@@ -848,8 +867,9 @@ function ActivityTypesPanel({ activityTypes, setActivityTypes, onClose }: {
 /**
  * Places of study (`study_places`) and who sits where for each subject
  * (`study_place_assignments`). Capacity is per subject — see `lib/studyPlaces`.
- * Opening a subject auto-fills any of its students who still have no place
- * (first place with a free seat); the dropdowns then let the manager move them.
+ * Opening a subject auto-fills every student who still has no place for it
+ * (first place with a free seat; once seats run out the rest stay "No place");
+ * the dropdowns then let the manager move anyone.
  */
 function StudyPlacesPanel({ places, setPlaces, assignments, setAssignments, students, courses, onClose }: {
   places: StudyPlace[]
@@ -867,7 +887,10 @@ function StudyPlacesPanel({ places, setPlaces, assignments, setAssignments, stud
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const studentsInCourse = students.filter((s) => (s.courseIds ?? []).includes(courseId))
+  // The shared master schedule applies to every student, so a subject on it is
+  // everyone's — list all students for the subject, not just those with it on
+  // their profile (which is often left empty).
+  const studentsInCourse = students
 
   useEffect(() => {
     if (!courseId || places.length === 0 || studentsInCourse.length === 0) return

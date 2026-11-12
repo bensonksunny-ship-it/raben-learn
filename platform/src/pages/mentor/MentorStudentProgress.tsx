@@ -6,6 +6,11 @@ import { stripUndefinedDeep } from '../../lib/firestoreSanitize'
 import { readTopicsFromSessionDoc } from '../../lib/topics'
 import { mapCourseDoc } from '../../lib/courses'
 import type { Course, DailyPlan, DailyPlanItem, ItemStatus, LessonItemType, ProgressEntry, Session } from '../../types'
+import { formatDayDate, todayStr } from '../../components/manager/schedulerShared'
+import { computeStreak } from '../../lib/streak'
+import { averagePct, countRecentDays, weeklyApprovals, type ExamResult } from '../../lib/studentTrends'
+
+interface Development { streak: number; daysPresent: number; exams: ExamResult[] }
 
 const MAX_ATTEMPTS = 5
 
@@ -36,7 +41,8 @@ export function MentorStudentProgress() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'progress' | 'planner'>('progress')
+  const [tab, setTab] = useState<'progress' | 'planner' | 'development'>('progress')
+  const [development, setDevelopment] = useState<Development | null>(null)
   const [plan, setPlan] = useState<DailyPlan | null>(null)
   const [planDate, setPlanDate] = useState(new Date().toISOString().slice(0, 10))
   const [loadingPlan, setLoadingPlan] = useState(false)
@@ -92,7 +98,40 @@ export function MentorStudentProgress() {
     } catch (e) { console.error('loadPlan failed', e) } finally { setLoadingPlan(false) }
   }, [studentId, planDate])
 
+  const loadDevelopment = useCallback(async () => {
+    if (!studentId) return
+    try {
+      const mine = (name: string) => getDocs(query(collection(db, name), where('studentId', '==', studentId)))
+      const [plansSnap, attendanceSnap, attemptsSnap] = await Promise.all([
+        mine('student_daily_plans'), mine('attendance'), mine('examAttempts'),
+      ])
+      const today = todayStr()
+      const kept = new Set<string>()
+      plansSnap.forEach((d) => {
+        const x = d.data()
+        const items = (x.items as { done?: boolean }[]) ?? []
+        if (typeof x.date === 'string' && items.some((i) => i.done)) kept.add(x.date)
+      })
+      const presentDates: string[] = []
+      attendanceSnap.forEach((d) => {
+        const x = d.data()
+        if (typeof x.date === 'string' && ((x.checkpoints as unknown[]) ?? []).length > 0) presentDates.push(x.date)
+      })
+      const exams: ExamResult[] = []
+      attemptsSnap.forEach((d) => {
+        const x = d.data()
+        const total = Number(x.totalMarks ?? 0)
+        if (typeof x.submittedAt === 'string' && total > 0) {
+          exams.push({ courseId: (x.courseId as string) ?? '', submittedAt: x.submittedAt, pct: Math.round((Number(x.score ?? 0) / total) * 100) })
+        }
+      })
+      exams.sort((a, b) => b.submittedAt.localeCompare(a.submittedAt))
+      setDevelopment({ streak: computeStreak(kept, today), daysPresent: countRecentDays(presentDates, today), exams })
+    } catch (e) { setError(e instanceof Error ? e.message : 'Failed') }
+  }, [studentId])
+
   useEffect(() => { if (studentId) void loadStudent() }, [studentId, loadStudent])
+  useEffect(() => { if (studentId && tab === 'development' && !development) void loadDevelopment() }, [studentId, tab, development, loadDevelopment])
   useEffect(() => { if (studentId && tab === 'planner') void loadPlan() }, [studentId, tab, planDate, loadPlan])
 
   async function loadCourseData(courseId: string) {
@@ -244,6 +283,15 @@ export function MentorStudentProgress() {
   const reviewAll = flat.reduce((s, x) => s + (getStatus(x.sessionId, x.activityId) === 'review' ? 1 : 0), 0)
   const pctAll = totalAll === 0 ? 0 : Math.round((doneAll / totalAll) * 100)
 
+  // Development tab — pace comes from progressMap so a fresh approval shows at once.
+  const approvedAt = Object.values(progressMap).flatMap((entries) =>
+    Object.values(entries).flatMap((e) => (e.status === 'completed' && e.mentorApprovedAt ? [e.mentorApprovedAt] : [])))
+  const pace = weeklyApprovals(approvedAt, todayStr())
+  const paceMax = Math.max(1, ...pace.map((w) => w.count))
+  const thisWeek = pace[pace.length - 1]?.count ?? 0
+  const lastWeek = pace[pace.length - 2]?.count ?? 0
+  const examAvg = development ? averagePct(development.exams) : null
+
   return (
     <div>
       <Link to="/mentor" className="btn ghost small" style={{ marginBottom: '1rem', display: 'inline-flex' }}>← All Students</Link>
@@ -258,7 +306,57 @@ export function MentorStudentProgress() {
       <div className="course-tabs" style={{ marginBottom: '0.75rem' }}>
         <button type="button" className={`course-tab${tab === 'progress' ? ' active' : ''}`} onClick={() => setTab('progress')}>📊 Progress</button>
         <button type="button" className={`course-tab${tab === 'planner' ? ' active' : ''}`} onClick={() => setTab('planner')}>📅 Daily Planner</button>
+        <button type="button" className={`course-tab${tab === 'development' ? ' active' : ''}`} onClick={() => setTab('development')}>📈 Development</button>
       </div>
+
+      {tab === 'development' && (!development ? (error ? null : <p className="muted">Loading…</p>) : (
+        <>
+          <div className="dash-stat-grid" style={{ marginBottom: '1.75rem' }}>
+            {[
+              { icon: '🔥', value: development.streak, label: 'Day Streak', sub: development.streak === 1 ? 'day in a row' : 'days in a row', color: development.streak ? '#ea580c' : 'var(--muted-2)' },
+              { icon: '✅', value: thisWeek, label: 'Topics This Week', sub: `${lastWeek} last week`, color: '#059669' },
+              { icon: '🏫', value: development.daysPresent, label: 'Days Present', sub: 'last 4 weeks', color: 'var(--primary)' },
+              { icon: '📝', value: examAvg == null ? '—' : `${examAvg}%`, label: 'Exam Average', sub: `${development.exams.length} ${development.exams.length === 1 ? 'exam' : 'exams'}`, color: '#7c3aed' },
+            ].map((s) => (
+              <div key={s.label} className="panel dash-stat-card">
+                <span className="dash-stat-icon">{s.icon}</span>
+                <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
+                <span className="dash-stat-label">{s.label}</span>
+                <span className="muted small">{s.sub}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="dash-two-col">
+            <section className="panel">
+              <h2 className="founder-heading">Learning Pace</h2>
+              <div className="founder-bars" role="img" aria-label={`Topics completed per week: ${pace.map((w) => `${formatDayDate(w.weekStart)} ${w.count}`).join(', ')}`}>
+                {pace.map((w, i) => (
+                  <div key={w.weekStart} className={`founder-bar-col${i === pace.length - 1 ? ' current' : ''}`}>
+                    <span className="founder-bar-value">{w.count}</span>
+                    <div className="founder-bar" style={{ height: `${(w.count / paceMax) * 100}%` }} />
+                    <span className="founder-bar-label">{formatDayDate(w.weekStart)}</span>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel">
+              <h2 className="founder-heading">Exams</h2>
+              {development.exams.length === 0 ? <p className="muted" style={{ margin: 0 }}>—</p> : (
+                <div className="founder-rows">
+                  {development.exams.slice(0, 6).map((x) => (
+                    <div key={`${x.courseId}_${x.submittedAt}`} className="founder-row">
+                      <span>{courses.find((c) => c.id === x.courseId)?.title ?? 'Exam'} <span className="muted small">· {formatDayDate(x.submittedAt.slice(0, 10))}</span></span>
+                      <strong>{x.pct}%</strong>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </>
+      ))}
 
       {tab === 'planner' && (
         <div>

@@ -17,6 +17,7 @@ import { StudentDashboard } from './pages/student/StudentDashboard'
 import { StudentDailyPlanner } from './pages/student/StudentDailyPlanner'
 import { StudentHistory } from './pages/student/StudentHistory'
 import { ConsultantDashboard } from './pages/consultant/ConsultantDashboard'
+import { FounderDashboard } from './pages/founder/FounderDashboard'
 
 /** Lazy-loaded so admin callable code lives in its own chunk (avoids stale main-bundle caches). */
 const UserManagement = lazy(() =>
@@ -46,6 +47,7 @@ const LiveClassKioskPage = lazy(() =>
 )
 const ExamPrintView = lazy(() => import('./pages/admin/ExamPrintView'))
 const LessonNotesPrintView = lazy(() => import('./pages/admin/LessonNotesPrintView'))
+const LessonNotesSubjectPrintView = lazy(() => import('./pages/admin/LessonNotesSubjectPrintView'))
 const ExamInstructions = lazy(() => import('./pages/exam/ExamInstructions'))
 const ExamRunner = lazy(() => import('./pages/exam/ExamRunner'))
 const ExamResults = lazy(() => import('./pages/exam/ExamResults'))
@@ -155,6 +157,16 @@ export default function App() {
               </RequireCapability>
             }
           />
+          {/* Founder Overview — read-only, whole-school numbers. Founder's only
+              page; admin reaches it too (rbac.ts grants both `founderArea`). */}
+          <Route
+            path="founder"
+            element={
+              <RequireCapability cap="founderArea">
+                <FounderDashboard />
+              </RequireCapability>
+            }
+          />
           <Route
             path="syllabus"
             element={
@@ -182,6 +194,12 @@ export default function App() {
           <Route
             path="lesson-notes-print/:topicId"
             element={<Suspense fallback={<AdminRouteFallback />}><LessonNotesPrintView /></Suspense>}
+          />
+          {/* Consolidated "Download Full Subject PDF" — same reachability/access
+              tradeoff as the single-topic route above. */}
+          <Route
+            path="lesson-notes-print/subject/:courseId"
+            element={<Suspense fallback={<AdminRouteFallback />}><LessonNotesSubjectPrintView /></Suspense>}
           />
           {/* Retired — merged into /schedule. Redirects so old bookmarks/links still work. */}
           <Route path="timetable" element={<Navigate to="/schedule" replace />} />

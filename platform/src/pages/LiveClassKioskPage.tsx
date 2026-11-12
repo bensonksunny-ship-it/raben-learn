@@ -6,7 +6,10 @@ import { kioskAuth, kioskDb, resolveLiveClassKioskToken } from '../lib/liveClass
 import { localDateStr, mapExamSchedule, type ExamScheduleEntry } from '../lib/examSchedule'
 import { mapUserDoc } from '../lib/userUtils'
 import { todayStr, weekKeyOf, loadEffectiveWeekSchedule, timeStrToMinutes } from '../components/manager/schedulerShared'
-import { GRACE_MINUTES, todaysPeriods, todayWeekday } from '../lib/attendance'
+import {
+  GRACE_MINUTES, todaysPeriods, todayWeekday, formatClock, formatSpan,
+  buildTimedPeriods, clockState, type TimedPeriod, type ClockState,
+} from '../lib/attendance'
 import type { AttendanceCheckpoint, ClassTimetable, ElectiveSchedule, TimetablePeriod, UserProfile } from '../types'
 
 type Phase = 'resolving' | 'ready' | 'error'
@@ -25,20 +28,6 @@ function Badge({ checkpoint }: { checkpoint: AttendanceCheckpoint | undefined })
   )
 }
 
-/** "9:05 AM" from minutes-since-midnight. */
-function formatClock(min: number): string {
-  const h = Math.floor(min / 60) % 24
-  const m = min % 60
-  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
-}
-
-/** "45 min" / "1 h 5 min" — for countdowns and how-late labels. */
-function formatSpan(min: number): string {
-  const m = Math.max(0, Math.round(min))
-  if (m < 60) return `${m} min`
-  return m % 60 === 0 ? `${m / 60} h` : `${Math.floor(m / 60)} h ${m % 60} min`
-}
-
 /** Re-renders every second so the clock, countdowns and "now" period track the
  *  wall clock — the timetable runs on clock time, not on when class started. */
 function useNow(): Date {
@@ -48,28 +37,6 @@ function useNow(): Date {
     return () => window.clearInterval(id)
   }, [])
   return now
-}
-
-/** One block on today's running timetable — a locked school period (`label`
- *  "P1", "P2"… matching the roster's attendance columns) or an elective session
- *  (`label` "Elective"), both placed purely by their scheduled clock time. */
-interface TimedPeriod { id: string; title: string; label: string; kind: 'period' | 'elective' | 'exam'; startTime: string; startMin: number; endMin: number }
-
-/** Where the wall clock sits within today's timetable. */
-type ClockState =
-  | { kind: 'none' }
-  | { kind: 'before'; next: TimedPeriod }
-  | { kind: 'in'; current: TimedPeriod; index: number; next: TimedPeriod | null }
-  | { kind: 'break'; next: TimedPeriod }
-  | { kind: 'over' }
-
-function clockState(timed: TimedPeriod[], nowMin: number): ClockState {
-  if (timed.length === 0) return { kind: 'none' }
-  if (nowMin < timed[0]!.startMin) return { kind: 'before', next: timed[0]! }
-  const index = timed.findIndex((t) => nowMin >= t.startMin && nowMin < t.endMin)
-  if (index >= 0) return { kind: 'in', current: timed[index]!, index, next: timed[index + 1] ?? null }
-  const next = timed.find((t) => t.startMin > nowMin)
-  return next ? { kind: 'break', next } : { kind: 'over' }
 }
 
 /** Full-screen, no chrome — this is a classroom TV/projector display, not
@@ -212,16 +179,7 @@ export function LiveClassKioskPage() {
   // Locked periods + the master elective board, merged and run by clock time —
   // a day with only electives (no locked periods) still has a timetable to run.
   const timed: TimedPeriod[] = useMemo(() => {
-    const out: TimedPeriod[] = []
-    periods.forEach((p, i) => {
-      const startMin = timeStrToMinutes(p.startTime)
-      if (startMin != null) out.push({ id: p.id, title: p.title, label: `P${i + 1}`, kind: 'period', startTime: p.startTime, startMin, endMin: startMin + p.durationMinutes })
-    })
-    for (const e of (weekday && electives?.days[weekday]?.sessions) || []) {
-      const startMin = timeStrToMinutes(e.startTime)
-      if (startMin == null || !(e.durationMinutes > 0)) continue
-      out.push({ id: e.id, title: e.title || 'Open slot', label: '', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
-    }
+    const out = buildTimedPeriods(periods, (weekday && electives?.days[weekday]?.sessions) || [])
     for (const x of todaysExams) {
       const startMin = timeStrToMinutes(x.startTime)
       if (startMin == null) continue

@@ -17,6 +17,7 @@ import {
 import { StudentDailyPlanner } from './StudentDailyPlanner'
 import { StudentCourseView } from './StudentCourseView'
 import { loadApplication, type ApplicationStatus } from '../../lib/studentApplication'
+import { computeStreak } from '../../lib/streak'
 
 // This one genuinely isn't loaded anywhere else yet, so lazy-loading it here keeps
 // its (PriorityScheduler-pulling) chunk out of the main bundle until opened.
@@ -77,6 +78,7 @@ export function StudentDashboard() {
   const [courses, setCourses] = useState<Course[]>([])
   const [progress, setProgress] = useState<Record<string, { total: number; done: number; review: number }>>({})
   const [plan, setPlan] = useState<{ items: { id: string; done: boolean; activityTitle: string }[] } | null>(null)
+  const [streak, setStreak] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
 
   const [nextClass, setNextClass] = useState<NextClassInfo | null>(null)
@@ -100,6 +102,19 @@ export function StudentDashboard() {
         getDocs(query(collection(db, 'student_lesson_progress'), where('studentId', '==', uid))),
         getDoc(doc(db, 'student_daily_plans', `${uid}_${todayStr()}`)),
       ])
+
+      // Streak loads on its own so a failure here never blanks the dashboard.
+      getDocs(query(collection(db, 'student_daily_plans'), where('studentId', '==', uid)))
+        .then((plansSnap) => {
+          const kept = new Set<string>()
+          plansSnap.forEach((d) => {
+            const x = d.data()
+            const items = (x.items as { done?: boolean }[]) ?? []
+            if (typeof x.date === 'string' && items.some((i) => i.done)) kept.add(x.date)
+          })
+          setStreak(computeStreak(kept, todayStr()))
+        })
+        .catch((e) => console.error('StudentDashboard streak load failed', e))
 
       const courseList: Course[] = []
       coursesSnap.forEach((d) => {
@@ -229,28 +244,22 @@ export function StudentDashboard() {
 
       {loading ? <p className="muted">Loading…</p> : (
         <>
-          {/* Stat cards — "Courses" is informational only (enrolled count); the
-              "My Courses" section below is where you actually open one. */}
+          {/* Stat cards — the streak leads: school days in a row with plan work done. */}
           <div className="dash-stat-grid" style={{ marginBottom: '1.75rem' }}>
             {([
-              { icon: '📚', value: courses.length, label: 'Courses', sub: 'enrolled', color: 'var(--primary)', to: null },
+              { icon: '🔥', value: streak ?? '—', label: 'Day Streak', sub: streak === 1 ? 'day in a row' : 'days in a row', color: streak ? '#ea580c' : 'var(--muted-2)', to: '/student/planner' },
               { icon: '✅', value: `${todayDone}/${todayTotal}`, label: "Today's Plan", sub: todayTotal === 0 ? 'no plan yet' : `${todayTotal - todayDone} remaining`, color: '#059669', to: '/student/planner' },
               { icon: '📈', value: `${overallPct}%`, label: 'Overall Progress', sub: `${totalDone} completed`, color: '#7c3aed', to: '/student/history' },
               { icon: '⏳', value: totalReview, label: 'Under Review', sub: 'pending mentor', color: totalReview > 0 ? '#d97706' : 'var(--muted-2)', to: '/student/history' },
-            ] as const).map((s) => {
-              const body = (
-                <>
-                  <span className="dash-stat-icon">{s.icon}</span>
-                  <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
-                  <span className="dash-stat-label">{s.label}</span>
-                  <span className="muted small">{s.sub}</span>
-                  {s.to && <span className="dash-stat-arrow" aria-hidden>→</span>}
-                </>
-              )
-              return s.to
-                ? <Link key={s.label} to={s.to} className="panel dash-stat-card">{body}</Link>
-                : <div key={s.label} className="panel dash-stat-card">{body}</div>
-            })}
+            ] as const).map((s) => (
+              <Link key={s.label} to={s.to} className="panel dash-stat-card">
+                <span className="dash-stat-icon">{s.icon}</span>
+                <span className="dash-stat-value" style={{ color: s.color }}>{s.value}</span>
+                <span className="dash-stat-label">{s.label}</span>
+                <span className="muted small">{s.sub}</span>
+                <span className="dash-stat-arrow" aria-hidden>→</span>
+              </Link>
+            ))}
           </div>
 
           <div className="dash-two-col">

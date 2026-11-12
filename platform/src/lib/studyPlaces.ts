@@ -1,6 +1,19 @@
 import { collection, doc, getDocs, serverTimestamp, setDoc, type DocumentData, type QueryDocumentSnapshot } from 'firebase/firestore'
 import { db } from '../firebase/config'
-import type { StudyPlace } from '../types'
+import type { ClassTimetable, ElectiveSchedule, StudyPlace } from '../types'
+
+/** Subjects actually on a schedule — periods/sessions linked to a course. Activity
+ *  Types (Lunch, Break, …) and exams never get a place, only subjects do. */
+export function courseIdsOnSchedule(timetable: ClassTimetable | null, electives: ElectiveSchedule | null, extra: string[] = []): string[] {
+  const ids = new Set<string>(extra)
+  for (const day of Object.values(timetable?.days ?? {})) {
+    for (const p of day.periods) if (p.courseId && !p.activityTypeId && !p.examId) ids.add(p.courseId)
+  }
+  for (const day of Object.values(electives?.days ?? {})) {
+    for (const s of day.sessions) if (s.courseId && !s.activityTypeId && !s.examId) ids.add(s.courseId)
+  }
+  return [...ids]
+}
 
 /** studentId → courseId → placeId, for every student at once — the collection
  *  is one small doc per student, so seat counts are computed client-side. */

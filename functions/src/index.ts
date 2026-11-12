@@ -16,9 +16,11 @@ admin.initializeApp()
 const db = admin.firestore()
 const auth = admin.auth()
 
-const VALID_ROLES = ['admin', 'mentor', 'student', 'manager', 'consultant'] as const
+const VALID_ROLES = ['admin', 'mentor', 'student', 'manager', 'consultant', 'founder'] as const
 type Role = (typeof VALID_ROLES)[number]
-const ELEVATED_ROLES: Role[] = ['admin', 'manager']
+// 'founder' is read-only in the app, but sees the whole school — only an admin
+// may grant it or touch a founder account, same as admin/manager.
+const ELEVATED_ROLES: Role[] = ['admin', 'manager', 'founder']
 
 function isNonEmptyString(v: unknown, max = 500): v is string {
   return typeof v === 'string' && v.trim().length > 0 && v.length <= max

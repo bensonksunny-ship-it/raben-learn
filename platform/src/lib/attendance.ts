@@ -1,5 +1,5 @@
 import { timeStrToMinutes } from '../components/manager/schedulerShared'
-import type { AttendanceCheckpoint, ClassTimetable, TimetablePeriod, Weekday } from '../types'
+import type { AttendanceCheckpoint, ClassTimetable, ElectiveSession, TimetablePeriod, Weekday } from '../types'
 
 const JS_DAY_TO_WEEKDAY: (Weekday | null)[] = [null, 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
@@ -69,4 +69,61 @@ export function checkpointLabel(c: AttendanceCheckpoint, periods: TimetablePerio
   if (c.kind === 'logout') return 'Logged out'
   const idx = periods.findIndex((p) => p.id === c.periodId)
   return idx >= 0 ? `Period ${idx + 1}${periods[idx]?.title ? ` — ${periods[idx]!.title}` : ''}` : 'Period check-in'
+}
+
+/** "9:05 AM" from minutes-since-midnight — shared by the Live Class kiosk's
+ *  running timetable and a scanned student's own personalized overlay. */
+export function formatClock(min: number): string {
+  const h = Math.floor(min / 60) % 24
+  const m = min % 60
+  return `${h % 12 === 0 ? 12 : h % 12}:${String(m).padStart(2, '0')} ${h < 12 ? 'AM' : 'PM'}`
+}
+
+/** "45 min" / "1 h 5 min" — for countdowns and how-late labels. */
+export function formatSpan(min: number): string {
+  const m = Math.max(0, Math.round(min))
+  if (m < 60) return `${m} min`
+  return m % 60 === 0 ? `${m / 60} h` : `${Math.floor(m / 60)} h ${m % 60} min`
+}
+
+/** One block on a running timetable — a locked school period (`label` "P1",
+ *  "P2"… matching the roster's attendance columns) or an elective session
+ *  (`label` ''), both placed purely by their scheduled clock time. Shared by
+ *  the campus-wide Live Class kiosk view and each scanned student's own
+ *  personalized overlay. */
+export interface TimedPeriod { id: string; title: string; label: string; kind: 'period' | 'elective' | 'exam'; startTime: string; startMin: number; endMin: number }
+
+/** Where the wall clock sits within a day's timetable. */
+export type ClockState =
+  | { kind: 'none' }
+  | { kind: 'before'; next: TimedPeriod }
+  | { kind: 'in'; current: TimedPeriod; index: number; next: TimedPeriod | null }
+  | { kind: 'break'; next: TimedPeriod }
+  | { kind: 'over' }
+
+export function clockState(timed: TimedPeriod[], nowMin: number): ClockState {
+  if (timed.length === 0) return { kind: 'none' }
+  if (nowMin < timed[0]!.startMin) return { kind: 'before', next: timed[0]! }
+  const index = timed.findIndex((t) => nowMin >= t.startMin && nowMin < t.endMin)
+  if (index >= 0) return { kind: 'in', current: timed[index]!, index, next: timed[index + 1] ?? null }
+  const next = timed.find((t) => t.startMin > nowMin)
+  return next ? { kind: 'break', next } : { kind: 'over' }
+}
+
+/** Locked periods + elective sessions, merged and sorted by clock time — the
+ *  shared shape both the campus-wide kiosk view and a scanned student's own
+ *  personalized timeline are built from. Periods are numbered `P1`, `P2`… in
+ *  schedule order; electives carry no label. */
+export function buildTimedPeriods(periods: TimetablePeriod[], sessions: ElectiveSession[]): TimedPeriod[] {
+  const out: TimedPeriod[] = []
+  periods.forEach((p, i) => {
+    const startMin = timeStrToMinutes(p.startTime)
+    if (startMin != null) out.push({ id: p.id, title: p.title, label: `P${i + 1}`, kind: 'period', startTime: p.startTime, startMin, endMin: startMin + p.durationMinutes })
+  })
+  for (const e of sessions) {
+    const startMin = timeStrToMinutes(e.startTime)
+    if (startMin == null || !(e.durationMinutes > 0)) continue
+    out.push({ id: e.id, title: e.title || 'Open slot', label: '', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
+  }
+  return out.sort((a, b) => a.startMin - b.startMin)
 }

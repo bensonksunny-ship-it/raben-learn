@@ -22,5 +22,6 @@ export function avatarClass(roles: string[]): string {
   if (roles.includes('manager')) return 'user-avatar is-manager'
   if (roles.includes('mentor')) return 'user-avatar is-mentor'
   if (roles.includes('consultant')) return 'user-avatar is-consultant'
+  if (roles.includes('founder')) return 'user-avatar is-founder'
   return 'user-avatar is-student'
 }

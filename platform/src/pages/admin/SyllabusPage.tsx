@@ -77,7 +77,10 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   // null = closed; 'main' = the course's whole-subject exam(s), no topic; an
   // object = scoped to that one topic row's exam(s).
   const [examModalTopic, setExamModalTopic] = useState<'main' | { id: string; title: string } | null>(null)
-  const [notesModalTopic, setNotesModalTopic] = useState<{ id: string; title: string } | null>(null)
+  // Clicking a topic title (in the clean, view-only table) opens this — lesson
+  // notes plus, if the signed-in role may see exams, a button into the same
+  // per-topic exam modal above. Replaces separate inline buttons per row.
+  const [topicDetail, setTopicDetail] = useState<{ id: string; title: string } | null>(null)
   const [editingCourseInfo, setEditingCourseInfo] = useState(false)
   const [courseMenuOpen, setCourseMenuOpen] = useState(false)
   const [editCourseTitle, setEditCourseTitle] = useState('')
@@ -85,9 +88,13 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   const [editCourseOutcome, setEditCourseOutcome] = useState('')
   // Pure UI mode — every row already saves to Firestore as you blur it (see
   // `commitRowTitle`/`addRow` below), so "Save Syllabus" has nothing left to write;
-  // it just confirms you're done and switches to the clean read-only table. Resets
-  // to editable whenever a different course is selected.
-  const [editingSyllabus, setEditingSyllabus] = useState(!effectiveReadOnly)
+  // it just confirms you're done and switches back to the clean read-only table.
+  // Starts (and resets, on every course switch) in the clean view — editing is an
+  // explicit "Edit" click, not the default.
+  const [editingSyllabus, setEditingSyllabus] = useState(false)
+  // Collapses the Courses column to a minimal icon-only rail once a course is
+  // selected, freeing up width for the syllabus grid — see `.syllabus-col-rail`.
+  const [coursesCollapsed, setCoursesCollapsed] = useState(false)
 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
@@ -181,7 +188,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   }, [selectedCourseId])
 
   useEffect(() => { setSelectedCourseId(null) }, [selectedLevel])
-  useEffect(() => { setExamModalTopic(null); setEditingSyllabus(true); setEditingCourseInfo(false); setCourseMenuOpen(false) }, [selectedCourseId])
+  useEffect(() => { setExamModalTopic(null); setTopicDetail(null); setEditingSyllabus(false); setEditingCourseInfo(false); setCourseMenuOpen(false) }, [selectedCourseId])
 
   async function createCourse(e: FormEvent) {
     e.preventDefault()
@@ -395,50 +402,77 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
       </div>
 
       <div className="syllabus-columns">
-        {/* COURSES */}
-        <div className="syllabus-col" style={{ flex: '0 0 480px' }}>
-          <div className="syllabus-col-header">
-            <h2>📖 Courses</h2>
-            {!effectiveReadOnly && (
-              <button type="button" className="btn primary course-add-btn" onClick={() => setAddingCourse((v) => !v)}>Add Course</button>
-            )}
-          </div>
-          {!effectiveReadOnly && addingCourse && (
-            <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
-              <input placeholder="Course title *" value={newCourseTitle} onChange={(e) => setNewCourseTitle(e.target.value)} required autoFocus />
-              <input placeholder="Description (optional)" value={newCourseDesc} onChange={(e) => setNewCourseDesc(e.target.value)} />
-              <div className="row">
-                <button type="submit" className="btn small primary" disabled={saving}>Save</button>
-                <button type="button" className="btn small secondary" onClick={() => setAddingCourse(false)}>Cancel</button>
-              </div>
-            </form>
-          )}
-          <div className="course-card-list">
+        {/* COURSES — a compact rail once a course is selected, so the syllabus
+            grid on the right gets the room (toggle back via « / »). */}
+        <div className={`syllabus-col${selectedCourseId ? (coursesCollapsed ? ' syllabus-col-rail' : ' syllabus-col-compact') : ''}`}>
+          <div className="syllabus-rail">
+            <button type="button" className="syllabus-rail-toggle" title="Expand course list" aria-label="Expand course list" onClick={() => setCoursesCollapsed(false)}>»</button>
             {visibleCourses.map((c, idx) => (
               <button
                 key={c.id}
                 type="button"
-                className={`course-row-card${selectedCourseId === c.id ? ' active' : ''}`}
+                className={`syllabus-rail-item${selectedCourseId === c.id ? ' active' : ''}`}
+                title={c.title}
                 onClick={() => setSelectedCourseId(c.id)}
-                aria-pressed={selectedCourseId === c.id}
               >
-                <span className="course-row-index">{idx + 1}</span>
-                <span className="course-row-body">
-                  <span className="course-row-title">{c.title}</span>
-                  {c.description ? <span className="course-row-tag">{c.description}</span> : null}
-                  {courseHours(c.id) > 0 && <span className="course-row-tag">⏱ {courseHours(c.id)} hrs total</span>}
-                  {weeklyHoursByCourse.get(c.id) && (() => {
-                    const h = weeklyHoursByCourse.get(c.id)!
-                    return (
-                      <span className="course-row-tag" title="Completed = hours elapsed this week">
-                        📅 {fmtHrs(h.completedMinutes)}/{courseHours(c.id)} hrs completed · Scheduled: {fmtHrs(h.scheduledMinutes)} hrs/wk
-                      </span>
-                    )
-                  })()}
-                </span>
+                {idx + 1}
               </button>
             ))}
-            {visibleCourses.length === 0 ? <p className="muted small course-row-empty">No courses at this level yet.</p> : null}
+          </div>
+          <div className="syllabus-col-full">
+            <div className="syllabus-col-header">
+              <h2>📖 Courses</h2>
+              {selectedCourseId && (
+                <button type="button" className="syllabus-collapse-btn" title="Collapse course list" aria-label="Collapse course list" onClick={() => setCoursesCollapsed(true)}>«</button>
+              )}
+            </div>
+            {!effectiveReadOnly && (
+              <button
+                type="button"
+                className="btn primary course-add-btn"
+                style={selectedCourseId ? { width: '100%', marginBottom: '0.75rem' } : undefined}
+                onClick={() => setAddingCourse((v) => !v)}
+              >
+                Add Course
+              </button>
+            )}
+            {!effectiveReadOnly && addingCourse && (
+              <form onSubmit={(e) => void createCourse(e)} className="form syllabus-mini-form">
+                <input placeholder="Course title *" value={newCourseTitle} onChange={(e) => setNewCourseTitle(e.target.value)} required autoFocus />
+                <input placeholder="Description (optional)" value={newCourseDesc} onChange={(e) => setNewCourseDesc(e.target.value)} />
+                <div className="row">
+                  <button type="submit" className="btn small primary" disabled={saving}>Save</button>
+                  <button type="button" className="btn small secondary" onClick={() => setAddingCourse(false)}>Cancel</button>
+                </div>
+              </form>
+            )}
+            <div className="course-card-list">
+              {visibleCourses.map((c, idx) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  className={`course-row-card${selectedCourseId === c.id ? ' active' : ''}`}
+                  onClick={() => setSelectedCourseId(c.id)}
+                  aria-pressed={selectedCourseId === c.id}
+                >
+                  <span className="course-row-index">{idx + 1}</span>
+                  <span className="course-row-body">
+                    <span className="course-row-title">{c.title}</span>
+                    {c.description ? <span className="course-row-tag">{c.description}</span> : null}
+                    {courseHours(c.id) > 0 && <span className="course-row-tag">⏱ {courseHours(c.id)} hrs total</span>}
+                    {weeklyHoursByCourse.get(c.id) && (() => {
+                      const h = weeklyHoursByCourse.get(c.id)!
+                      return (
+                        <span className="course-row-tag" title="Completed = hours elapsed this week">
+                          📅 {fmtHrs(h.completedMinutes)}/{courseHours(c.id)} hrs completed · Scheduled: {fmtHrs(h.scheduledMinutes)} hrs/wk
+                        </span>
+                      )
+                    })()}
+                  </span>
+                </button>
+              ))}
+              {visibleCourses.length === 0 ? <p className="muted small course-row-empty">No courses at this level yet.</p> : null}
+            </div>
           </div>
         </div>
 
@@ -519,6 +553,16 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                 )}
               </div>
               <div style={{ display: 'flex', gap: '0.5rem', flexShrink: 0 }}>
+                {canSeeNotes && (
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    title="Download every topic's lesson notes as one PDF"
+                    onClick={() => window.open(`/lesson-notes-print/subject/${selectedCourseId}`, '_blank', 'noopener')}
+                  >
+                    ⬇️ Download Full Subject PDF
+                  </button>
+                )}
                 {canSeeExams && (
                   <button type="button" className="btn secondary" title="Whole-course exam(s)" onClick={() => setExamModalTopic('main')}>
                     🎓 Main Exam
@@ -586,7 +630,7 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                               <button
                                 type="button"
                                 className="btn small secondary"
-                                onClick={() => setNotesModalTopic({ id: row.topic.id, title: row.topic.title })}
+                                onClick={() => setTopicDetail({ id: row.topic.id, title: row.topic.title })}
                               >
                                 📝 Notes
                               </button>
@@ -623,29 +667,20 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     <th className="session-topics-index">SL No.</th>
                     <th>Title</th>
                     <th style={{ width: 90 }}>Min</th>
-                    {canSeeExams && <th aria-hidden="true" />}
                   </tr>
                 </thead>
                 <tbody>
                   {flatRows.length === 0 ? (
-                    <tr><td colSpan={canSeeExams ? 4 : 3} className="muted small">No topics yet.</td></tr>
+                    <tr><td colSpan={3} className="muted small">No topics yet.</td></tr>
                   ) : flatRows.map((row, idx) => (
-                    <tr key={row.topic.id}>
+                    <tr
+                      key={row.topic.id}
+                      className="syllabus-topic-row"
+                      onClick={() => setTopicDetail({ id: row.topic.id, title: row.topic.title })}
+                    >
                       <td className="session-topics-index muted small">{idx + 1}</td>
                       <td className="session-topics-title">{row.topic.title}</td>
                       <td className="session-topics-title muted small">{row.topic.durationMinutes || '—'}</td>
-                      {canSeeExams && (
-                        <td className="session-topics-actions">
-                          <button
-                            type="button"
-                            className="btn small secondary"
-                            title="Open exams for this topic"
-                            onClick={() => setExamModalTopic({ id: row.topic.id, title: row.topic.title })}
-                          >
-                            Exam
-                          </button>
-                        </td>
-                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -670,16 +705,34 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
         </div>
       )}
 
-      {notesModalTopic && (
-        <div className="modal-backdrop" onClick={() => setNotesModalTopic(null)}>
+      {/* Topic detail — reached by clicking a title in the clean view-only table
+          (or the "📝 Notes" shortcut while editing). Lesson notes plus, for roles
+          that may see exams, a button into the same per-topic exam modal above —
+          the row itself carries no inline action buttons any more. */}
+      {topicDetail && (
+        <div className="modal-backdrop" onClick={() => setTopicDetail(null)}>
           <div className="modal" style={{ maxWidth: 760, width: '95%' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>📝 Notes — {notesModalTopic.title}</h3>
-              <button type="button" className="btn small ghost" onClick={() => setNotesModalTopic(null)}>✕</button>
+              <h3 style={{ margin: 0 }}>{topicDetail.title}</h3>
+              <button type="button" className="btn small ghost" onClick={() => setTopicDetail(null)}>✕</button>
             </div>
-            <Suspense fallback={<p className="muted">Loading…</p>}>
-              <LessonNotesEditor topicId={notesModalTopic.id} topicTitle={notesModalTopic.title} canEdit={canEditNotes} />
-            </Suspense>
+            {canSeeExams && (
+              <button
+                type="button"
+                className="btn secondary"
+                style={{ marginBottom: '1.25rem' }}
+                onClick={() => { const t = topicDetail; setTopicDetail(null); setExamModalTopic(t) }}
+              >
+                🎓 Exam
+              </button>
+            )}
+            {canSeeNotes ? (
+              <Suspense fallback={<p className="muted">Loading…</p>}>
+                <LessonNotesEditor topicId={topicDetail.id} topicTitle={topicDetail.title} canEdit={canEditNotes} />
+              </Suspense>
+            ) : !canSeeExams ? (
+              <p className="muted">No details available for this topic.</p>
+            ) : null}
           </div>
         </div>
       )}

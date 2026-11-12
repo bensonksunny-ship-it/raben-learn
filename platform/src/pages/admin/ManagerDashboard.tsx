@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { NavCard } from '../../components/manager/NavCard'
 import { ManagerWelcomeBanner } from '../../components/manager/ManagerWelcomeBanner'
 import { NavigationSidebar } from '../../components/manager/NavigationSidebar'
+import { ManagerTodayStats } from '../../components/manager/ManagerTodayStats'
 import { StudentsIcon, MentorsIcon, ScheduleIcon } from '../../components/manager/StatIcons'
 
 // Lazy, same as App.tsx's own routes for these — keeps their (heavier, admin-callable)
@@ -50,6 +51,8 @@ export function ManagerDashboard() {
         <h1 style={{ marginBottom: '1.25rem' }}>Manager Dashboard</h1>
 
         <ManagerWelcomeBanner />
+
+        <ManagerTodayStats />
 
         <div className="nav-card-grid">
           <NavCard

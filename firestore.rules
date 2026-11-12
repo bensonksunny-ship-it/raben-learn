@@ -18,7 +18,7 @@ service cloud.firestore {
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
     function targetIsElevated(uid) {
       let roles = get(/databases/$(database)/documents/users/$(uid)).data.roles;
-      return ('admin' in roles) || ('manager' in roles);
+      return ('admin' in roles) || ('manager' in roles) || ('founder' in roles);
     }
 
     match /users/{uid} {
@@ -233,19 +233,20 @@ service cloud.firestore {
       allow create: if isOwner(sid)
         && request.resource.data.studentId == sid
         && request.resource.data.status in ['draft', 'submitted']
-        && !request.resource.data.keys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy']);
+        && !request.resource.data.keys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy', 'studentIdReceived', 'fatherIdReceived', 'motherIdReceived']);
       allow update: if isOwner(sid)
         && resource.data.status != 'approved'
         && request.resource.data.studentId == sid
         && request.resource.data.status in ['draft', 'submitted', 'changes_requested']
         && (request.resource.data.status != 'changes_requested' || resource.data.status == 'changes_requested')
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy']);
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy', 'studentIdReceived', 'fatherIdReceived', 'motherIdReceived']);
     }
     // Prospective students from "+ New Student" — same shape as a student
     // application, but no account yet. Staff-only; "Recruit Student" creates the
     // account and copies the application over to `student_applications/{uid}`.
+    // Founder reads too — the Founder Overview counts applicants still waiting.
     match /applicants/{id} {
-      allow read: if isAdminOrMentor() || hasRole('manager');
+      allow read: if isAdminOrMentor() || hasRole('manager') || hasRole('founder');
       allow create, update, delete: if canReviewStudents();
     }
 

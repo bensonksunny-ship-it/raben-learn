@@ -13,9 +13,9 @@ import type { Course, Role, UserProfile } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
 
 const PAGE_SIZE = 20
-const ELEVATED_ROLES: Role[] = ['admin', 'manager']
+const ELEVATED_ROLES: Role[] = ['admin', 'manager', 'founder']
 
-/** A manager can't see, target, or grant admin/manager accounts — only admin can. */
+/** A manager can't see, target, or grant admin/manager/founder accounts — only admin can. */
 function isElevated(roles: Role[]): boolean {
   return roles.some((r) => ELEVATED_ROLES.includes(r))
 }
@@ -34,7 +34,7 @@ export function UserManagement() {
   // Consultant isn't elevated — a manager-only actor can create/grant it too, same as mentor/student.
   const roleOptions: Role[] = isManagerOnly
     ? ['mentor', 'student', 'consultant']
-    : ['admin', 'mentor', 'student', 'manager', 'consultant']
+    : ['admin', 'mentor', 'student', 'manager', 'consultant', 'founder']
 
   const [users, setUsers] = useState<UserProfile[]>([])
   const [courses, setCourses] = useState<Course[]>([])
@@ -290,6 +290,7 @@ export function UserManagement() {
           <option value="mentor">Mentor</option>
           <option value="student">Student</option>
           <option value="consultant">Academic Consultant</option>
+          {!isManagerOnly && <option value="founder">Founder</option>}
         </select>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginLeft: 'auto' }}>
           <button className="btn small secondary" disabled={loadingPage || pageIndex === 0} onClick={() => void fetchPage(null, 0)}>← First</button>

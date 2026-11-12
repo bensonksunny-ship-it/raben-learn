@@ -402,14 +402,7 @@ export function StudentsPage() {
                 <div className="user-card-info">
                   <div className="user-card-name">{s.name}</div>
                   <div className="user-card-email">{s.email}</div>
-                  <div style={{ marginTop: '0.25rem' }}><ApplicationStatusTag status={appStatuses[s.id] ?? null} /></div>
                 </div>
-                {s.isTopTier && (
-                  <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6', flexShrink: 0 }}>⭐ Top Tier</span>
-                )}
-                <span className={`tag ${s.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
-                  {statusLabel(s.status)}
-                </span>
                 {canManage && (
                   <div className="topic-menu-wrap" onClick={(e) => e.stopPropagation()}>
                     <button
@@ -463,6 +456,15 @@ export function StudentsPage() {
                   </div>
                 )}
               </div>
+              <div className="user-card-badges">
+                <ApplicationStatusTag status={appStatuses[s.id] ?? null} />
+                {s.isTopTier && (
+                  <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6' }}>⭐ Top Tier</span>
+                )}
+                <span className={`tag ${s.status === 'active' ? '' : 'danger'}`}>
+                  {statusLabel(s.status)}
+                </span>
+              </div>
               {(s.courseIds ?? []).length > 0
                 ? <div className="user-card-courses">📘 {courseLabel(s.courseIds ?? [])}</div>
                 : <div className="muted small">No courses assigned</div>
@@ -479,26 +481,28 @@ export function StudentsPage() {
 
       {/* Student detail panel */}
       {selectedStudent && (
-        <section className="panel" style={{ marginTop: '1.5rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.25rem' }}>
+        <section className="panel" style={{ marginTop: '2rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.25rem', marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
               <div className={avatarClass(selectedStudent.roles)} style={{ width: 52, height: 52, fontSize: '1.35rem' }}>
                 {selectedStudent.name.charAt(0).toUpperCase()}
               </div>
               <div>
-                <h2 style={{ margin: '0 0 0.15rem' }}>{selectedStudent.name}</h2>
-                <div className="muted small">{selectedStudent.email}</div>
-                <span className={`tag ${selectedStudent.status === 'active' ? '' : 'danger'}`} style={{ marginTop: '0.3rem', display: 'inline-block' }}>
-                  {statusLabel(selectedStudent.status)}
-                </span>
-                {selectedStudent.isTopTier && (
-                  <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6', marginTop: '0.3rem', marginLeft: '0.4rem', display: 'inline-block' }}>
-                    ⭐ Top Tier
+                <h2 style={{ margin: '0 0 0.3rem' }}>{selectedStudent.name}</h2>
+                <div className="muted small" style={{ marginBottom: '0.4rem' }}>{selectedStudent.email}</div>
+                <div className="user-card-badges">
+                  <span className={`tag ${selectedStudent.status === 'active' ? '' : 'danger'}`}>
+                    {statusLabel(selectedStudent.status)}
                   </span>
-                )}
+                  {selectedStudent.isTopTier && (
+                    <span className="tag" style={{ background: '#ede9fe', borderColor: '#ddd6fe', color: '#5b21b6' }}>
+                      ⭐ Top Tier
+                    </span>
+                  )}
+                </div>
               </div>
             </div>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <div className="student-detail-actions">
               {canManage && (
                 <button type="button" className="btn small secondary" onClick={() => void toggleTopTier(selectedStudent)}>
                   {selectedStudent.isTopTier ? 'Remove Top Tier' : '⭐ Mark Top Tier'}
@@ -521,7 +525,7 @@ export function StudentsPage() {
             </div>
           </div>
 
-          <h3 style={{ marginBottom: '0.75rem' }}>Courses</h3>
+          <h3 style={{ marginBottom: '0.9rem' }}>Courses</h3>
           {(selectedStudent.courseIds ?? []).length === 0
             ? <p className="muted" style={{ marginBottom: '0.75rem' }}>No courses assigned.</p>
             : (
@@ -545,10 +549,10 @@ export function StudentsPage() {
                         onClick={() => { setSelectedCourseForSyllabus(cid); void loadSyllabus(cid) }}
                         style={{ width: '100%', textAlign: 'left', cursor: 'pointer', background: 'none', border: 'none', padding: '1rem 1.25rem', fontFamily: 'inherit' }}
                       >
-                        <div style={{ fontWeight: 700, fontSize: '1rem', color: isActive ? 'var(--primary)' : 'var(--text)', marginBottom: '0.2rem' }}>
+                        <div style={{ fontWeight: 700, fontSize: '1rem', color: isActive ? 'var(--primary)' : 'var(--text)' }}>
                           📘 {course.title}
                         </div>
-                        <div className="muted small">{isActive ? '▸ Viewing syllabus' : 'Click to view syllabus'}</div>
+                        {isActive && <div className="muted small" style={{ marginTop: '0.2rem' }}>▸ Viewing syllabus</div>}
                       </button>
                     </div>
                   )
@@ -587,8 +591,8 @@ export function StudentsPage() {
           })()}
 
           {selectedCourseForSyllabus && (
-            <div>
-              <h3 style={{ marginBottom: '0.75rem' }}>
+            <div style={{ marginTop: '1.5rem', paddingTop: '1.5rem', borderTop: '1px solid var(--border)' }}>
+              <h3 style={{ marginBottom: '0.9rem' }}>
                 📝 Syllabus — {courses.find((c) => c.id === selectedCourseForSyllabus)?.title}
               </h3>
               {syllabusLoading ? <p className="muted">Loading syllabus…</p> : null}

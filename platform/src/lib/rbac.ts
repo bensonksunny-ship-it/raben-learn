@@ -9,13 +9,13 @@ import type { Role } from '../types'
 // `manageTimetable` now gates /schedule — the merged page that absorbed both the old
 // Timetable Planner (editable shared class schedule) and the old Student Diary
 // (read-only per-student log). Kept the original capability name to limit churn.
-export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable' | 'syllabusArea' | 'scheduleExams'
+export type Capability = 'adminArea' | 'mentorArea' | 'studentArea' | 'managerArea' | 'manageUsers' | 'manageStudents' | 'manageTimetable' | 'syllabusArea' | 'scheduleExams' | 'founderArea'
 
 const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // Admin can also reach /schedule and /manager (no separate /admin/* routes for
   // either) — in practice admin is the only account most people have day to day,
   // so without this neither page would ever actually get looked at.
-  admin: ['adminArea', 'manageTimetable', 'managerArea', 'scheduleExams'],
+  admin: ['adminArea', 'manageTimetable', 'managerArea', 'scheduleExams', 'founderArea'],
   // `scheduleExams` — the Exam Schedule page (/exam-schedule): admin, manager,
   // teachers (mentors) and academic consultants can all book subject exams.
   mentor: ['mentorArea', 'scheduleExams'],
@@ -31,6 +31,9 @@ const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // is the only route gated on `syllabusArea` for a FULL-edit visitor; manager
   // reaches the same route too, but SyllabusPage forces it read-only for them.
   consultant: ['syllabusArea', 'scheduleExams'],
+  // Founder — the read-only Founder Overview (/founder) and nothing else. Admin
+  // reaches the same page too (see `admin` above).
+  founder: ['founderArea'],
 }
 
 export function can(roles: Role[], cap: Capability): boolean {

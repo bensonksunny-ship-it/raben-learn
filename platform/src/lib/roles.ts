@@ -13,5 +13,6 @@ export function homePath(roles: Role[]): string {
   if (roles.includes('manager')) return '/manager'
   if (roles.includes('mentor')) return '/mentor'
   if (roles.includes('consultant')) return '/consultant'
+  if (roles.includes('founder')) return '/founder'
   return '/student'
 }

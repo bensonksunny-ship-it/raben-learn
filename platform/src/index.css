@@ -245,7 +245,12 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 .table th { font-weight: 700; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); background: var(--surface-soft); }
 .table tr:hover td { background: #f8faff; }
 
-.modal-backdrop { position: fixed; inset: 0; background: rgba(10,18,40,0.45); display: flex; align-items: center; justify-content: center; z-index: 100; padding: 1rem; }
+/* z-index 340 — above every other fixed-position layer (sidebar/mobile-topbar
+   320, the fullscreen manager/student views' own backdrop 325, mobile-drawer/
+   side-drawer 330), since a modal — including one opened from inside a
+   fullscreen view, e.g. Schedule's "Add school period" — must always sit on
+   top of whatever's behind it, never under the nav rail or another overlay. */
+.modal-backdrop { position: fixed; inset: 0; background: rgba(10,18,40,0.45); display: flex; align-items: center; justify-content: center; z-index: 340; padding: 1rem; }
 /* `overflow-x: hidden` — a wide grid/table inside a modal (e.g. ExamManager's
    section-row grid) can otherwise overflow the card horizontally instead of
    wrapping or scrolling with it, spilling past the rounded border and getting
@@ -350,8 +355,12 @@ code { background: var(--primary-soft); color: var(--primary); padding: 0.1em 0.
 
 /* Schedule popup only — the timetable grid wants the full viewport instead of the
    centered card the Students/Users popups use, so it gets its own modifiers and
-   spans edge-to-edge with no backdrop, border, or rounding cutting it off. */
-.modal-backdrop-fullscreen { padding: 0; align-items: stretch; justify-content: stretch; background: var(--surface); }
+   spans edge-to-edge with no backdrop, border, or rounding cutting it off.
+   z-index must clear the always-visible `.sidebar`/`.mobile-topbar` (320) — this
+   view is a deliberate full takeover of the whole app shell, not content sitting
+   beside it, so without this the sidebar/top bar paint over its left/top edge
+   and clip whatever's underneath (a real bug this once was). */
+.modal-backdrop-fullscreen { padding: 0; align-items: stretch; justify-content: stretch; background: var(--surface); z-index: 325; }
 .manager-view-modal-fullscreen {
   width: 100vw;
   height: 100vh;
@@ -480,11 +489,41 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
   transform: scale(1.08);
 }
 
-.syllabus-columns { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin: 0 auto; max-width: 1100px; justify-content: center; }
-.syllabus-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; min-width: 320px; flex: 0 0 420px; box-shadow: var(--shadow); }
-.syllabus-col-wide { flex: 1 1 520px; min-width: 420px; }
+.syllabus-columns { display: flex; gap: 1.5rem; align-items: flex-start; flex-wrap: wrap; margin: 0; max-width: 100%; justify-content: flex-start; }
+.syllabus-col { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.75rem; min-width: 320px; flex: 0 0 420px; box-shadow: var(--shadow); transition: flex-basis 0.2s ease; }
+/* Once a course is selected, the Courses list steps out of the way so the
+   syllabus grid gets the room — a narrower "compact" column, or (toggled via
+   the « / » button) a minimal icon-only rail. */
+.syllabus-col-compact { flex: 0 0 280px; min-width: 260px; padding: 1.25rem; }
+.syllabus-col-rail { flex: 0 0 68px; min-width: 68px; padding: 1rem 0.5rem; }
+.syllabus-col-wide { flex: 1 1 640px; min-width: 420px; }
 .syllabus-col-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
 .syllabus-col-header h2 { margin: 0; }
+.syllabus-collapse-btn {
+  flex-shrink: 0; width: 1.9rem; height: 1.9rem; border-radius: 50%; border: 1.5px solid var(--border);
+  background: var(--surface-soft); color: var(--muted); font-size: 0.85rem; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s;
+}
+.syllabus-collapse-btn:hover { border-color: var(--primary); color: var(--primary); }
+/* Two alternate bodies for the Courses column — `.syllabus-rail` (icon-only) and
+   `.syllabus-col-full` (the normal list) — both always rendered, swapped by CSS
+   so a resize to mobile never leaves the column showing neither. */
+.syllabus-rail { display: none; flex-direction: column; align-items: center; gap: 0.55rem; width: 100%; }
+.syllabus-col-rail .syllabus-rail { display: flex; }
+.syllabus-col-rail .syllabus-col-full { display: none; }
+.syllabus-rail-toggle {
+  width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface-soft);
+  color: var(--muted); font-size: 0.95rem; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  margin-bottom: 0.3rem; transition: all 0.15s;
+}
+.syllabus-rail-toggle:hover { border-color: var(--primary); color: var(--primary); }
+.syllabus-rail-item {
+  width: 2.1rem; height: 2.1rem; border-radius: 50%; border: 1.5px solid var(--border); background: var(--surface);
+  color: var(--muted); font-weight: 700; font-size: 0.8rem; font-variant-numeric: tabular-nums; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; transition: all 0.15s; flex-shrink: 0;
+}
+.syllabus-rail-item:hover { border-color: var(--primary); color: var(--primary); }
+.syllabus-rail-item.active { background: var(--primary); border-color: var(--primary); color: #fff; }
 /* The active Syllabus panel's header — the selected course's own name standing in
    for a generic "Syllabus" label, roughly Tailwind's text-3xl, with a quiet inline
    options control (invisible until hovered/focused) that opens the Edit/Delete
@@ -558,16 +597,19 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
 .session-topics-table tbody tr:hover { background: var(--surface-soft); }
 .session-topics-table tr.topic-done { background: #f0fdf8; }
 
-/* Read-only "Save Syllabus" view — spacious rows, no hover affordance (nothing in
-   this table is clickable), subtle dividers only. */
+/* Read-only "Save Syllabus" view — spacious rows, subtle dividers; the whole
+   row is clickable (not just the title text) and opens the topic detail
+   modal (notes + exam — see `.syllabus-topic-row`). */
 .session-topics-table.readonly th { padding: 0.6rem 0.75rem; }
 .session-topics-table.readonly td { padding: 1rem 0.75rem; font-size: 0.98rem; }
-.session-topics-table.readonly tbody tr:hover { background: none; }
 .session-topics-table.readonly .session-topics-title { line-height: 1.5; }
 .session-topics-index { width: 3.5rem; text-align: center; font-variant-numeric: tabular-nums; }
 .session-topics-title { color: var(--text); }
 .session-topics-actions { width: 1%; white-space: nowrap; }
 .session-topics-actions-inner { display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end; }
+.syllabus-topic-row { cursor: pointer; }
+.session-topics-table tbody tr.syllabus-topic-row:hover { background: var(--primary-soft); }
+.syllabus-topic-row:hover .session-topics-title { color: var(--primary); }
 /* Flush, spreadsheet-like cell editing — no border/padding until the cell is
    actively focused, so the grid reads as a real editable table rather than a
    form stacked inside one. */
@@ -1032,16 +1074,17 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
    trickery. Accent is a top stripe, not a left one, now that cards are wide/short
    horizontal blocks rather than narrow/tall ones. */
 .timetable-grid-card {
-  cursor: pointer; border: none; border-top: 4px solid; border-radius: 10px; padding: 0.4rem 0.5rem;
-  margin: 1px; display: flex; flex-direction: column; justify-content: center; gap: 0.2rem; min-width: 0;
+  cursor: pointer; border: none; border-top: 4px solid; border-radius: 10px; padding: 0.5rem 0.6rem;
+  margin: 1px; display: flex; flex-direction: column; justify-content: center; gap: 0.3rem; min-width: 0;
   text-align: left; font-family: var(--font-body); box-shadow: var(--shadow); overflow: hidden;
 }
 .timetable-grid-card-head { display: flex; align-items: center; justify-content: space-between; gap: 0.3rem; }
-/* Priority badge — marks a card as either a manager-locked school period or a
-   Priority-2 elective (whose optional "· Mentor name" suffix has no fixed length,
-   unlike "School period"), distinct from the card's own title shown just below it. */
+/* Priority badge — only renders when there's something genuinely extra to say
+   (an exam, or an elective's mentor name); the icon's own color/shape already
+   distinguishes a locked school period from a flexible elective, so the common
+   case shows just the icon and leaves the room below it to the title/time. */
 .timetable-grid-card-lock {
-  display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.6rem; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.62rem; font-weight: 700;
   letter-spacing: 0.04em; text-transform: uppercase; background: rgba(255,255,255,0.55);
   border-radius: 99px; padding: 0.1rem 0.4rem; max-width: 100%;
   /* Flex items default to min-width:auto, which lets content overflow its container
@@ -1051,8 +1094,8 @@ body.landscape-fullscreen .schedule-page .timetable-grid-wrap { min-height: 0; }
   min-width: 0;
 }
 .timetable-grid-card-lock-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.timetable-grid-card-title { font-size: 0.72rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.timetable-grid-card-meta { font-size: 0.64rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.timetable-grid-card-title { font-size: 0.8rem; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.timetable-grid-card-meta { font-size: 0.68rem; opacity: 0.85; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The shared schedule rendered as backdrop context (a student is selected, so this
    card is non-interactive) — faded and dashed so it reads as "behind," not the focus. */
 .timetable-grid-card.ghost { cursor: default; opacity: 0.55; border-top-style: dashed; box-shadow: none; }
@@ -1181,22 +1224,44 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
 .dash-progress-bar { height: 8px; background: rgba(18,25,46,0.08); border-radius: 99px; overflow: hidden; }
 .dash-progress-fill { height: 100%; border-radius: 99px; transition: width 0.5s ease; }
 
-.user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; }
+/* Founder Overview — only what the shared .dash-* / .panel classes don't already cover. */
+.founder-heading { font-size: 1.1rem; margin: 0 0 1rem; }
+.founder-delta { font-weight: 700; margin-right: 0.3rem; white-space: nowrap; }
+.founder-delta.up { color: var(--green); }
+.founder-delta.down { color: var(--danger); }
+.founder-rows { display: flex; flex-direction: column; gap: 0.6rem; }
+.founder-row { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; font-size: 0.92rem; }
+.founder-row strong { text-align: right; }
+.founder-level { display: grid; grid-template-columns: minmax(7rem, auto) 1fr 3rem; align-items: center; gap: 0.75rem; font-size: 0.92rem; }
+.founder-level-name { font-weight: 600; }
+.founder-level-pct { font-weight: 700; text-align: right; }
+.founder-bars { display: flex; align-items: flex-end; gap: 0.5rem; height: 170px; }
+.founder-bar-col { flex: 1; min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 0.3rem; }
+.founder-bar { width: 100%; max-width: 34px; min-height: 2px; background: var(--primary); opacity: 0.45; border-radius: 4px 4px 0 0; transition: opacity 0.12s; }
+.founder-bar-col.current .founder-bar, .founder-bar-col:hover .founder-bar { opacity: 1; }
+.founder-bar-value { font-size: 0.75rem; font-weight: 700; color: var(--text); opacity: 0; transition: opacity 0.12s; }
+.founder-bar-col.current .founder-bar-value, .founder-bar-col:hover .founder-bar-value { opacity: 1; }
+.founder-bar-label { font-size: 0.68rem; color: var(--muted); white-space: nowrap; }
+@media (max-width: 640px) { .founder-bar-col:nth-child(even) .founder-bar-label { visibility: hidden; } }
+
+.user-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1.5rem; }
 .user-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; transition: box-shadow 0.2s, transform 0.2s, border-color 0.15s; display: flex; flex-direction: column; box-shadow: var(--shadow); }
 .user-card:hover { box-shadow: 0 8px 28px rgba(10,18,40,0.1); transform: translateY(-1px); }
 .user-card.selected { border-color: var(--primary); background: var(--primary-soft); }
-.user-card-body { padding: 1.1rem 1.25rem; flex: 1; display: flex; flex-direction: column; gap: 0.7rem; }
-.user-card-top { display: flex; align-items: flex-start; gap: 0.85rem; }
+.user-card-body { padding: 1.35rem 1.5rem; flex: 1; display: flex; flex-direction: column; gap: 0.9rem; }
+.user-card-top { display: flex; align-items: center; gap: 0.9rem; }
 .user-avatar { width: 44px; height: 44px; min-width: 44px; border-radius: 50%; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; flex-shrink: 0; }
 .user-avatar.is-admin  { background: linear-gradient(135deg, #5b21b6, #8b5cf6); }
 .user-avatar.is-manager { background: linear-gradient(135deg, #0f766e, #2dd4bf); }
 .user-avatar.is-mentor { background: linear-gradient(135deg, #b45309, #f59e0b); }
 .user-avatar.is-student { background: linear-gradient(135deg, var(--primary), #7eb3f8); }
 .user-avatar.is-consultant { background: linear-gradient(135deg, #a21caf, #e879f9); }
+.user-avatar.is-founder { background: linear-gradient(135deg, #0f1b35, #2d62c8); }
 .user-card-info { flex: 1; min-width: 0; }
-.user-card-name  { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.3; }
-.user-card-email { font-size: 0.8rem; color: var(--muted-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.1rem; }
+.user-card-name  { font-weight: 700; font-size: 0.97rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+.user-card-email { font-size: 0.8rem; color: var(--muted-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.2rem; }
 .user-card-chips { display: flex; gap: 0.3rem; flex-wrap: wrap; }
+.user-card-badges { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 .role-chip { display: inline-flex; align-items: center; padding: 0.14rem 0.55rem; border-radius: 99px; font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; }
 .role-chip.admin   { background: #ede9fe; color: #5b21b6; }
 .role-chip.manager { background: #ccfbf1; color: #0f766e; }
@@ -1206,11 +1271,20 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
 .user-card-courses { font-size: 0.84rem; color: var(--muted); }
 .user-card-footer { padding: 0.65rem 1.25rem; border-top: 1px solid var(--border); background: var(--surface-soft); display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
 
+/* Student detail panel — action bar under the name/avatar header */
+.student-detail-actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+.student-detail-actions .btn.small { padding: 0.42rem 0.9rem; }
+
 @media (max-width: 768px) {
   .main { padding: 1.5rem 1.25rem; }
   .form.grid { grid-template-columns: 1fr; }
   .syllabus-columns { flex-direction: column; }
   .syllabus-col { flex: 1 1 auto; min-width: 0; }
+  /* The icon-only rail only makes sense as a slim desktop sidebar — once columns
+     stack full-width on mobile there's no space to save, so keep the full list. */
+  .syllabus-col-rail { padding: 1.75rem; }
+  .syllabus-col-rail .syllabus-rail { display: none; }
+  .syllabus-col-rail .syllabus-col-full { display: block; }
   .dash-two-col { grid-template-columns: 1fr; }
   h1 { font-size: 1.95rem; }
   h2 { font-size: 1.4rem; }
@@ -1226,9 +1300,10 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
   h3 { font-size: 1.05rem; }
   .panel { padding: 1rem; border-radius: 11px; }
   .modal { padding: 1.1rem; }
-  .user-grid    { grid-template-columns: 1fr; }
+  .user-grid    { grid-template-columns: 1fr; gap: 1rem; }
   .student-grid { grid-template-columns: 1fr; }
   .course-grid  { grid-template-columns: 1fr; }
+  .student-detail-actions { gap: 0.4rem; }
   .dash-stat-grid { grid-template-columns: 1fr 1fr; gap: 0.6rem; }
   .dash-two-col   { grid-template-columns: 1fr; }
   .filter-bar { flex-direction: column; align-items: stretch; }

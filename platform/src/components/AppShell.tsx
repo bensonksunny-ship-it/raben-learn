@@ -40,7 +40,8 @@ export default function AppShell() {
   // listed in. (Manager-only accounts land on the same place their own Manager
   // icon does — that overlap already existed before this was added, for the same
   // reason.)
-  const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : isConsultant ? '/consultant' : '/manager'
+  const isFounder = profile.roles.includes('founder')
+  const homeTo = isAdmin ? '/admin' : isMentor ? '/mentor' : isStudent ? '/student' : isConsultant ? '/consultant' : isFounder && !isManager ? '/founder' : '/manager'
 
   // Legacy docs can lack a `name` entirely (see StudentSelect/StudentsPage for the
   // same fallback) — email, then "?", so this never crashes on an old record.
@@ -62,6 +63,11 @@ export default function AppShell() {
       { to: '/schedule', label: 'Schedule', icon: '🗓️' },
       { to: '/exam-schedule', label: 'Exam Schedule', icon: '📝' },
       { to: '/admin/reports', label: 'Reports', icon: '📊' },
+    ] : []),
+    // Founder's Home icon already goes here — a tile only for accounts whose
+    // Home is somewhere else (admin, or founder combined with another role).
+    ...(isAdmin || (isFounder && homeTo !== '/founder') ? [
+      { to: '/founder', label: 'Founder Overview', icon: '🔭' },
     ] : []),
     ...(isMentor ? [
       { to: '/mentor/syllabus', label: 'Syllabus', icon: '📚' },

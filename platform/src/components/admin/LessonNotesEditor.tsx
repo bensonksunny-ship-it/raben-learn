@@ -54,6 +54,9 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState('')
+  // Once there are saved notes, show them read-only by default — "Edit" is an
+  // explicit action, and "Save Notes" switches back to the read-only view.
+  const [editing, setEditing] = useState(false)
 
   const editor = useEditor({
     editable: canEdit,
@@ -86,6 +89,7 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
         const html = snap.exists() ? ((snap.data().html as string) ?? '') : ''
         setSavedHtml(html)
         editor?.commands.setContent(html)
+        setEditing(canEdit && !html)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Failed to load notes')
       } finally {
@@ -107,6 +111,7 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
       })
       setSavedHtml(html)
       setSavedAt(Date.now())
+      setEditing(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save notes')
     } finally {
@@ -136,6 +141,23 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
     )
   }
 
+  if (!editing) {
+    return (
+      <div>
+        <div className="row" style={{ marginBottom: '1rem' }}>
+          <button type="button" className="btn secondary small" onClick={() => setEditing(true)}>✎ Edit</button>
+          <button type="button" className="btn primary small" onClick={openPrintView}>🖨 Print / Download</button>
+        </div>
+        {error ? <p className="error small">{error}</p> : null}
+        {savedHtml ? (
+          <div className="lesson-notes-view" dangerouslySetInnerHTML={{ __html: savedHtml }} />
+        ) : (
+          <p className="muted small">No notes written for this topic yet.</p>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div>
       {error ? <p className="error small" style={{ marginBottom: '0.5rem' }}>{error}</p> : null}
@@ -147,6 +169,11 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
         <button type="button" className="btn primary small" disabled={saving} onClick={() => void save()}>
           {saving ? 'Saving…' : 'Save Notes'}
         </button>
+        {savedHtml && (
+          <button type="button" className="btn secondary small" disabled={saving} onClick={() => { editor?.commands.setContent(savedHtml); setEditing(false) }}>
+            Cancel
+          </button>
+        )}
         <button type="button" className="btn secondary small" onClick={openPrintView}>🖨 Print / Download</button>
         {savedAt ? <span className="muted small">Saved ✓</span> : null}
       </div>

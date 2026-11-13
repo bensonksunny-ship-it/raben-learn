@@ -143,6 +143,7 @@ export default function LessonNotesSubjectPrintView() {
 
         <div className="lnp-footer">
           <span>ROL's</span>
+          <span>Powered by Raben Learn</span>
           <span>Printed {printedOn}</span>
         </div>
       </div>

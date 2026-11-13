@@ -54,8 +54,8 @@ export default defineConfig(({ mode }) => {
         manifestFilename: 'manifest.json',
         includeAssets: ['favicon.svg', 'favicon.ico', 'apple-touch-icon-180x180.png'],
         manifest: {
-          name: "ROL's",
-          short_name: "ROL's",
+          name: 'Raben Learn',
+          short_name: 'Raben Learn',
           description: 'Learning platform for students and mentors',
           theme_color: '#0071e3',
           background_color: '#f5f5f7',

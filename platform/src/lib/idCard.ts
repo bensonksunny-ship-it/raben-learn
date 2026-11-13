@@ -122,7 +122,11 @@ function drawFooter(ctx: CanvasRenderingContext2D, text: string) {
   ctx.fillStyle = '#fff'
   ctx.textAlign = 'center'
   ctx.font = font(44, 600)
-  ctx.fillText(text, W / 2, H - 55)
+  ctx.fillText(text, W / 2, H - 72)
+  ctx.font = font(28, 500)
+  ctx.globalAlpha = 0.72
+  ctx.fillText('Powered by Raben Learn', W / 2, H - 32)
+  ctx.globalAlpha = 1
 }
 
 export async function renderIdCardFront(d: IdCardFrontData): Promise<string> {

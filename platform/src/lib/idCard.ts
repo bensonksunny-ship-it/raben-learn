@@ -70,14 +70,18 @@ const FINDER_MODULES = 7
  *  dot to `DOT_SCALE` of its cell leaves a real gap of background between
  *  every dot instead. The three finder patterns are drawn as whole shapes
  *  (an extra-rounded square frame around a round eye), not per-module, for
- *  a clean corner instead of a dotted outline — high error correction and a
- *  real quiet zone (the standard-mandated 4-module margin) keep it reading
- *  instantly on a kiosk/phone camera despite the smaller dots. */
+ *  a clean corner instead of a dotted outline. Error correction is 'M', not
+ *  the max 'H' — for a given payload, more redundancy means *more* total
+ *  modules (a bigger grid of smaller dots), the opposite of minimal and
+ *  harder for a camera to resolve at a glance; 'M' is still the everyday
+ *  real-world default (the one most printed QR codes use) and, combined
+ *  with the standard-mandated 4-module quiet zone, keeps this reading
+ *  instantly on a kiosk/phone camera — now with fewer, larger dots. */
 async function renderStyledQr(data: string, size: number): Promise<HTMLCanvasElement> {
   const DOT_SCALE = 0.62
   const QUIET_ZONE_MODULES = 4
 
-  const { modules } = QRCode.create(data, { errorCorrectionLevel: 'H' })
+  const { modules } = QRCode.create(data, { errorCorrectionLevel: 'M' })
   const n = modules.size
   const totalModules = n + QUIET_ZONE_MODULES * 2
   const cell = size / totalModules

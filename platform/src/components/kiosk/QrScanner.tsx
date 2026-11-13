@@ -43,6 +43,14 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
     // 0×0 for this purpose) left the feed rendering wrong even though the
     // camera was genuinely active.
     setStatus('starting')
+    // Actually wait for that resize to paint, rather than just hoping
+    // `getCameras()` below takes long enough to let React's render commit on
+    // its own — once camera permission is already granted (the normal case
+    // after first use), `getCameras()` can resolve in only a couple of
+    // milliseconds, fast enough to race ahead of the paint and still measure
+    // the old, tiny size. Double-rAF guarantees the previous render has both
+    // committed and actually painted before we go any further.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
     const reader = new Html5Qrcode(ELEMENT_ID)
     try {
       const cameras = await Html5Qrcode.getCameras()
@@ -55,26 +63,16 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
         : cameras[0]!
       await reader.start(
         camera.id,
-        {
-          // No `qrbox` — that option makes the library insert its own "shaded
-          // region" overlay div, sized from border-width math against the
-          // viewfinder's reported dimensions. Against a custom (non-default)
-          // container size that math produces oversized borders that can
-          // cover almost the entire preview in a dark tint — a known source
-          // of a camera that's genuinely streaming but looks black. Our own
-          // `.kiosk-scan-frame` below already draws the visible scan-frame
-          // guide, so this isn't needed.
-          fps: 15,
-          // Passing just a camera id (no `videoConstraints`) leaves
-          // html5-qrcode requesting the browser's bare default resolution —
-          // often quite low — which makes the decoder need the card held
-          // closer/stiller and more frames to land a successful read. Asking
-          // for a sharper capture up front (still the same exact camera)
-          // gives the decoder far more detail per scan, so it reads faster
-          // and more reliably. `ideal` lets the browser fall back gracefully
-          // on hardware that can't do 720p.
-          videoConstraints: { deviceId: { exact: camera.id }, width: { ideal: 1280 }, height: { ideal: 720 } },
-        },
+        // Just the camera id, nothing else — no `qrbox` (it makes the library
+        // insert its own "shaded region" overlay, sized from border-width
+        // math that goes wrong against a custom container and can cover the
+        // whole preview in a dark tint) and no explicit `videoConstraints`
+        // resolution request either (asking a webcam for a specific
+        // width/height can make cheap hardware take a long time — or hang —
+        // negotiating a mode it has to fake, instead of just handing back
+        // its native default instantly). This is the simplest, most
+        // broadly-compatible configuration the library supports.
+        { fps: 10 },
         (decodedText) => {
           if (onDecodeRef.current(decodedText)) void closeCamera()
         },

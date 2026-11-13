@@ -1381,37 +1381,51 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
 }
 .lesson-notes-view { line-height: 1.6; }
 
-/* Live Class kiosk's camera trigger — a normal inline control sitting beside
+/* Live Class kiosk's camera — a small inline trigger button sitting beside
    the header's other controls (the "on campus now" pill, the clock), via
-   ordinary flex layout; never fixed/absolute over the page, so it can never
-   cover the CLASS START/NOW cards or the timeline strip underneath it. OFF by
-   default — opened only by its own "Tap to Scan" button, not running in the
-   background the whole time — and it closes itself again the moment a scan
-   is accepted. The pulsing dot is the only status indicator while live — no
-   instructional text, same standing minimalism rule as everywhere else in
-   the app. */
-.kiosk-scan-box { position: relative; display: inline-flex; align-items: center; vertical-align: middle; }
-.kiosk-scan-video { width: 0; height: 0; overflow: hidden; border-radius: 16px; }
-.kiosk-scan-box.open {
-  width: 200px; height: 200px; border-radius: 16px; overflow: hidden;
-  background: #0b1020; border: 2px solid var(--border); box-shadow: 0 10px 30px rgba(10,18,40,0.25);
-}
-.kiosk-scan-box.open .kiosk-scan-video { width: 100%; height: 100%; }
-.kiosk-scan-video video { width: 100%; height: 100%; object-fit: cover; }
+   ordinary flex layout; it never floats/covers the page itself. Tapping it
+   opens the live feed as its own centered, backdropped card — easy for a
+   student standing in front of the Chromebook to line a card up against,
+   and impossible to confuse with page content underneath. OFF by default —
+   opened only by the trigger, not running in the background the whole time —
+   and closes itself the moment a scan is accepted. */
 .kiosk-scan-trigger { font-size: 1rem; white-space: nowrap; }
-.kiosk-scan-dot {
-  position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: 50%;
-  background: var(--green); box-shadow: 0 0 0 0 rgba(28,138,92,0.6);
-  animation: kiosk-scan-pulse 1.8s ease-out infinite;
+
+.kiosk-scan-backdrop {
+  position: fixed; inset: 0; z-index: 420; background: rgba(10,18,40,0.72);
+  display: flex; align-items: center; justify-content: center; padding: 1.5rem;
+}
+.kiosk-scan-card {
+  position: relative; background: var(--surface); border-radius: 24px; padding: 1.75rem;
+  box-shadow: 0 24px 60px rgba(10,18,40,0.35);
+  display: flex; flex-direction: column; align-items: center; gap: 0.85rem;
 }
 .kiosk-scan-close {
-  position: absolute; top: 8px; left: 8px; width: 32px; height: 32px; border-radius: 50%;
-  border: none; background: rgba(255,255,255,0.18); color: #fff; font-size: 1rem;
+  position: absolute; top: 14px; right: 14px; width: 36px; height: 36px; border-radius: 50%;
+  border: none; background: var(--surface-soft); color: var(--text); font-size: 1.1rem;
   display: flex; align-items: center; justify-content: center; cursor: pointer;
   transition: background 0.15s, transform 0.12s;
 }
-.kiosk-scan-close:hover { background: rgba(255,255,255,0.3); }
+.kiosk-scan-close:hover { background: var(--border); }
 .kiosk-scan-close:active { transform: scale(0.92); }
+/* Sized to its full on-screen dimensions as soon as it mounts (while the
+   camera is still starting, not just once it's live) — html5-qrcode measures
+   this container the moment `.start()` runs to build its own <video>, so
+   starting the camera while this box is still 0×0 is exactly what left the
+   feed rendering black despite the camera itself being active. */
+.kiosk-scan-video-wrap { position: relative; width: 280px; height: 280px; border-radius: 18px; overflow: hidden; background: #0b1020; }
+.kiosk-scan-video { width: 100%; height: 100%; }
+.kiosk-scan-video video { width: 100%; height: 100%; object-fit: cover; }
+/* A visible scan-frame guide, dimming the area outside it within the feed. */
+.kiosk-scan-frame {
+  position: absolute; inset: 28px; border: 3px solid rgba(255,255,255,0.85); border-radius: 16px;
+  box-shadow: 0 0 0 2000px rgba(0,0,0,0.2); pointer-events: none;
+}
+.kiosk-scan-dot {
+  position: absolute; top: 10px; right: 10px; width: 10px; height: 10px; border-radius: 50%;
+  background: var(--green); box-shadow: 0 0 0 0 rgba(28,138,92,0.6);
+  animation: kiosk-scan-pulse 1.8s ease-out infinite;
+}
 @keyframes kiosk-scan-pulse {
   0% { box-shadow: 0 0 0 0 rgba(28,138,92,0.55); }
   70% { box-shadow: 0 0 0 8px rgba(28,138,92,0); }

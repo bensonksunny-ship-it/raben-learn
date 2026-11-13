@@ -1,4 +1,4 @@
-import QRCodeStyling from 'qr-code-styling'
+import QRCode from 'qrcode'
 
 /**
  * Print-ready student ID card, drawn on a canvas and exported as two separate
@@ -53,34 +53,85 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
+/** How many of the 7×7 finder-pattern block each of the three corners
+ *  occupies — those get their own frame+eye shape below, never a plain
+ *  data dot. */
+const FINDER_MODULES = 7
+
 /** The one QR renderer for both the card's back and the badge — same data,
  *  same stylized look, so a printed card and badge for the same student
- *  always carry an identical-looking code. Rounded data dots + extra-rounded
- *  finder frames with round eye dots (the modern look, not harsh squares),
- *  high error correction and a real quiet zone (`margin`) so a kiosk camera
- *  reads it instantly, and full black-on-white contrast regardless of the
- *  surrounding design's own colors. */
-async function renderStyledQr(data: string, size: number): Promise<HTMLImageElement> {
-  const qr = new QRCodeStyling({
-    width: size,
-    height: size,
-    type: 'canvas',
-    data,
-    margin: Math.round(size * 0.04),
-    qrOptions: { errorCorrectionLevel: 'H' },
-    dotsOptions: { type: 'dots', color: INK },
-    cornersSquareOptions: { type: 'extra-rounded', color: INK },
-    cornersDotOptions: { type: 'dot', color: BRAND_DARK },
-    backgroundOptions: { color: '#ffffff' },
-  })
-  const raw = await qr.getRawData('png')
-  if (!raw) throw new Error('QR generation failed')
-  const url = URL.createObjectURL(raw as Blob)
-  try {
-    return await loadImage(url)
-  } finally {
-    URL.revokeObjectURL(url)
+ *  always carry an identical-looking code.
+ *
+ *  Draws straight from the raw module matrix (`qrcode`'s `create()`, which
+ *  only computes the matrix — no rendering) rather than a styled-QR library,
+ *  because every such library sizes a "dots" module at a full cell's
+ *  diameter: adjacent dark modules then touch edge-to-edge, which reads as
+ *  a connected web/mesh rather than a true dot-matrix. Shrinking each data
+ *  dot to `DOT_SCALE` of its cell leaves a real gap of background between
+ *  every dot instead. The three finder patterns are drawn as whole shapes
+ *  (an extra-rounded square frame around a round eye), not per-module, for
+ *  a clean corner instead of a dotted outline — high error correction and a
+ *  real quiet zone (the standard-mandated 4-module margin) keep it reading
+ *  instantly on a kiosk/phone camera despite the smaller dots. */
+async function renderStyledQr(data: string, size: number): Promise<HTMLCanvasElement> {
+  const DOT_SCALE = 0.62
+  const QUIET_ZONE_MODULES = 4
+
+  const { modules } = QRCode.create(data, { errorCorrectionLevel: 'H' })
+  const n = modules.size
+  const totalModules = n + QUIET_ZONE_MODULES * 2
+  const cell = size / totalModules
+
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#ffffff'
+  ctx.fillRect(0, 0, size, size)
+
+  const inFinderZone = (row: number, col: number) => {
+    const topEdge = row < FINDER_MODULES
+    const bottomEdge = row >= n - FINDER_MODULES
+    const leftEdge = col < FINDER_MODULES
+    const rightEdge = col >= n - FINDER_MODULES
+    return (topEdge && leftEdge) || (topEdge && rightEdge) || (bottomEdge && leftEdge)
   }
+
+  ctx.fillStyle = INK
+  const dotRadius = (cell * DOT_SCALE) / 2
+  for (let row = 0; row < n; row++) {
+    for (let col = 0; col < n; col++) {
+      if (inFinderZone(row, col) || !modules.get(row, col)) continue
+      const cx = (QUIET_ZONE_MODULES + col + 0.5) * cell
+      const cy = (QUIET_ZONE_MODULES + row + 0.5) * cell
+      ctx.beginPath()
+      ctx.arc(cx, cy, dotRadius, 0, Math.PI * 2)
+      ctx.fill()
+    }
+  }
+
+  // Extra-rounded square frame + round eye dot — once per corner, not per
+  // module, so the frame's curve is one smooth shape instead of a
+  // staircase of little dots.
+  const corners: [number, number][] = [[0, 0], [0, n - FINDER_MODULES], [n - FINDER_MODULES, 0]]
+  for (const [r0, c0] of corners) {
+    const x = (QUIET_ZONE_MODULES + c0) * cell
+    const y = (QUIET_ZONE_MODULES + r0) * cell
+    const outer = FINDER_MODULES * cell
+    ctx.fillStyle = INK
+    roundRect(ctx, x, y, outer, outer, outer * 0.32)
+    ctx.fill()
+    const inner = (FINDER_MODULES - 2) * cell
+    ctx.fillStyle = '#ffffff'
+    roundRect(ctx, x + cell, y + cell, inner, inner, inner * 0.32)
+    ctx.fill()
+    ctx.fillStyle = BRAND_DARK
+    ctx.beginPath()
+    ctx.arc(x + outer / 2, y + outer / 2, 1.5 * cell, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  return canvas
 }
 
 /** Standard PNG/zlib CRC32, needed to hand-build a valid `pHYs` chunk below. */

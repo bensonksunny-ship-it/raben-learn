@@ -10,7 +10,7 @@ import { useId, type SVGProps } from 'react'
  * serves the favicon, the sidebar header, and the exported PNG app icons (see
  * `scripts/generate-app-icons.mjs`, which renders this exact shape to disk).
  */
-export function AppIcon({ title = 'Raben Learn', ...props }: SVGProps<SVGSVGElement> & { title?: string }) {
+export function AppIcon({ title = "ROL's", ...props }: SVGProps<SVGSVGElement> & { title?: string }) {
   const uid = useId()
   const id = (name: string) => `${name}-${uid}`
 

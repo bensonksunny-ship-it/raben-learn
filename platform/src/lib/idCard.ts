@@ -109,7 +109,7 @@ async function drawHeader(ctx: CanvasRenderingContext2D, subtitle: string) {
   ctx.textBaseline = 'alphabetic'
   ctx.textAlign = 'left'
   ctx.font = font(104, 800)
-  ctx.fillText('Raben Learn', 320, 190)
+  ctx.fillText("ROL's", 320, 190)
   ctx.font = font(52, 600)
   ctx.globalAlpha = 0.92
   ctx.fillText(subtitle, 322, 262)
@@ -225,7 +225,7 @@ export async function renderIdCardBack(d: IdCardBackData): Promise<string> {
   ctx.font = font(44, 500)
   wrapLines(ctx, d.address || '—', W - 300, 2).forEach((line, i) => ctx.fillText(line, 150, y + 62 + i * 56))
 
-  drawFooter(ctx, 'If found, please return to Raben Learn')
+  drawFooter(ctx, "If found, please return to ROL's")
   return canvas.toDataURL('image/jpeg', 0.92)
 }
 

@@ -258,7 +258,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
           </Field>
 
           <p className="small" style={{ lineHeight: 1.5, background: 'var(--surface-soft)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '0.75rem', marginTop: '1rem' }}>
-            I/We acknowledge that <strong>{app.fullName || '__________'}</strong> is being enrolled in Raben Learn's
+            I/We acknowledge that <strong>{app.fullName || '__________'}</strong> is being enrolled in ROL's Nest
             homeschooling tuition — not a formal school — and that I/we understand and consent to this with full
             awareness, of our own free will.
           </p>
@@ -357,7 +357,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
                   <strong>{app.fullName || '__________'}</strong>, declare that the information given in this application is
                   true and correct to the best of my knowledge. My child does not currently have {declarationFor || 'the required document'},
                   and I have attached my own ID card as proof of identity in its place. I will submit the missing document
-                  to Raben Learn once it is available.
+                  to ROL's once it is available.
                 </p>
                 <label style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start', fontWeight: 600 }}>
                   <input

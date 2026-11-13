@@ -45,7 +45,7 @@ export function Login() {
   return (
     <div className="shell narrow">
       <div className="brand" style={{ textAlign: 'center', marginBottom: '1.5rem', fontSize: '1.15rem' }}>
-        🎓 Raben Learn
+        🎓 ROL's
       </div>
       <h1 style={{ textAlign: 'center', marginBottom: '1.5rem' }}>Sign in</h1>
       {error ? <p className="error" style={{ marginBottom: '0.75rem' }}>{error}</p> : null}

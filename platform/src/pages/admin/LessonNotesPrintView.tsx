@@ -79,7 +79,7 @@ export default function LessonNotesPrintView() {
         <div className="lnp-header">
           <AppIcon className="icon" />
           <div>
-            <div className="lnp-wordmark">Raben Learn</div>
+            <div className="lnp-wordmark">ROL's</div>
             <div className="lnp-kicker">Lesson Notes</div>
           </div>
         </div>
@@ -92,7 +92,7 @@ export default function LessonNotesPrintView() {
           )}
         </div>
         <div className="lnp-footer">
-          <span>Raben Learn</span>
+          <span>ROL's</span>
           <span>Printed {printedOn}</span>
         </div>
       </div>

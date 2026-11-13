@@ -60,6 +60,14 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
 
   const editor = useEditor({
     editable: canEdit,
+    // This component is lazy-loaded behind a <Suspense> boundary (see
+    // SyllabusPage), and TipTap's default `immediatelyRender: true` tries to
+    // render synchronously on first render — exactly the combination its own
+    // docs warn causes "Cannot read properties of null (reading 'commands')"
+    // crashes. `false` defers the first render to an effect instead, which
+    // also makes `editor` genuinely `Editor | null` (matching every `editor?.`
+    // guard already below) rather than TypeScript's optimistic default type.
+    immediatelyRender: false,
     extensions: [
       StarterKit,
       Image,
@@ -83,23 +91,32 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
   })
 
   useEffect(() => {
+    let cancelled = false
     void (async () => {
       try {
         const snap = await getDoc(doc(db, 'topic_notes', topicId))
         const html = snap.exists() ? ((snap.data().html as string) ?? '') : ''
+        if (cancelled) return
         setSavedHtml(html)
-        editor?.commands.setContent(html)
         setEditing(canEdit && !html)
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load notes')
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load notes')
       } finally {
-        setLoading(false)
+        if (!cancelled) setLoading(false)
       }
     })()
-    // Intentionally only on topicId change — `editor` identity is stable
-    // across this component's lifetime (same useEditor call).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [topicId])
+    return () => { cancelled = true }
+  }, [topicId, canEdit])
+
+  // With `immediatelyRender: false` above, `editor` starts out `null` and
+  // only becomes ready slightly after mount — syncing content in the fetch
+  // effect above (keyed only on `topicId`) would silently no-op via the `?.`
+  // whenever that race lands before the editor exists, and never re-run once
+  // it does. This re-syncs whenever either one becomes ready.
+  useEffect(() => {
+    if (!editor) return
+    editor.commands.setContent(savedHtml)
+  }, [editor, savedHtml])
 
   async function save() {
     if (!editor) return

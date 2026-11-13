@@ -55,15 +55,26 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
         : cameras[0]!
       await reader.start(
         camera.id,
-        // No `qrbox` — that option makes the library insert its own "shaded
-        // region" overlay div, sized from border-width math against the
-        // viewfinder's reported dimensions. Against a custom (non-default)
-        // container size that math produces oversized borders that can cover
-        // almost the entire preview in a dark tint — a known source of a
-        // camera that's genuinely streaming but looks black. Our own
-        // `.kiosk-scan-frame` below already draws the visible scan-frame
-        // guide, so this isn't needed.
-        { fps: 10 },
+        {
+          // No `qrbox` — that option makes the library insert its own "shaded
+          // region" overlay div, sized from border-width math against the
+          // viewfinder's reported dimensions. Against a custom (non-default)
+          // container size that math produces oversized borders that can
+          // cover almost the entire preview in a dark tint — a known source
+          // of a camera that's genuinely streaming but looks black. Our own
+          // `.kiosk-scan-frame` below already draws the visible scan-frame
+          // guide, so this isn't needed.
+          fps: 15,
+          // Passing just a camera id (no `videoConstraints`) leaves
+          // html5-qrcode requesting the browser's bare default resolution —
+          // often quite low — which makes the decoder need the card held
+          // closer/stiller and more frames to land a successful read. Asking
+          // for a sharper capture up front (still the same exact camera)
+          // gives the decoder far more detail per scan, so it reads faster
+          // and more reliably. `ideal` lets the browser fall back gracefully
+          // on hardware that can't do 720p.
+          videoConstraints: { deviceId: { exact: camera.id }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        },
         (decodedText) => {
           if (onDecodeRef.current(decodedText)) void closeCamera()
         },

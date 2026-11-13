@@ -1413,12 +1413,12 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
    this container the moment `.start()` runs to build its own <video>, so
    starting the camera while this box is still 0×0 is exactly what left the
    feed rendering black despite the camera itself being active. */
-.kiosk-scan-video-wrap { position: relative; width: 280px; height: 280px; border-radius: 18px; overflow: hidden; background: #0b1020; }
+.kiosk-scan-video-wrap { position: relative; width: min(420px, 85vw); height: min(420px, 85vw); border-radius: 18px; overflow: hidden; background: #0b1020; }
 .kiosk-scan-video { width: 100%; height: 100%; }
 .kiosk-scan-video video { width: 100%; height: 100%; object-fit: cover; }
 /* A visible scan-frame guide, dimming the area outside it within the feed. */
 .kiosk-scan-frame {
-  position: absolute; inset: 28px; border: 3px solid rgba(255,255,255,0.85); border-radius: 16px;
+  position: absolute; inset: 20px; border: 3px solid rgba(255,255,255,0.85); border-radius: 16px;
   box-shadow: 0 0 0 2000px rgba(0,0,0,0.2); pointer-events: none;
 }
 .kiosk-scan-dot {

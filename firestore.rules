@@ -236,14 +236,22 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/student_applications/$(sid))
         && get(/databases/$(database)/documents/student_applications/$(sid)).data.status == 'approved';
     }
+    // A parent filling the application from a no-login link (see
+    // `resolveApplicationLink` in Cloud Functions) — that function mints a
+    // custom token carrying exactly which application this one link is for,
+    // so rules check those claims directly instead of trusting the client.
+    function isPublicApplyLink(coll, sid) {
+      return isSignedIn() && request.auth.token.publicApplyLink == true
+        && request.auth.token.coll == coll && request.auth.token.studentId == sid;
+    }
     match /student_applications/{sid} {
-      allow read: if isOwner(sid) || isAdminOrMentor() || hasRole('manager');
+      allow read: if isOwner(sid) || isAdminOrMentor() || hasRole('manager') || isPublicApplyLink('student_applications', sid);
       allow create, update: if canReviewStudents();
-      allow create: if isOwner(sid)
+      allow create: if (isOwner(sid) || isPublicApplyLink('student_applications', sid))
         && request.resource.data.studentId == sid
         && request.resource.data.status in ['draft', 'submitted']
         && !request.resource.data.keys().hasAny(['reviewNote', 'reviewedAt', 'reviewedBy', 'studentIdReceived', 'fatherIdReceived', 'motherIdReceived']);
-      allow update: if isOwner(sid)
+      allow update: if (isOwner(sid) || isPublicApplyLink('student_applications', sid))
         && resource.data.status != 'approved'
         && request.resource.data.studentId == sid
         && request.resource.data.status in ['draft', 'submitted', 'changes_requested']
@@ -255,21 +263,36 @@ service cloud.firestore {
     // account and copies the application over to `student_applications/{uid}`.
     // Founder reads too — the Founder Overview counts applicants still waiting.
     match /applicants/{id} {
-      allow read: if isAdminOrMentor() || hasRole('manager') || hasRole('founder');
+      allow read: if isAdminOrMentor() || hasRole('manager') || hasRole('founder') || isPublicApplyLink('applicants', id);
       allow create, update, delete: if canReviewStudents();
+      allow create, update: if isPublicApplyLink('applicants', id)
+        && request.resource.data.studentId == id
+        && request.resource.data.status in ['draft', 'submitted'];
+    }
+
+    // One single-use link per application (id: a random token) — staff generate
+    // it directly (see the Students page's "Send link"/"Resend link"), the
+    // `resolveApplicationLink`/`completeApplicationLink` Cloud Functions are the
+    // only things that ever read or update it afterwards (Admin SDK, bypasses
+    // these rules), so no client needs read/write beyond creating a fresh one.
+    match /application_links/{token} {
+      allow create: if canReviewStudents();
     }
 
     // Uploaded application documents (photo, ID cards, birth certificate) as
     // compressed data URLs — id "{studentId}__{kind}", one doc per file.
     match /student_application_files/{id} {
-      allow read: if (isSignedIn() && id.matches(request.auth.uid + '__.*')) || isAdminOrMentor() || hasRole('manager');
+      allow read: if (isSignedIn() && id.matches(request.auth.uid + '__.*')) || isAdminOrMentor() || hasRole('manager')
+        || (isSignedIn() && request.auth.token.publicApplyLink == true && id.matches(request.auth.token.studentId + '__.*'));
       allow create, update: if request.resource.data.dataUrl is string
         && request.resource.data.dataUrl.size() < 1000000
         && id == request.resource.data.studentId + '__' + request.resource.data.kind
         && (canReviewStudents()
-            || (isOwner(request.resource.data.studentId) && !applicationApproved(request.resource.data.studentId)));
+            || (isOwner(request.resource.data.studentId) && !applicationApproved(request.resource.data.studentId))
+            || (isSignedIn() && request.auth.token.publicApplyLink == true && request.auth.token.studentId == request.resource.data.studentId));
       allow delete: if canReviewStudents()
-        || (isSignedIn() && id.matches(request.auth.uid + '__.*') && !applicationApproved(request.auth.uid));
+        || (isSignedIn() && id.matches(request.auth.uid + '__.*') && !applicationApproved(request.auth.uid))
+        || (isSignedIn() && request.auth.token.publicApplyLink == true && id.matches(request.auth.token.studentId + '__.*'));
     }
 
     match /settings/{id} {

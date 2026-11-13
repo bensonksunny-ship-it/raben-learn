@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
-import { collection, getDocs } from 'firebase/firestore'
+import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { normalizeRoles } from '../../lib/roles'
 import { mapCourseDoc } from '../../lib/courses'
 import { levelName } from '../../lib/levels'
 import { computeFounderStats, type FounderStats } from '../../lib/founderStats'
 import {
-  computeSubjectWeeklyHours, formatDayDate, formatWeekRangeLabel, loadEffectiveWeekSchedule, mondayOf, todayStr,
+  addDays, computeSubjectWeeklyHours, formatDayDate, formatWeekRangeLabel, loadEffectiveWeekSchedule, mondayOf, todayStr,
 } from '../../components/manager/schedulerShared'
 import type { AttendanceCheckpoint, Course, ProgressEntry } from '../../types'
 
@@ -19,13 +19,18 @@ function toIso(v: unknown): string | null {
 
 async function loadFounderStats(): Promise<FounderStats> {
   const today = todayStr()
+  // Plans and attendance grow by a doc per student per day — the stats only look
+  // at last week, this week and this month, so that's all that's fetched.
+  const lastMonday = addDays(mondayOf(today), -7)
+  const monthStart = `${today.slice(0, 7)}-01`
+  const from = lastMonday < monthStart ? lastMonday : monthStart
   const [usersSnap, coursesSnap, sessionsSnap, progSnap, plansSnap, attendanceSnap, attemptsSnap, applicantsSnap, schedule] = await Promise.all([
     getDocs(collection(db, 'users')),
     getDocs(collection(db, 'courses')),
     getDocs(collection(db, 'sessions')),
     getDocs(collection(db, 'student_lesson_progress')),
-    getDocs(collection(db, 'student_daily_plans')),
-    getDocs(collection(db, 'attendance')),
+    getDocs(query(collection(db, 'student_daily_plans'), where('date', '>=', from))),
+    getDocs(query(collection(db, 'attendance'), where('date', '>=', from))),
     getDocs(collection(db, 'examAttempts')),
     // Staff-only collection — a failed read shows as "—", never as zero applicants.
     getDocs(collection(db, 'applicants')).catch(() => null),

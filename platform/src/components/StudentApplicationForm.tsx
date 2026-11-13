@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { doc, updateDoc } from 'firebase/firestore'
-import { db } from '../firebase/config'
+import { doc, updateDoc, type Firestore } from 'firebase/firestore'
+import { db as defaultDb } from '../firebase/config'
 import { formatFirebaseError } from '../lib/formatFirebaseError'
 import {
   FILE_KIND_LABEL, deleteApplicationFile, loadApplication, loadApplicationFile, needsParentDeclaration,
@@ -45,9 +45,20 @@ interface Props {
   defaultName: string
   /** 'student' fills in and submits their own form; 'staff' can edit, approve,
    *  or send it back with a note; 'applicant' is staff entering a prospective
-   *  student (no account yet) from "+ New Student" — saved to `applicants`. */
-  mode: 'student' | 'staff' | 'applicant'
+   *  student (no account yet) from "+ New Student" — saved to `applicants`;
+   *  'public' is a parent filling it in from a no-login link (`PublicApplyPage`)
+   *  — behaves like 'student' (fill + submit only), but against whichever
+   *  `coll`/`db` that link resolved to, not the signed-in user's own account. */
+  mode: 'student' | 'staff' | 'applicant' | 'public'
   reviewerId?: string
+  /** 'public' mode only — which collection the link resolved to (an existing
+   *  student's own application, or a not-yet-recruited applicant's). Every
+   *  other mode derives this from `mode` itself. */
+  coll?: ApplicationCollection
+  /** 'public' mode only — the isolated Firestore instance signed in via that
+   *  link's own custom token (see `lib/publicApplyLink.ts`), so none of this
+   *  reads or writes through the main app's (unauthenticated) instance. */
+  db?: Firestore
   /** Called after any save, with the new status (e.g. so a list can refresh). */
   onSaved?: (status: ApplicationStatus) => void
 }
@@ -58,9 +69,9 @@ interface Props {
  * declaration in place of a missing one). Uploads save straight away; the text
  * fields save on "Save draft"/"Submit" (or the staff actions).
  */
-export function StudentApplicationForm({ studentId, defaultName, mode, reviewerId, onSaved }: Props) {
-  const coll: ApplicationCollection = mode === 'applicant' ? 'applicants' : 'student_applications'
-  const asStaff = mode !== 'student'
+export function StudentApplicationForm({ studentId, defaultName, mode, reviewerId, coll: collProp, db = defaultDb, onSaved }: Props) {
+  const coll: ApplicationCollection = collProp ?? (mode === 'applicant' ? 'applicants' : 'student_applications')
+  const asStaff = mode === 'staff' || mode === 'applicant'
   const [app, setApp] = useState<StudentApplication | null>(null)
   const [savedStatus, setSavedStatus] = useState<ApplicationStatus | null>(null)
   const [busy, setBusy] = useState(false)
@@ -71,17 +82,17 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
 
   useEffect(() => {
     let cancelled = false
-    void loadApplication(studentId, defaultName, coll)
+    void loadApplication(studentId, defaultName, coll, db)
       .then(({ app: a, exists }) => { if (!cancelled) { setApp(a); setSavedStatus(exists ? a.status : null) } })
       .catch((e) => { if (!cancelled) setError(formatFirebaseError(e, 'Could not load the application')) })
     return () => { cancelled = true }
-  }, [studentId, defaultName, coll])
+  }, [studentId, defaultName, coll, db])
 
   if (!app) {
     return error ? <p className="error">{error}</p> : <p className="muted">Loading application…</p>
   }
 
-  const locked = (mode === 'student' && app.status === 'approved') || app.status === 'recruited'
+  const locked = ((mode === 'student' || mode === 'public') && app.status === 'approved') || app.status === 'recruited'
   const missing = validateApplication(app)
   const set = (patch: Partial<StudentApplication>) => { setApp({ ...app, ...patch }); setNotice('') }
 
@@ -91,10 +102,13 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
   async function persist(next: StudentApplication, status: ApplicationStatus, message: string) {
     setBusy(true); setError(''); setNotice('')
     try {
-      await saveApplication(next, status, { asStaff, reviewerId, collection: coll })
-      // Keep the account's display name in step with the application.
+      await saveApplication(next, status, { asStaff, reviewerId, collection: coll, db })
+      // Keep the account's display name in step with the application — only
+      // for the signed-in student themselves; a public link's own session has
+      // no permission to touch `users/{studentId}`, and an `applicants` doc
+      // has no account yet to sync.
       if (mode === 'student' && status === 'submitted' && next.fullName.trim()) {
-        await updateDoc(doc(db, 'users', studentId), { name: next.fullName.trim() })
+        await updateDoc(doc(defaultDb, 'users', studentId), { name: next.fullName.trim() })
       }
       setApp({ ...next, status })
       setSavedStatus(status)
@@ -111,9 +125,9 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
     if (!file || !app) return
     setUploading(kind); setError(''); setNotice('')
     try {
-      const meta = await uploadApplicationFile(studentId, kind, file)
+      const meta = await uploadApplicationFile(studentId, kind, file, db)
       const next = { ...app, files: { ...app.files, [kind]: meta } }
-      await saveApplication(next, savedStatus ?? 'draft', { asStaff, reviewerId, collection: coll })
+      await saveApplication(next, savedStatus ?? 'draft', { asStaff, reviewerId, collection: coll, db })
       setApp({ ...next, status: savedStatus ?? 'draft' })
       setSavedStatus(savedStatus ?? 'draft')
     } catch (e) {
@@ -127,11 +141,11 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
     if (!app || !window.confirm(`Remove the ${FILE_KIND_LABEL[kind].toLowerCase()}?`)) return
     setUploading(kind); setError('')
     try {
-      await deleteApplicationFile(studentId, kind)
+      await deleteApplicationFile(studentId, kind, db)
       const files = { ...app.files }
       delete files[kind]
       const next = { ...app, files }
-      await saveApplication(next, savedStatus ?? 'draft', { asStaff, reviewerId, collection: coll })
+      await saveApplication(next, savedStatus ?? 'draft', { asStaff, reviewerId, collection: coll, db })
       setApp({ ...next, status: savedStatus ?? 'draft' })
       setSavedStatus(savedStatus ?? 'draft')
     } catch (e) {
@@ -143,8 +157,17 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
 
   function submit() {
     if (!app) return
+    // A public link for a not-yet-recruited applicant still needs a valid
+    // login email on the way out — same requirement `saveApplicant` enforces
+    // when staff enter it directly; `validateApplication`'s own checklist
+    // deliberately skips it since it doesn't apply to an enrolled student.
+    const email = app.email.trim()
+    if (coll === 'applicants' && (!app.fullName.trim() || !/^\S+@\S+\.\S+$/.test(email))) {
+      setError('Enter the full name and a valid email (used for login once recruited).')
+      return
+    }
     if (missing.length > 0) { setShowMissing(true); return }
-    void persist(app, 'submitted', 'Application submitted. Thank you!')
+    void persist(coll === 'applicants' ? { ...app, email } : app, 'submitted', 'Application submitted. Thank you!')
   }
 
   function saveApplicant() {
@@ -176,7 +199,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
     <div className="application-form">
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <ApplicationStatusTag status={savedStatus} />
-        {mode === 'student' && app.status === 'changes_requested' && app.reviewNote && (
+        {(mode === 'student' || mode === 'public') && app.status === 'changes_requested' && app.reviewNote && (
           <span className="small" style={{ color: 'var(--danger)' }}>Office note: {app.reviewNote}</span>
         )}
       </div>
@@ -189,7 +212,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
       )}
 
       <fieldset disabled={locked || busy} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
-        {mode === 'applicant' && (
+        {(mode === 'applicant' || coll === 'applicants') && (
           <Section title="Admission">
             <Field label="Login email (used to create their account when recruited)" required>
               <input type="email" value={app.email} onChange={(e) => set({ email: e.target.value })} placeholder="name@example.com" />
@@ -274,7 +297,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
         </Section>
 
         <Section title="Photo & documents">
-          <FileSlot kind="photo" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
+          <FileSlot kind="photo" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
 
           <YesNo
             label="Does the student have an ID card (e.g. Aadhaar)?"
@@ -285,7 +308,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
             <IdCardBlock
               typeLabel="ID card type" typeValue={app.studentIdType} onType={(v) => set({ studentIdType: v })}
               numberValue={app.studentIdNumber} onNumber={(v) => set({ studentIdNumber: v })}
-              fileKind="student_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+              fileKind="student_id" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked}
               onPick={onPickFile} onRemove={onRemoveFile} required
               isStaff={asStaff} received={app.studentIdReceived} onToggleReceived={(v) => set({ studentIdReceived: v })}
             />
@@ -297,7 +320,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
             onChange={(v) => set({ hasBirthCertificate: v })}
           />
           {app.hasBirthCertificate && (
-            <FileSlot kind="birth_certificate" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
+            <FileSlot kind="birth_certificate" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
           )}
 
           {app.isSingleParent ? (
@@ -306,7 +329,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
               <IdCardBlock
                 typeLabel="ID card type" typeValue={app.fatherIdType} onType={(v) => set({ fatherIdType: v })}
                 numberValue={app.fatherIdNumber} onNumber={(v) => set({ fatherIdNumber: v })}
-                fileKind="father_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+                fileKind="father_id" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked}
                 onPick={onPickFile} onRemove={onRemoveFile}
                 isStaff={asStaff} received={app.fatherIdReceived} onToggleReceived={(v) => set({ fatherIdReceived: v })}
               />
@@ -317,7 +340,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
               <IdCardBlock
                 typeLabel="ID card type" typeValue={app.fatherIdType} onType={(v) => set({ fatherIdType: v })}
                 numberValue={app.fatherIdNumber} onNumber={(v) => set({ fatherIdNumber: v })}
-                fileKind="father_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+                fileKind="father_id" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked}
                 onPick={onPickFile} onRemove={onRemoveFile}
                 isStaff={asStaff} received={app.fatherIdReceived} onToggleReceived={(v) => set({ fatherIdReceived: v })}
               />
@@ -326,7 +349,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
               <IdCardBlock
                 typeLabel="ID card type" typeValue={app.motherIdType} onType={(v) => set({ motherIdType: v })}
                 numberValue={app.motherIdNumber} onNumber={(v) => set({ motherIdNumber: v })}
-                fileKind="mother_id" app={app} studentId={studentId} uploading={uploading} disabled={locked}
+                fileKind="mother_id" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked}
                 onPick={onPickFile} onRemove={onRemoveFile}
                 isStaff={asStaff} received={app.motherIdReceived} onToggleReceived={(v) => set({ motherIdReceived: v })}
               />
@@ -340,7 +363,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
                 <Field label="Parent's name on the ID"><input value={app.parentIdName} onChange={(e) => set({ parentIdName: e.target.value })} /></Field>
                 <Field label="ID card type"><input value={app.parentIdType} onChange={(e) => set({ parentIdType: e.target.value })} placeholder="e.g. Aadhaar" /></Field>
               </Grid>
-              <FileSlot kind="parent_id" app={app} studentId={studentId} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
+              <FileSlot kind="parent_id" app={app} studentId={studentId} db={db} uploading={uploading} disabled={locked} onPick={onPickFile} onRemove={onRemoveFile} required />
 
               <div style={{ marginTop: '1rem' }}>
                 <strong className="small">Declaration</strong>
@@ -383,7 +406,7 @@ export function StudentApplicationForm({ studentId, defaultName, mode, reviewerI
       {error ? <p className="error small">{error}</p> : null}
       {notice ? <p className="small" style={{ color: 'var(--green)', fontWeight: 600 }}>✓ {notice}</p> : null}
 
-      {mode === 'student' && !locked && (
+      {(mode === 'student' || mode === 'public') && !locked && (
         <div className="row" style={{ gap: '0.6rem', marginTop: '1rem', flexWrap: 'wrap' }}>
           <button type="button" className="btn primary" disabled={busy || uploading !== null} onClick={submit}>
             {busy ? 'Saving…' : app.status === 'submitted' ? 'Update submission' : 'Submit application'}
@@ -463,6 +486,7 @@ interface IdCardBlockProps {
   fileKind: ApplicationFileKind
   app: StudentApplication
   studentId: string
+  db: Firestore
   uploading: ApplicationFileKind | null
   disabled: boolean
   required?: boolean
@@ -482,7 +506,7 @@ interface IdCardBlockProps {
  * its place. Shared by the student's own ID card and each parent's.
  */
 function IdCardBlock({
-  typeLabel, typeValue, onType, numberValue, onNumber, fileKind, app, studentId, uploading, disabled,
+  typeLabel, typeValue, onType, numberValue, onNumber, fileKind, app, studentId, db, uploading, disabled,
   required, onPick, onRemove, isStaff, received, onToggleReceived,
 }: IdCardBlockProps) {
   return (
@@ -504,7 +528,7 @@ function IdCardBlock({
         </div>
       ) : (
         <>
-          <FileSlot kind={fileKind} app={app} studentId={studentId} uploading={uploading} disabled={disabled} onPick={onPick} onRemove={onRemove} required={required} />
+          <FileSlot kind={fileKind} app={app} studentId={studentId} db={db} uploading={uploading} disabled={disabled} onPick={onPick} onRemove={onRemove} required={required} />
           {isStaff && !disabled && (
             <div className="row" style={{ margin: '-0.3rem 0 0.6rem' }}>
               <button type="button" className="btn small secondary" onClick={() => onToggleReceived(true)}>📋 Mark received as hard copy instead</button>
@@ -520,6 +544,7 @@ interface FileSlotProps {
   kind: ApplicationFileKind
   app: StudentApplication
   studentId: string
+  db: Firestore
   uploading: ApplicationFileKind | null
   disabled: boolean
   required?: boolean
@@ -527,7 +552,7 @@ interface FileSlotProps {
   onRemove: (kind: ApplicationFileKind) => void
 }
 
-function FileSlot({ kind, app, studentId, uploading, disabled, required, onPick, onRemove }: FileSlotProps) {
+function FileSlot({ kind, app, studentId, db, uploading, disabled, required, onPick, onRemove }: FileSlotProps) {
   const meta = app.files[kind]
   const metaKey = meta ? `${meta.fileName}:${meta.size}` : ''
   // Keyed by the upload it belongs to, so a replaced/removed file never shows a stale preview.
@@ -537,9 +562,9 @@ function FileSlot({ kind, app, studentId, uploading, disabled, required, onPick,
   useEffect(() => {
     if (!metaKey) return
     let cancelled = false
-    void loadApplicationFile(studentId, kind).then((url) => { if (!cancelled) setLoaded({ key: metaKey, url }) }).catch(() => {})
+    void loadApplicationFile(studentId, kind, db).then((url) => { if (!cancelled) setLoaded({ key: metaKey, url }) }).catch(() => {})
     return () => { cancelled = true }
-  }, [studentId, kind, metaKey])
+  }, [studentId, kind, metaKey, db])
 
   const isImage = meta?.mimeType.startsWith('image/')
   const busy = uploading === kind

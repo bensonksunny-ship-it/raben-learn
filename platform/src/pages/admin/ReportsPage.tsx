@@ -13,11 +13,12 @@ function formatTime(ms: number) {
   return `${m}m`
 }
 
-interface StudentReport { id: string; name: string; email: string; courseIds: string[]; progress: Record<string, { total: number; done: number; review: number }>; totalTimeMs: number }
+interface StudentReport { id: string; name: string; email: string; courseIds: string[]; progress: Record<string, { total: number; done: number; review: number }> }
 
 export function ReportsPage() {
   const [reports, setReports] = useState<StudentReport[]>([])
   const [courses, setCourses] = useState<Course[]>([])
+  const [timeByStudent, setTimeByStudent] = useState<Map<string, number> | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedCourseId, setSelectedCourseId] = useState<string>('__all__')
 
@@ -29,12 +30,26 @@ export function ReportsPage() {
       // Unfiltered fetch + client-side `normalizeRoles()` below — a Firestore `array-contains`
       // query only matches when `roles` is literally an array, so it silently drops any legacy
       // doc that stores a single string role instead (see StudentDiaryPage for the same fix).
-      const [usersSnap, coursesSnap, sessionsSnap, progSnap, plansSnap] = await Promise.all([
+      // Plans are by far the biggest collection (a doc per student per day) and
+      // only feed the Total Time column — fetched on their own so the tables
+      // don't wait for them.
+      getDocs(collection(db, 'student_daily_plans'))
+        .then((plansSnap) => {
+          const times = new Map<string, number>()
+          plansSnap.forEach((d) => {
+            const x = d.data(); const sid = x.studentId as string
+            const items = (x.items as Array<{ timeSpentMs: number }>) ?? []
+            times.set(sid, (times.get(sid) ?? 0) + items.reduce((s, i) => s + (i.timeSpentMs ?? 0), 0))
+          })
+          setTimeByStudent(times)
+        })
+        .catch((e) => console.error('loadReports plans failed', e))
+
+      const [usersSnap, coursesSnap, sessionsSnap, progSnap] = await Promise.all([
         getDocs(collection(db, 'users')),
         getDocs(collection(db, 'courses')),
         getDocs(collection(db, 'sessions')),
         getDocs(collection(db, 'student_lesson_progress')),
-        getDocs(collection(db, 'student_daily_plans')),
       ])
 
       const courseList: Course[] = []
@@ -64,14 +79,6 @@ export function ReportsPage() {
         entries.forEach((e) => { if (e.status === 'completed') cs.done++; if (e.status === 'review') cs.review++ })
       })
 
-      const timeByStudent = new Map<string, number>()
-      plansSnap.forEach((d) => {
-        const x = d.data(); const sid = x.studentId as string
-        const items = (x.items as Array<{ timeSpentMs: number }>) ?? []
-        const total = items.reduce((s, i) => s + (i.timeSpentMs ?? 0), 0)
-        timeByStudent.set(sid, (timeByStudent.get(sid) ?? 0) + total)
-      })
-
       const result: StudentReport[] = []
       usersSnap.forEach((d) => {
         const x = d.data()
@@ -84,7 +91,7 @@ export function ReportsPage() {
           const pr = progByStudent.get(sid)?.get(c.id) ?? { done: 0, review: 0 }
           progress[c.id] = { total, done: pr.done, review: pr.review }
         })
-        result.push({ id: sid, name: (x.name as string) ?? '', email: (x.email as string) ?? '', courseIds: (x.courseIds as string[]) ?? [], progress, totalTimeMs: timeByStudent.get(sid) ?? 0 })
+        result.push({ id: sid, name: (x.name as string) ?? '', email: (x.email as string) ?? '', courseIds: (x.courseIds as string[]) ?? [], progress })
       })
       result.sort((a, b) => a.name.localeCompare(b.name))
       setReports(result)
@@ -137,7 +144,7 @@ export function ReportsPage() {
         </tr></thead><tbody>
           {filtered.map((r) => (
             <tr key={r.id}>
-              <td><Link to={`/mentor/students/${r.id}`}>{r.name}</Link></td><td className="muted">{r.email}</td><td>{formatTime(r.totalTimeMs)}</td>
+              <td><Link to={`/mentor/students/${r.id}`}>{r.name}</Link></td><td className="muted">{r.email}</td><td>{timeByStudent ? formatTime(timeByStudent.get(r.id) ?? 0) : '…'}</td>
               {(selectedCourseId === '__all__' ? courses : courses.filter((c) => c.id === selectedCourseId)).map((c) => {
                 const p = r.progress[c.id] ?? { total: 0, done: 0, review: 0 }
                 const pct = p.total === 0 ? 0 : Math.round((p.done / p.total) * 100)

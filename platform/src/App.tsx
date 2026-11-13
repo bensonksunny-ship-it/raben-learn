@@ -42,6 +42,7 @@ const ConsultantPreviewPage = lazy(() =>
   import('./pages/admin/ConsultantPreviewPage').then((m) => ({ default: m.ConsultantPreviewPage })),
 )
 const ScanPage = lazy(() => import('./pages/ScanPage'))
+const PublicApplyPage = lazy(() => import('./pages/PublicApplyPage'))
 const LiveClassKioskPage = lazy(() =>
   import('./pages/LiveClassKioskPage').then((m) => ({ default: m.LiveClassKioskPage })),
 )
@@ -84,6 +85,14 @@ export default function App() {
         <Route
           path="/live-class/:token"
           element={<Suspense fallback={<AdminRouteFallback />}><LiveClassKioskPage /></Suspense>}
+        />
+        {/* No login, no AppShell — a parent fills this in on their own phone from a
+            link staff send them. `PublicApplyPage` resolves `:token` itself against
+            the `resolveApplicationLink` Cloud Function and signs into an isolated
+            secondary Firebase app, same reasoning as the Live Class link above. */}
+        <Route
+          path="/apply/:token"
+          element={<Suspense fallback={<AdminRouteFallback />}><PublicApplyPage /></Suspense>}
         />
         <Route path="/" element={<AppShell />}>
           <Route index element={<HomeRedirect />} />

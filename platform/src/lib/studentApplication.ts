@@ -1,4 +1,4 @@
-import { collection, deleteDoc, doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore'
+import { collection, deleteDoc, doc, getDoc, serverTimestamp, setDoc, type Firestore } from 'firebase/firestore'
 import { db } from '../firebase/config'
 
 /**
@@ -213,18 +213,20 @@ export function validateApplication(a: StudentApplication): string[] {
 }
 
 export async function loadApplication(
-  studentId: string, fallbackName = '', coll: ApplicationCollection = 'student_applications',
+  studentId: string, fallbackName = '', coll: ApplicationCollection = 'student_applications', fsDb: Firestore = db,
 ): Promise<{ app: StudentApplication; exists: boolean }> {
-  const snap = await getDoc(doc(db, coll, studentId))
+  const snap = await getDoc(doc(fsDb, coll, studentId))
   return { app: normalizeApplication(studentId, snap.exists() ? snap.data() : undefined, fallbackName), exists: snap.exists() }
 }
 
 /** Saves the form fields with the given status. `reviewNote` and the three
  *  "received as hard copy" flags are only written by staff (`asStaff`) — the
- *  rules reject a student touching any of them, same as `reviewNote`. */
+ *  rules reject a student touching any of them, same as `reviewNote`. `db`
+ *  lets a no-login application link (see `lib/publicApplyLink.ts`) write
+ *  through its own isolated Firestore instance instead of the main app's. */
 export async function saveApplication(
   a: StudentApplication, status: ApplicationStatus,
-  opts: { asStaff: boolean; reviewerId?: string; collection?: ApplicationCollection },
+  opts: { asStaff: boolean; reviewerId?: string; collection?: ApplicationCollection; db?: Firestore },
 ) {
   const { reviewNote, studentIdReceived, fatherIdReceived, motherIdReceived, ...fields } = a
   const data: Record<string, unknown> = {
@@ -242,7 +244,7 @@ export async function saveApplication(
   // `mergeFields` (not `merge: true`) so each written field — notably the `files`
   // map — is replaced wholesale (a removed upload really disappears), while fields
   // this write doesn't name (staff review fields, `submittedAt`) are left alone.
-  await setDoc(doc(db, opts.collection ?? 'student_applications', a.studentId), data, { mergeFields: Object.keys(data) })
+  await setDoc(doc(opts.db ?? db, opts.collection ?? 'student_applications', a.studentId), data, { mergeFields: Object.keys(data) })
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +298,9 @@ async function compressImage(file: File, maxSide: number): Promise<string> {
 
 /** Compresses (images) or size-checks (PDFs) a picked file, stores it in its own
  *  doc, and returns the metadata to record on the application. */
-export async function uploadApplicationFile(studentId: string, kind: ApplicationFileKind, file: File): Promise<ApplicationFileMeta> {
+export async function uploadApplicationFile(
+  studentId: string, kind: ApplicationFileKind, file: File, fsDb: Firestore = db,
+): Promise<ApplicationFileMeta> {
   let dataUrl: string
   let mimeType: string
   if (file.type === 'application/pdf') {
@@ -310,19 +314,39 @@ export async function uploadApplicationFile(studentId: string, kind: Application
     throw new Error('Please upload a photo (JPG/PNG) or a PDF.')
   }
   const meta: ApplicationFileMeta = { fileName: file.name || `${kind}.jpg`, mimeType, size: Math.round(dataUrl.length * 0.75) }
-  await setDoc(doc(db, 'student_application_files', fileDocId(studentId, kind)), {
+  await setDoc(doc(fsDb, 'student_application_files', fileDocId(studentId, kind)), {
     studentId, kind, dataUrl, ...meta, uploadedAt: serverTimestamp(),
   })
   return meta
 }
 
-export async function loadApplicationFile(studentId: string, kind: ApplicationFileKind): Promise<string | null> {
-  const snap = await getDoc(doc(db, 'student_application_files', fileDocId(studentId, kind)))
+export async function loadApplicationFile(studentId: string, kind: ApplicationFileKind, fsDb: Firestore = db): Promise<string | null> {
+  const snap = await getDoc(doc(fsDb, 'student_application_files', fileDocId(studentId, kind)))
   return snap.exists() ? (snap.data().dataUrl as string | undefined) ?? null : null
 }
 
-export async function deleteApplicationFile(studentId: string, kind: ApplicationFileKind): Promise<void> {
-  await deleteDoc(doc(db, 'student_application_files', fileDocId(studentId, kind)))
+export async function deleteApplicationFile(studentId: string, kind: ApplicationFileKind, fsDb: Firestore = db): Promise<void> {
+  await deleteDoc(doc(fsDb, 'student_application_files', fileDocId(studentId, kind)))
+}
+
+// ---------------------------------------------------------------------------
+// No-login application link — a parent fills the form on their own phone
+
+/**
+ * Generates a fresh single-use link for a parent to fill this application in
+ * on their own phone, no login needed (see `lib/publicApplyLink.ts` and
+ * `PublicApplyPage`). Calling this again for the same application — "resend"
+ * — points `applyLinkToken` at the new one, which `resolveApplicationLink`
+ * (Cloud Function) treats as silently retiring whatever link was live before,
+ * so only the most recently sent link ever works.
+ */
+export async function generateApplicationLink(coll: ApplicationCollection, studentId: string, createdBy: string | undefined): Promise<string> {
+  const token = crypto.randomUUID()
+  await Promise.all([
+    setDoc(doc(db, 'application_links', token), { coll, studentId, createdAt: serverTimestamp(), createdBy: createdBy ?? null, usedAt: null }),
+    setDoc(doc(db, coll, studentId), { applyLinkToken: token }, { merge: true }),
+  ])
+  return token
 }
 
 // ---------------------------------------------------------------------------

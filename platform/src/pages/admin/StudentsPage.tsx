@@ -10,9 +10,13 @@ import { useAuth } from '../../context/AuthContext'
 import type { Course, Session, UserProfile } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
 import { StudentApplicationForm, ApplicationStatusTag } from '../../components/StudentApplicationForm'
-import { loadApplication, loadApplicationFile, moveApplicantToStudent, newApplicantId, normalizeApplication, validateApplication, type ApplicationStatus, type StudentApplication } from '../../lib/studentApplication'
-import { downloadDataUrl, renderIdCardBack, renderIdCardFront, studentCodeFor } from '../../lib/idCard'
+import {
+  generateApplicationLink, loadApplication, loadApplicationFile, moveApplicantToStudent, newApplicantId,
+  normalizeApplication, validateApplication, type ApplicationCollection, type ApplicationStatus, type StudentApplication,
+} from '../../lib/studentApplication'
+import { downloadDataUrl, renderBadge, renderIdCardBack, renderIdCardFront, studentCodeFor } from '../../lib/idCard'
 import { studentScanUrl } from '../../lib/publicUrl'
+import { publicApplyUrl } from '../../lib/publicApplyLink'
 
 // Lazy — pulls in the whole PriorityScheduler grid, which most visits to the
 // Students page never need.
@@ -37,8 +41,10 @@ export function StudentsPage() {
   const [selectedStudent, setSelectedStudent] = useState<UserProfile | null>(null)
   const [timetableStudentId, setTimetableStudentId] = useState<string | null>(null)
   const [idCardStudentId, setIdCardStudentId] = useState<string | null>(null)
+  const [cardFormat, setCardFormat] = useState<'card' | 'badge'>('card')
   const [cardFront, setCardFront] = useState<string | null>(null)
   const [cardBack, setCardBack] = useState<string | null>(null)
+  const [cardBadge, setCardBadge] = useState<string | null>(null)
   const [cardNote, setCardNote] = useState('')
   const [applicationStudentId, setApplicationStudentId] = useState<string | null>(null)
   const [appStatuses, setAppStatuses] = useState<Record<string, ApplicationStatus>>({})
@@ -228,32 +234,37 @@ export function StudentsPage() {
 
   const idCardStudent = students.find((s) => s.id === idCardStudentId) ?? null
 
-  // Builds both sides of the printable ID card (JPEG) from the student's
-  // application — photo, class, DOB, blood group on the front; the attendance
-  // QR (permanent production URL) and emergency contact on the back.
+  // Builds every printable format up front from the student's application —
+  // the two-sided card (photo, class, DOB, blood group on front; attendance
+  // QR + emergency contact on back) and the single-sided 58 mm badge (QR +
+  // name/ID/class) — so switching the format tab is instant, not a reload.
   useEffect(() => {
-    setCardFront(null); setCardBack(null); setCardNote('')
+    setCardFront(null); setCardBack(null); setCardBadge(null); setCardNote('')
+    setCardFormat('card')
     if (!idCardStudent) return
     let cancelled = false
     void (async () => {
       try {
         const { app, exists } = await loadApplication(idCardStudent.id, idCardStudent.name)
         const photo = app.files.photo ? await loadApplicationFile(idCardStudent.id, 'photo') : null
-        const [front, back] = await Promise.all([
+        const scanUrl = idCardStudent.qrToken ? studentScanUrl(idCardStudent.id, idCardStudent.qrToken) : null
+        const name = app.fullName || idCardStudent.name
+        const studentCode = studentCodeFor(idCardStudent.id)
+        const [front, back, badge] = await Promise.all([
           renderIdCardFront({
-            name: app.fullName || idCardStudent.name,
-            studentCode: studentCodeFor(idCardStudent.id),
+            name, studentCode,
             grade: app.grade, dateOfBirth: app.dateOfBirth, bloodGroup: app.bloodGroup,
             photoDataUrl: photo,
           }),
           renderIdCardBack({
-            scanUrl: idCardStudent.qrToken ? studentScanUrl(idCardStudent.id, idCardStudent.qrToken) : null,
+            scanUrl,
             emergencyName: app.emergencyName, emergencyPhone: app.emergencyPhone || app.fatherPhone || app.motherPhone,
             address: app.address,
           }),
+          renderBadge({ name, studentCode, grade: app.grade, scanUrl }),
         ])
         if (cancelled) return
-        setCardFront(front); setCardBack(back)
+        setCardFront(front); setCardBack(back); setCardBadge(badge)
         if (!exists) setCardNote('No application yet — the card only has the name. Ask the student to fill in their application (with photo).')
         else if (!photo) setCardNote('No photo uploaded yet in the application.')
       } catch (e) {
@@ -373,6 +384,7 @@ export function StudentsPage() {
                   </div>
                   <div className="row" style={{ gap: '0.5rem' }}>
                     <button type="button" className="btn small secondary" onClick={() => setApplicantFormId(a.studentId)}>View / Edit</button>
+                    <ApplyLinkPanel coll="applicants" studentId={a.studentId} createdBy={profile?.id} />
                     <button type="button" className="btn small primary" disabled={recruitingId !== null} onClick={() => void recruit(a)}>
                       {recruitingId === a.studentId ? 'Recruiting…' : '✓ Recruit Student'}
                     </button>
@@ -642,9 +654,12 @@ export function StudentsPage() {
         return (
           <div className="modal-backdrop" onClick={() => setApplicationStudentId(null)}>
             <div className="modal" style={{ maxWidth: 820 }} onClick={(e) => e.stopPropagation()}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <h3 style={{ margin: 0 }}>📋 Application — {st.name}</h3>
-                <button type="button" className="btn small ghost" onClick={() => setApplicationStudentId(null)}>✕</button>
+                <div className="row" style={{ gap: '0.5rem' }}>
+                  <ApplyLinkPanel coll="student_applications" studentId={st.id} createdBy={profile?.id} />
+                  <button type="button" className="btn small ghost" onClick={() => setApplicationStudentId(null)}>✕</button>
+                </div>
               </div>
               <StudentApplicationForm
                 studentId={st.id}
@@ -673,25 +688,54 @@ export function StudentsPage() {
                 </button>
               </div>
             )}
-            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-              {([['Front', cardFront, 'front'], ['Back', cardBack, 'back']] as const).map(([label, url, side]) => (
-                <div key={side} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                  {url ? (
-                    <img src={url} alt={`ID card ${side}`} style={{ width: 200, borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow)' }} />
-                  ) : (
-                    <div className="muted small" style={{ width: 200, height: 318, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border)', borderRadius: 12 }}>Rendering…</div>
-                  )}
-                  <button
-                    type="button"
-                    className="btn small primary"
-                    disabled={!url}
-                    onClick={() => url && downloadDataUrl(url, `${(idCardStudent.name || 'student').replace(/[^\w-]+/g, '_')}-id-card-${side}.jpg`)}
-                  >
-                    ⬇ {label} (JPEG)
-                  </button>
-                </div>
-              ))}
+
+            <div className="row" style={{ justifyContent: 'center', marginBottom: '1.1rem' }}>
+              <button type="button" className={`btn small ${cardFormat === 'card' ? 'primary' : 'secondary'}`} onClick={() => setCardFormat('card')}>
+                ID Card (Front &amp; Back)
+              </button>
+              <button type="button" className={`btn small ${cardFormat === 'badge' ? 'primary' : 'secondary'}`} onClick={() => setCardFormat('badge')}>
+                Badge (58 mm)
+              </button>
             </div>
+
+            {cardFormat === 'card' ? (
+              <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                {([['Front', cardFront, 'front'], ['Back', cardBack, 'back']] as const).map(([label, url, side]) => (
+                  <div key={side} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                    {url ? (
+                      <img src={url} alt={`ID card ${side}`} style={{ width: 200, borderRadius: 12, border: '1px solid var(--border)', boxShadow: 'var(--shadow)' }} />
+                    ) : (
+                      <div className="muted small" style={{ width: 200, height: 318, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border)', borderRadius: 12 }}>Rendering…</div>
+                    )}
+                    <button
+                      type="button"
+                      className="btn small primary"
+                      disabled={!url}
+                      onClick={() => url && downloadDataUrl(url, `${(idCardStudent.name || 'student').replace(/[^\w-]+/g, '_')}-id-card-${side}.jpg`)}
+                    >
+                      ⬇ {label} (JPEG)
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.75rem' }}>
+                {cardBadge ? (
+                  <img src={cardBadge} alt="58 mm badge" style={{ width: 230, height: 230, borderRadius: '50%' }} />
+                ) : (
+                  <div className="muted small" style={{ width: 230, height: 230, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px dashed var(--border)' }}>Rendering…</div>
+                )}
+                <button
+                  type="button"
+                  className="btn small primary"
+                  disabled={!cardBadge}
+                  onClick={() => cardBadge && downloadDataUrl(cardBadge, `${(idCardStudent.name || 'student').replace(/[^\w-]+/g, '_')}-badge-58mm.png`)}
+                >
+                  ⬇ Download Badge (58 mm PNG)
+                </button>
+              </div>
+            )}
+
             {idCardStudent.qrToken && (
               <button type="button" className="btn ghost small" style={{ marginTop: '1rem' }} disabled={generatingQr} onClick={() => void generateQrToken(idCardStudent)}>
                 {generatingQr ? 'Generating…' : '🔄 Regenerate QR (invalidates the old card)'}
@@ -721,5 +765,85 @@ export function StudentsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Generates (or resends) a no-login application link for a parent to fill in
+ * on their own phone — see `lib/publicApplyLink.ts` and `PublicApplyPage`.
+ * Collapsed to a single button by default, same drawer pattern as the Live
+ * Class kiosk link on the Schedule page. "Resend" just generates a fresh
+ * token; `resolveApplicationLink` (Cloud Function) treats that as silently
+ * retiring whatever link was live before, so only the latest one ever opens.
+ */
+function ApplyLinkPanel({ coll, studentId, createdBy }: { coll: ApplicationCollection; studentId: string; createdBy?: string }) {
+  const [open, setOpen] = useState(false)
+  const [token, setToken] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [copied, setCopied] = useState(false)
+
+  async function generate(confirmMessage: string | null) {
+    if (confirmMessage && !window.confirm(confirmMessage)) return
+    setBusy(true); setError('')
+    try {
+      setToken(await generateApplicationLink(coll, studentId, createdBy))
+      setCopied(false)
+    } catch (e) {
+      setError(formatFirebaseError(e, 'Failed to generate the link'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function copyLink() {
+    if (!token) return
+    try {
+      await navigator.clipboard.writeText(publicApplyUrl(token))
+      setCopied(true)
+      window.setTimeout(() => setCopied(false), 1500)
+    } catch {
+      setError('Could not copy — select and copy the link text manually.')
+    }
+  }
+
+  return (
+    <>
+      <button type="button" className="btn small secondary" onClick={() => { setOpen(true); if (!token) void generate(null) }}>
+        📱 Send link
+      </button>
+      {open && (
+        <>
+          <div className="side-drawer-backdrop open" onClick={() => setOpen(false)} />
+          <aside className="side-drawer open">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h3 style={{ margin: 0 }}>📱 Application Link</h3>
+              <button type="button" className="btn small ghost" onClick={() => setOpen(false)}>✕</button>
+            </div>
+            {error ? <p className="error small" style={{ margin: 0 }}>{error}</p> : null}
+            {busy && !token ? (
+              <p className="muted small" style={{ margin: 0 }}>Generating…</p>
+            ) : token ? (
+              <>
+                <label>Link
+                  <input readOnly value={publicApplyUrl(token)} onFocus={(e) => e.currentTarget.select()} />
+                </label>
+                <div className="row" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <button type="button" className="btn small secondary" onClick={() => void copyLink()}>{copied ? '✓ Copied' : 'Copy'}</button>
+                  <a className="btn small secondary" href={publicApplyUrl(token)} target="_blank" rel="noreferrer">Open ↗</a>
+                </div>
+                <p className="muted small" style={{ margin: 0 }}>No login needed — expires once they submit.</p>
+                <button
+                  type="button" className="btn small ghost" disabled={busy}
+                  onClick={() => void generate('Resend a fresh link? The one already sent stops working immediately.')}
+                >
+                  {busy ? 'Sending…' : '🔄 Resend link'}
+                </button>
+              </>
+            ) : null}
+          </aside>
+        </>
+      )}
+    </>
   )
 }

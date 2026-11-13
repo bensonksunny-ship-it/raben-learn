@@ -4,13 +4,13 @@ import { Html5Qrcode } from 'html5-qrcode'
 const ELEMENT_ID = 'kiosk-qr-reader'
 
 /**
- * The Live Class kiosk's camera — off by default. Someone taps "Tap to Scan"
- * to open it (so it isn't recording in the background the whole time), holds
- * the student's ID card up to the live preview, and it decodes the QR and
- * closes itself again the moment `onDecode` reports a valid scan (returns
- * `true`) — an unrecognized/noise decode (`false`) just keeps it open and
- * scanning. The box renders top-center, where most laptop/Chromebook webcams
- * physically sit, so the on-screen preview lines up with the real lens.
+ * The Live Class kiosk's camera trigger — a normal inline control meant to sit
+ * beside the header's other controls (the "on campus now" pill, the clock),
+ * never fixed/absolute over the page. Off by default: someone taps "Tap to
+ * Scan" to open it, holds the student's ID card up to the live preview, and
+ * it decodes the QR and closes itself again the moment `onDecode` reports a
+ * valid scan (returns `true`) — an unrecognized/noise decode (`false`) just
+ * keeps it open and scanning.
  */
 export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean }) {
   const onDecodeRef = useRef(onDecode)
@@ -71,7 +71,7 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
   useEffect(() => () => { void stopReader() }, [])
 
   return (
-    <div className="kiosk-scan-box">
+    <div className={`kiosk-scan-box${open ? ' open' : ''}`}>
       <div id={ELEMENT_ID} className="kiosk-scan-video" aria-hidden />
       {open ? (
         <>
@@ -79,12 +79,9 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
           <button type="button" className="kiosk-scan-close" onClick={() => void closeCamera()} title="Close camera" aria-label="Close camera">✕</button>
         </>
       ) : (
-        <div className="kiosk-trigger-overlay">
-          <button type="button" className="btn primary kiosk-trigger-btn" disabled={starting} onClick={() => void openCamera()}>
-            {starting ? 'Starting camera…' : '📷 Tap to Scan'}
-          </button>
-          {cameraError && <p className="error small" style={{ margin: 0 }}>Couldn't access the camera.</p>}
-        </div>
+        <button type="button" className="btn primary kiosk-scan-trigger" disabled={starting} onClick={() => void openCamera()}>
+          {starting ? 'Starting…' : cameraError ? '⚠ Camera unavailable — retry' : '📷 Tap to Scan'}
+        </button>
       )}
     </div>
   )

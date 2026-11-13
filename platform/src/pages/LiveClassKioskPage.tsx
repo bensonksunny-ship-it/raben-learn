@@ -93,6 +93,21 @@ export function LiveClassKioskPage() {
   const weekday = todayWeekday(now)
   const nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60
 
+  // This screen is typically left open on a classroom TV for hours, so nobody's
+  // ever around to hard-refresh it after a deploy. `clientsClaim`/`skipWaiting`
+  // (vite.config.ts) already make a newly-deployed service worker take over
+  // open tabs almost immediately — this just reloads this page the moment that
+  // happens, so it self-updates instead of quietly running yesterday's build.
+  // Scoped to this page only (the listener is gone the moment it unmounts) —
+  // deliberately not done app-wide, since forcing a reload on, say, a student
+  // mid-exam would lose their in-progress answers.
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return
+    const reload = () => window.location.reload()
+    navigator.serviceWorker.addEventListener('controllerchange', reload)
+    return () => navigator.serviceWorker.removeEventListener('controllerchange', reload)
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -272,8 +287,6 @@ export function LiveClassKioskPage() {
 
   return (
     <div className="kid-theme" style={{ minHeight: '100dvh', padding: '2rem' }}>
-      <QrScanner onDecode={handleDecode} />
-
       {scan && scanStudent && timetable && electives && (
         <StudentScanOverlay
           studentId={scan.studentId}
@@ -304,6 +317,7 @@ export function LiveClassKioskPage() {
           <span style={{ fontFamily: 'var(--font-display)', fontSize: '2.4rem', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
             {now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit' })}
           </span>
+          <QrScanner onDecode={handleDecode} />
         </div>
       </div>
 

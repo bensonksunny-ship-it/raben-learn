@@ -577,3 +577,78 @@ export const resolveLiveClassKiosk = onCall(callableOpts, async (request) => {
     throw new HttpsError('failed-precondition', 'The Live Class link is not set up on the server yet — ask an admin to enable kiosk sign-in.')
   }
 })
+
+const APPLICATION_LINK_COLLECTIONS = ['applicants', 'student_applications'] as const
+type ApplicationLinkCollection = (typeof APPLICATION_LINK_COLLECTIONS)[number]
+
+/**
+ * Looks up `application_links/{token}` and confirms it's still the live link
+ * for its application — rejects a used link (already submitted) or a stale
+ * one (staff resent, which points the application doc's own `applyLinkToken`
+ * at a newer token). Shared by `resolveApplicationLink` and
+ * `completeApplicationLink` below so both enforce the exact same rule.
+ */
+async function loadLiveApplicationLink(token: string): Promise<{ coll: ApplicationLinkCollection; studentId: string }> {
+  const linkSnap = await db.doc(`application_links/${token}`).get()
+  const link = linkSnap.data()
+  if (!linkSnap.exists || !link) {
+    throw new HttpsError('permission-denied', 'This link is invalid.')
+  }
+  if (link.usedAt) {
+    throw new HttpsError('permission-denied', 'This application has already been submitted — ask the office to resend a link if it needs changes.')
+  }
+  const coll = link.coll as unknown
+  const studentId = link.studentId as unknown
+  if (!APPLICATION_LINK_COLLECTIONS.includes(coll as ApplicationLinkCollection) || typeof studentId !== 'string' || !studentId) {
+    throw new HttpsError('internal', 'This link is malformed.')
+  }
+  const appSnap = await db.doc(`${coll}/${studentId}`).get()
+  if (appSnap.exists && appSnap.data()?.applyLinkToken !== token) {
+    throw new HttpsError('permission-denied', 'This link has been replaced by a newer one — ask the office to resend it.')
+  }
+  return { coll: coll as ApplicationLinkCollection, studentId }
+}
+
+/**
+ * No-login application form link (generated from the Students page, sent to
+ * a parent to fill in on their own phone). Deliberately takes no
+ * `request.auth`, same reasoning as `resolveLiveClassKiosk` above: the whole
+ * point is the caller hasn't signed in. Mints a custom token for a fixed
+ * synthetic uid carrying the exact `coll`/`studentId` this one link is for as
+ * claims — `firestore.rules` reads those claims directly to scope what this
+ * session may touch, rather than trusting the client to send the right ids.
+ */
+export const resolveApplicationLink = onCall(callableOpts, async (request) => {
+  const { token } = request.data as { token?: unknown }
+  if (!isNonEmptyString(token, 200)) {
+    throw new HttpsError('invalid-argument', 'This link is missing its token.')
+  }
+
+  const { coll, studentId } = await loadLiveApplicationLink(token.trim())
+
+  try {
+    const customToken = await auth.createCustomToken('public-apply-link', { publicApplyLink: true, coll, studentId })
+    return { customToken, coll, studentId }
+  } catch (e) {
+    console.error('resolveApplicationLink: createCustomToken failed', e)
+    throw new HttpsError('failed-precondition', 'This link is not set up on the server yet — ask an admin to enable it.')
+  }
+})
+
+/**
+ * Marks a link used right after a successful submission (see
+ * `completePublicApplyToken` on the client) — the whole reason a link
+ * "expires once filled in". Re-validates the same way `resolveApplicationLink`
+ * did, so a link that was already used, or superseded by a resend, can't be
+ * completed twice or completed out from under a newer one.
+ */
+export const completeApplicationLink = onCall(callableOpts, async (request) => {
+  const { token } = request.data as { token?: unknown }
+  if (!isNonEmptyString(token, 200)) {
+    throw new HttpsError('invalid-argument', 'This link is missing its token.')
+  }
+  const trimmed = token.trim()
+  await loadLiveApplicationLink(trimmed)
+  await db.doc(`application_links/${trimmed}`).set({ usedAt: FieldValue.serverTimestamp() }, { merge: true })
+  return { ok: true }
+})

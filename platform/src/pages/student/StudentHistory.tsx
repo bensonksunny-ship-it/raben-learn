@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from 'react'
 import { collection, getDocs, query, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { useAuth } from '../../context/AuthContext'
+import { mapCourseDoc } from '../../lib/courses'
+import type { ProgressEntry } from '../../types'
 
 interface HistoryRecord { id: string; courseId: string; courseName: string; completedAt: string; totalItems: number }
 
 export function StudentHistory() {
-  const { firebaseUser } = useAuth()
+  const { firebaseUser, profile } = useAuth()
   const uid = firebaseUser?.uid
   const [records, setRecords] = useState<HistoryRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -20,14 +22,51 @@ export function StudentHistory() {
         const x = d.data()
         list.push({ id: d.id, courseId: x.courseId as string, courseName: (x.courseName as string) ?? '', completedAt: x.completedAt?.toDate?.()?.toISOString?.() ?? '', totalItems: Number(x.totalItems ?? 0) })
       })
+
+      // Courses finished before completion records were being saved have no
+      // course_history doc — work those out from the progress itself.
+      const recorded = new Set(list.map((r) => r.courseId))
+      const [coursesSnap, sessionsSnap, progSnap] = await Promise.all([
+        getDocs(collection(db, 'courses')),
+        getDocs(collection(db, 'sessions')),
+        getDocs(query(collection(db, 'student_lesson_progress'), where('studentId', '==', uid))),
+      ])
+      const approvedAt = new Map<string, string>() // `${sessionId}_${activityId}` → ISO (or '')
+      progSnap.forEach((d) => {
+        const x = d.data()
+        const sid = (x.sessionId as string) ?? (x.lessonId as string)
+        for (const e of (x.entries as ProgressEntry[]) ?? []) {
+          if (e.status === 'completed') approvedAt.set(`${sid}_${e.activityId}`, e.mentorApprovedAt ?? '')
+        }
+      })
+      const byCourse = new Map<string, { total: number; done: number; last: string }>()
+      sessionsSnap.forEach((d) => {
+        const x = d.data()
+        const cid = (x.courseId as string) ?? ''
+        const c = byCourse.get(cid) ?? { total: 0, done: 0, last: '' }
+        for (const a of (x.activities as { id: string }[]) ?? []) {
+          c.total++
+          const at = approvedAt.get(`${d.id}_${a.id}`)
+          if (at !== undefined) { c.done++; if (at > c.last) c.last = at }
+        }
+        byCourse.set(cid, c)
+      })
+      const courseIds = profile?.courseIds ?? []
+      coursesSnap.forEach((d) => {
+        const c = byCourse.get(d.id)
+        if (recorded.has(d.id) || !c || c.total === 0 || c.done < c.total) return
+        if (courseIds.length > 0 && !courseIds.includes(d.id)) return
+        list.push({ id: `derived_${d.id}`, courseId: d.id, courseName: mapCourseDoc(d).title, completedAt: c.last, totalItems: c.total })
+      })
+
       list.sort((a, b) => b.completedAt.localeCompare(a.completedAt))
       setRecords(list)
     } catch (e) {
       console.error('StudentHistory load failed', e)
     } finally { setLoading(false) }
-  }, [uid])
+  }, [uid, profile])
 
-  useEffect(() => { if (uid) void load() }, [uid, load])
+  useEffect(() => { if (uid && profile) void load() }, [uid, profile, load])
 
   return (
     <div>

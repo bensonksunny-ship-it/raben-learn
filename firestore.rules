@@ -83,15 +83,24 @@ service cloud.firestore {
       allow write: if canScheduleExams();
     }
 
+    // Both collections key their docs "{studentId}_{...}" — a student may only
+    // write a doc whose id and `studentId` field are their own; admin/mentor
+    // (review, approve, mark due) may write anyone's.
+    function ownsStudentDoc(id) {
+      return isSignedIn()
+        && id.matches(request.auth.uid + '_.*')
+        && request.resource.data.studentId == request.auth.uid;
+    }
+
     match /student_lesson_progress/{id} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
+      allow create, update: if ownsStudentDoc(id) || isAdminOrMentor();
       allow delete: if isAdminOrMentor();
     }
 
     match /student_daily_plans/{id} {
       allow read: if isSignedIn();
-      allow create, update: if isSignedIn();
+      allow create, update: if ownsStudentDoc(id) || isAdminOrMentor();
       allow delete: if isAdminOrMentor() || (isSignedIn() && id.matches(request.auth.uid + '_.*'));
     }
 
@@ -270,6 +279,7 @@ service cloud.firestore {
     // Legacy collections for Cloud Functions
     match /centres/{id} { allow read, write: if hasRole('admin'); }
     match /mentor_centres/{id} { allow read, write: if isAdminOrMentor(); }
-    match /students/{id} { allow read, write: if isSignedIn(); }
+    // Nothing in the app or the Cloud Functions uses this one any more.
+    match /students/{id} { allow read, write: if hasRole('admin'); }
   }
 }

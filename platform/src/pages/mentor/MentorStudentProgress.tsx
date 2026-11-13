@@ -208,7 +208,7 @@ export function MentorStudentProgress() {
       if (idx >= 0) existing[idx] = entry; else existing.push(entry)
       await setDoc(ref, stripUndefinedDeep({ studentId, sessionId, entries: existing }), { merge: true })
       setProgressMap((m) => { const sm = { ...(m[sessionId] ?? {}) }; sm[activityId] = entry; return { ...m, [sessionId]: sm } })
-      await checkCourseCompletion()
+      await checkCourseCompletion(sessionId, activityId)
     } catch (e) { setError(e instanceof Error ? e.message : 'Failed') } finally { setSaving(false) }
   }
 
@@ -260,10 +260,14 @@ export function MentorStudentProgress() {
 
   const flat = useMemo(() => sessions.flatMap((s) => s.activities.map((a) => ({ sessionId: s.id, activityId: a.id }))), [sessions])
 
-  async function checkCourseCompletion() {
+  /** Called right after an approval — `progressMap` here is still the pre-approval
+   *  render's copy, so the just-approved topic is counted explicitly. */
+  async function checkCourseCompletion(approvedSessionId: string, approvedActivityId: string) {
     if (!studentId || !selectedCourseId) return
     const total = flat.length
-    const done = flat.reduce((acc, x) => acc + (getStatus(x.sessionId, x.activityId) === 'completed' ? 1 : 0), 0)
+    const done = flat.reduce((acc, x) => acc + (
+      (x.sessionId === approvedSessionId && x.activityId === approvedActivityId) || getStatus(x.sessionId, x.activityId) === 'completed' ? 1 : 0
+    ), 0)
     if (total > 0 && done >= total) {
       const courseName = courses.find((c) => c.id === selectedCourseId)?.title ?? ''
       try {

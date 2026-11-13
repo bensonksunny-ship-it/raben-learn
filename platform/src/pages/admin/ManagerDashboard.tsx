@@ -4,7 +4,7 @@ import { NavCard } from '../../components/manager/NavCard'
 import { ManagerWelcomeBanner } from '../../components/manager/ManagerWelcomeBanner'
 import { NavigationSidebar } from '../../components/manager/NavigationSidebar'
 import { ManagerTodayStats } from '../../components/manager/ManagerTodayStats'
-import { StudentsIcon, MentorsIcon, ScheduleIcon } from '../../components/manager/StatIcons'
+import { StudentsIcon, MentorsIcon, ScheduleIcon, SessionsIcon } from '../../components/manager/StatIcons'
 
 // Lazy, same as App.tsx's own routes for these — keeps their (heavier, admin-callable)
 // code out of the dashboard's own chunk until a manager actually opens one.
@@ -12,10 +12,12 @@ const UserManagement = lazy(() => import('./UserManagement').then((m) => ({ defa
 const StudentsPage = lazy(() => import('./StudentsPage').then((m) => ({ default: m.StudentsPage })))
 const SchedulePage = lazy(() => import('./SchedulePage').then((m) => ({ default: m.SchedulePage })))
 
-type ManagerView = 'students' | 'users' | 'schedule'
+const AttendanceReport = lazy(() => import('./AttendanceReport').then((m) => ({ default: m.AttendanceReport })))
+
+type ManagerView = 'students' | 'users' | 'schedule' | 'attendance'
 
 function isManagerView(v: string | null): v is ManagerView {
-  return v === 'students' || v === 'users' || v === 'schedule'
+  return v === 'students' || v === 'users' || v === 'schedule' || v === 'attendance'
 }
 
 /**
@@ -73,6 +75,12 @@ export function ManagerDashboard() {
             color="#8b5cf6"
             to="/manager?view=schedule"
           />
+          <NavCard
+            icon={<SessionsIcon color="#ffffff" />}
+            title="Attendance"
+            color="#059669"
+            to="/manager?view=attendance"
+          />
         </div>
 
         {/* All three popups go full-screen now — Students/Users joined Schedule here so
@@ -87,6 +95,7 @@ export function ManagerDashboard() {
                   {view === 'students' && <StudentsPage />}
                   {view === 'users' && <UserManagement />}
                   {view === 'schedule' && <SchedulePage />}
+                  {view === 'attendance' && <AttendanceReport />}
                 </Suspense>
               </div>
             </div>

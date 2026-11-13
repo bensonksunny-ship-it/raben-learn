@@ -5,6 +5,7 @@ import { collection, deleteDoc, doc, getDocs, onSnapshot, query, serverTimestamp
 import { kioskAuth, kioskDb, resolveLiveClassKioskToken } from '../lib/liveClassKiosk'
 import { localDateStr, mapExamSchedule, type ExamScheduleEntry } from '../lib/examSchedule'
 import { mapUserDoc } from '../lib/userUtils'
+import { mapCourseDoc } from '../lib/courses'
 import { todayStr, weekKeyOf, loadEffectiveWeekSchedule, timeStrToMinutes } from '../components/manager/schedulerShared'
 import {
   GRACE_MINUTES, todaysPeriods, todayWeekday, formatClock, formatSpan,
@@ -13,7 +14,7 @@ import {
 import { parseScanQr } from '../lib/kioskScan'
 import { QrScanner } from '../components/kiosk/QrScanner'
 import { StudentScanOverlay } from '../components/kiosk/StudentScanOverlay'
-import type { AttendanceCheckpoint, ClassTimetable, ElectiveSchedule, TimetablePeriod, UserProfile } from '../types'
+import type { AttendanceCheckpoint, ClassTimetable, Course, ElectiveSchedule, TimetablePeriod, UserProfile } from '../types'
 
 type Phase = 'resolving' | 'ready' | 'error'
 
@@ -71,6 +72,7 @@ export function LiveClassKioskPage() {
   const [error, setError] = useState('')
 
   const [students, setStudents] = useState<UserProfile[]>([])
+  const [courses, setCourses] = useState<Course[]>([])
   const [timetable, setTimetable] = useState<ClassTimetable | null>(null)
   const [electives, setElectives] = useState<ElectiveSchedule | null>(null)
   /** Today's booked exams (`exam_schedules`) — merged into the running timetable. */
@@ -116,8 +118,9 @@ export function LiveClassKioskPage() {
     if (phase !== 'ready') return
     void (async () => {
       try {
-        const [usersSnap, effective] = await Promise.all([
+        const [usersSnap, coursesSnap, effective] = await Promise.all([
           getDocs(collection(kioskDb, 'users')),
+          getDocs(collection(kioskDb, 'courses')),
           loadEffectiveWeekSchedule(kioskDb, weekKeyOf(todayStr())),
         ])
         const list: UserProfile[] = []
@@ -127,6 +130,7 @@ export function LiveClassKioskPage() {
         })
         list.sort((a, b) => a.name.localeCompare(b.name))
         setStudents(list)
+        setCourses(coursesSnap.docs.map(mapCourseDoc))
         setTimetable(effective.timetable)
         setElectives(effective.electives)
       } catch (e) {
@@ -229,20 +233,21 @@ export function LiveClassKioskPage() {
   }
 
   // One QR card held in frame fires this repeatedly every ~100ms — ignore
-  // repeats of the same decoded text within a few seconds (the camera itself
-  // is also paused the moment an overlay opens, but that pause only takes
-  // effect on the next animation frame). Unrecognized text (a stray QR code
-  // that isn't a student's ID card) is silently ignored — never worth
-  // interrupting the TV display over.
-  function handleDecode(text: string) {
-    if (scan) return
+  // repeats of the same decoded text within a few seconds. Unrecognized text
+  // (a stray QR code that isn't a student's ID card) is silently ignored —
+  // never worth interrupting the TV display over. Returning `true` tells
+  // `QrScanner` this decode was accepted, so it closes its camera; `false`
+  // means keep scanning (noise, duplicate, or no match).
+  function handleDecode(text: string): boolean {
+    if (scan) return false
     const last = lastDecodeRef.current
-    if (last && last.text === text && Date.now() - last.at < 4000) return
+    if (last && last.text === text && Date.now() - last.at < 4000) return false
     lastDecodeRef.current = { text, at: Date.now() }
     const parsed = parseScanQr(text)
-    if (!parsed) return
-    if (!students.some((s) => s.id === parsed.studentId)) return
+    if (!parsed) return false
+    if (!students.some((s) => s.id === parsed.studentId)) return false
     setScan(parsed)
+    return true
   }
 
   if (phase === 'resolving') {
@@ -267,7 +272,7 @@ export function LiveClassKioskPage() {
 
   return (
     <div className="kid-theme" style={{ minHeight: '100dvh', padding: '2rem' }}>
-      <QrScanner active={!scan} onDecode={handleDecode} />
+      <QrScanner onDecode={handleDecode} />
 
       {scan && scanStudent && timetable && electives && (
         <StudentScanOverlay
@@ -280,6 +285,7 @@ export function LiveClassKioskPage() {
           fallbackTimetable={timetable}
           fallbackElectives={electives}
           existingCheckpoints={checkpointsByStudent[scan.studentId] ?? []}
+          syllabusCourses={courses}
           onClose={() => setScan(null)}
         />
       )}

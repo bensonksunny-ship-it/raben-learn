@@ -99,6 +99,31 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Which topics (and whether the whole subject) already have an exam saved —
+  // powers the "Exam Configured" badges below, so staff can tell at a glance
+  // without opening each topic's modal. Keyed by courseId since exams live at
+  // `courses/{courseId}/exams`, scoped per subject.
+  const [examInfoByCourse, setExamInfoByCourse] = useState<Map<string, { topicIds: Set<string>; hasMain: boolean }>>(new Map())
+
+  async function loadExamIndex(courseList: Course[]) {
+    try {
+      const entries = await Promise.all(courseList.map(async (c) => {
+        const snap = await getDocs(collection(db, 'courses', c.id, 'exams'))
+        const topicIds = new Set<string>()
+        let hasMain = false
+        snap.forEach((d) => {
+          const topicId = d.data().topicId as string | null | undefined
+          if (topicId) topicIds.add(topicId)
+          else hasMain = true
+        })
+        return [c.id, { topicIds, hasMain }] as const
+      }))
+      setExamInfoByCourse(new Map(entries))
+    } catch {
+      // Non-critical — badges just stay hidden.
+    }
+  }
+
   const selectedCourse = courses.find((c) => c.id === selectedCourseId) ?? null
 
   const visibleCourses = courses.filter((c) =>
@@ -181,6 +206,10 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
     : new Map<string, ReturnType<typeof computeSubjectWeeklyHours>[number]>()
 
   useEffect(() => { void loadCourses().catch((e) => setError(String(e))) }, [])
+  // Refreshed whenever `courses` changes (initial load, add/delete course) —
+  // kept separate from loadCourses itself, rather than called from inside it,
+  // so the exam-badge data stays decoupled from the course list's own load.
+  useEffect(() => { void loadExamIndex(courses) }, [courses])
   useEffect(() => { void loadAllSessions().catch((e) => setError(String(e))) }, [])
   useEffect(() => { void loadScheduleForHours().catch(() => { /* non-critical — badge just stays hidden */ }) }, [])
   useEffect(() => {
@@ -457,7 +486,12 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                 >
                   <span className="course-row-index">{idx + 1}</span>
                   <span className="course-row-body">
-                    <span className="course-row-title">{c.title}</span>
+                    <span className="course-row-title">
+                      {c.title}
+                      {canSeeExams && examInfoByCourse.get(c.id)?.hasMain && (
+                        <span className="exam-badge" title="Main Exam Configured" aria-label="Main Exam Configured">🎓</span>
+                      )}
+                    </span>
                     {c.description ? <span className="course-row-tag">{c.description}</span> : null}
                     {courseHours(c.id) > 0 && <span className="course-row-tag">⏱ {courseHours(c.id)} hrs total</span>}
                     {weeklyHoursByCourse.get(c.id) && (() => {
@@ -503,6 +537,9 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                     )}
                     <h2 className="syllabus-active-title">
                       {selectedCourse?.title}
+                      {canSeeExams && selectedCourseId && examInfoByCourse.get(selectedCourseId)?.hasMain && (
+                        <span className="exam-badge" title="Main Exam Configured" aria-label="Main Exam Configured">🎓</span>
+                      )}
                       {!effectiveReadOnly && (
                         <div className="topic-menu-wrap" style={{ display: 'inline-block', marginLeft: '0.4rem', verticalAlign: 'middle' }}>
                           <button
@@ -594,15 +631,21 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                       <tr key={row.topic.id}>
                         <td className="session-topics-index muted small">{idx + 1}</td>
                         <td className="session-topics-title">
-                          <input
-                            className="syllabus-grid-input"
-                            value={row.topic.title}
-                            onChange={(e) => setLocalTopicTitle(row.topic.id, e.target.value)}
-                            onBlur={() => void commitRowTitle(row.topic.id)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                            onPaste={(e) => { e.preventDefault(); void handleGridPaste(idx, e.clipboardData.getData('text/plain')) }}
-                            disabled={saving}
-                          />
+                          <div className="row" style={{ gap: '0.35rem', flexWrap: 'nowrap' }}>
+                            <input
+                              className="syllabus-grid-input"
+                              style={{ flex: 1, minWidth: 0 }}
+                              value={row.topic.title}
+                              onChange={(e) => setLocalTopicTitle(row.topic.id, e.target.value)}
+                              onBlur={() => void commitRowTitle(row.topic.id)}
+                              onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                              onPaste={(e) => { e.preventDefault(); void handleGridPaste(idx, e.clipboardData.getData('text/plain')) }}
+                              disabled={saving}
+                            />
+                            {canSeeExams && selectedCourseId && examInfoByCourse.get(selectedCourseId)?.topicIds.has(row.topic.id) && (
+                              <span className="exam-badge" title="Exam Configured" aria-label="Exam Configured">🎓</span>
+                            )}
+                          </div>
                         </td>
                         <td className="session-topics-title">
                           <input
@@ -679,7 +722,12 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
                       onClick={() => setTopicDetail({ id: row.topic.id, title: row.topic.title })}
                     >
                       <td className="session-topics-index muted small">{idx + 1}</td>
-                      <td className="session-topics-title">{row.topic.title}</td>
+                      <td className="session-topics-title">
+                        {row.topic.title}
+                        {canSeeExams && selectedCourseId && examInfoByCourse.get(selectedCourseId)?.topicIds.has(row.topic.id) && (
+                          <span className="exam-badge" title="Exam Configured" aria-label="Exam Configured">🎓</span>
+                        )}
+                      </td>
                       <td className="session-topics-title muted small">{row.topic.durationMinutes || '—'}</td>
                     </tr>
                   ))}
@@ -692,13 +740,13 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
 
 
       {examModalTopic && selectedCourseId && (
-        <div className="modal-backdrop" onClick={() => setExamModalTopic(null)}>
+        <div className="modal-backdrop" onClick={() => { setExamModalTopic(null); void loadExamIndex(courses) }}>
           <div className="modal" style={{ maxWidth: 960, width: '95%' }} onClick={(e) => e.stopPropagation()}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
               <h3 style={{ margin: 0 }}>
                 📝 {examModalTopic === 'main' ? `Main Exam — ${selectedCourse?.title}` : `Exam — ${examModalTopic.title}`}
               </h3>
-              <button type="button" className="btn small ghost" onClick={() => setExamModalTopic(null)}>✕</button>
+              <button type="button" className="btn small ghost" onClick={() => { setExamModalTopic(null); void loadExamIndex(courses) }}>✕</button>
             </div>
             <ExamManager courseId={selectedCourseId} topic={examModalTopic === 'main' ? null : examModalTopic} readOnly={!canManageExams} />
           </div>

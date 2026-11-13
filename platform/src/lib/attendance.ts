@@ -29,7 +29,11 @@ export type NextCheckpoint =
  * checkpoint out (or `null` once there's nothing left to record today). Called
  * fresh on every scan with that student's checkpoints so far; never mutates.
  *  1. No `login` yet → this scan is the login, judged against the first period's
- *     start time.
+ *     start time (a day with no locked periods at all — e.g. all-elective —
+ *     has nothing to be "late" against, so an early arrival is just on-time).
+ *     This always wins, even before any period's start time or on a day with
+ *     zero locked periods — a student is never "already checked out" before
+ *     they've so much as logged in once.
  *  2. Earliest not-yet-checked-in period whose own start time has arrived → this
  *     scan is that period's check-in, judged against *that* period's start time.
  *  3. Every period checked in, no `logout` yet → this scan is the logout
@@ -39,13 +43,13 @@ export type NextCheckpoint =
 export function determineNextCheckpoint(
   periods: TimetablePeriod[], existing: AttendanceCheckpoint[], now: Date = new Date(),
 ): NextCheckpoint | null {
-  if (periods.length === 0) return null
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const statusFor = (startMin: number): 'on-time' | 'late' => (nowMin <= startMin + GRACE_MINUTES ? 'on-time' : 'late')
 
   const hasLogin = existing.some((c) => c.kind === 'login')
   if (!hasLogin) {
-    return { kind: 'login', status: statusFor(timeStrToMinutes(periods[0]!.startTime) ?? 0) }
+    const firstStartMin = periods[0] ? (timeStrToMinutes(periods[0].startTime) ?? nowMin) : nowMin
+    return { kind: 'login', status: statusFor(firstStartMin) }
   }
 
   const checkedInPeriodIds = new Set(existing.filter((c) => c.kind === 'period').map((c) => c.periodId))
@@ -91,7 +95,14 @@ export function formatSpan(min: number): string {
  *  (`label` ''), both placed purely by their scheduled clock time. Shared by
  *  the campus-wide Live Class kiosk view and each scanned student's own
  *  personalized overlay. */
-export interface TimedPeriod { id: string; title: string; label: string; kind: 'period' | 'elective' | 'exam'; startTime: string; startMin: number; endMin: number }
+export interface TimedPeriod {
+  id: string; title: string; label: string; kind: 'period' | 'elective' | 'exam'
+  startTime: string; startMin: number; endMin: number
+  /** Which syllabus subject this block belongs to, if any — lets a personalized
+   *  view (the kiosk's post-scan overlay) look up that subject's topics/exam
+   *  status on tap. Null/omitted for a non-subject activity or open slot. */
+  courseId?: string | null
+}
 
 /** Where the wall clock sits within a day's timetable. */
 export type ClockState =
@@ -118,12 +129,12 @@ export function buildTimedPeriods(periods: TimetablePeriod[], sessions: Elective
   const out: TimedPeriod[] = []
   periods.forEach((p, i) => {
     const startMin = timeStrToMinutes(p.startTime)
-    if (startMin != null) out.push({ id: p.id, title: p.title, label: `P${i + 1}`, kind: 'period', startTime: p.startTime, startMin, endMin: startMin + p.durationMinutes })
+    if (startMin != null) out.push({ id: p.id, title: p.title, label: `P${i + 1}`, kind: 'period', startTime: p.startTime, startMin, endMin: startMin + p.durationMinutes, courseId: p.courseId })
   })
   for (const e of sessions) {
     const startMin = timeStrToMinutes(e.startTime)
     if (startMin == null || !(e.durationMinutes > 0)) continue
-    out.push({ id: e.id, title: e.title || 'Open slot', label: '', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes })
+    out.push({ id: e.id, title: e.title || 'Open slot', label: '', kind: 'elective', startTime: e.startTime, startMin, endMin: startMin + e.durationMinutes, courseId: e.courseId })
   }
   return out.sort((a, b) => a.startMin - b.startMin)
 }

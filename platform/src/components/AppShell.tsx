@@ -84,6 +84,7 @@ export default function AppShell() {
       { to: '/manager?view=users', label: 'Users', icon: '👤' },
       { to: '/manager?view=students', label: 'Students', icon: '🎓' },
       { to: '/manager?view=schedule', label: 'Schedule', icon: '🗓️' },
+      { to: '/manager?view=attendance', label: 'Attendance', icon: '✅' },
       // View + print only — SyllabusPage forces read-only for a manager-only
       // account even though this is the same /syllabus route the Academic
       // Consultant uses for full edit access.

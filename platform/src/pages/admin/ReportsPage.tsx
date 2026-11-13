@@ -5,6 +5,7 @@ import { db } from '../../firebase/config'
 import type { Course, ProgressEntry } from '../../types'
 import { normalizeRoles } from '../../lib/roles'
 import { mapCourseDoc } from '../../lib/courses'
+import { AttendanceReport } from './AttendanceReport'
 
 function formatTime(ms: number) {
   const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60)
@@ -117,6 +118,8 @@ export function ReportsPage() {
           ))}
         </tbody></table></div>
       </section>
+
+      <div style={{ marginBottom: '1.5rem' }}><AttendanceReport /></div>
 
       <section className="panel">
         <h2>Per-Student Progress</h2>

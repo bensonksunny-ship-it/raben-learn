@@ -3,7 +3,7 @@ import { OwlMascot } from './OwlMascot'
 
 interface NavItem {
   /** '' means the plain Dashboard link (no ?view= param). */
-  view: '' | 'students' | 'users' | 'schedule'
+  view: '' | 'students' | 'users' | 'schedule' | 'attendance'
   label: string
   icon: string
 }
@@ -13,6 +13,7 @@ const NAV_ITEMS: NavItem[] = [
   { view: 'students', label: 'Students', icon: '🎓' },
   { view: 'users', label: 'Users', icon: '👤' },
   { view: 'schedule', label: 'Schedule', icon: '🗓️' },
+  { view: 'attendance', label: 'Attendance', icon: '✅' },
 ]
 
 /**

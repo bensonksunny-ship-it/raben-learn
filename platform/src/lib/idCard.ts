@@ -63,25 +63,28 @@ const FINDER_MODULES = 7
  *  always carry an identical-looking code.
  *
  *  Draws straight from the raw module matrix (`qrcode`'s `create()`, which
- *  only computes the matrix — no rendering) rather than a styled-QR library,
- *  because every such library sizes a "dots" module at a full cell's
- *  diameter: adjacent dark modules then touch edge-to-edge, which reads as
- *  a connected web/mesh rather than a true dot-matrix. Shrinking each data
- *  dot to `DOT_SCALE` of its cell leaves a real gap of background between
- *  every dot instead. The three finder patterns are drawn as whole shapes
- *  (an extra-rounded square frame around a round eye), not per-module, for
- *  a clean corner instead of a dotted outline. Error correction is 'M', not
- *  the max 'H' — for a given payload, more redundancy means *more* total
- *  modules (a bigger grid of smaller dots), the opposite of minimal and
- *  harder for a camera to resolve at a glance; 'M' is still the everyday
- *  real-world default (the one most printed QR codes use) and, combined
- *  with the standard-mandated 4-module quiet zone, keeps this reading
- *  instantly on a kiosk/phone camera — now with fewer, larger dots. */
+ *  only computes the matrix — no rendering) rather than a styled-QR library.
+ *  Each data dot is a full-cell circle (`DOT_SCALE` 1.0): orthogonally
+ *  touching dots still read as soft/rounded rather than harsh squares
+ *  (diagonal neighbors leave a visible notch), without opening a real gap.
+ *  A real gap was tried first — shrinking dots to ~60% of their cell for a
+ *  more obviously "dotted" look — but verified by decoding the actual
+ *  rendered output with a real QR reader (jsQR) at realistic sizes (a
+ *  printed card, an on-screen preview, a small badge): that version failed
+ *  to decode at most of them. A sparse fill reduces exactly the kind of
+ *  contrast a camera's own binarization depends on, independent of how
+ *  sharp the source image is — this is a hard scanability floor, not a
+ *  resolution problem to fix with a bigger export. 'H' error correction
+ *  (not 'M') restores full tolerance for a worn/dirty/poorly-lit card,
+ *  cheap now that modules are full-size again. The three finder patterns
+ *  are drawn as whole shapes (an extra-rounded square frame around a round
+ *  eye, solid ink — not the brand color, which is lower-contrast), not
+ *  per-module, for a clean corner instead of a dotted outline. */
 async function renderStyledQr(data: string, size: number): Promise<HTMLCanvasElement> {
-  const DOT_SCALE = 0.62
+  const DOT_SCALE = 1.0
   const QUIET_ZONE_MODULES = 4
 
-  const { modules } = QRCode.create(data, { errorCorrectionLevel: 'M' })
+  const { modules } = QRCode.create(data, { errorCorrectionLevel: 'H' })
   const n = modules.size
   const totalModules = n + QUIET_ZONE_MODULES * 2
   const cell = size / totalModules
@@ -129,7 +132,7 @@ async function renderStyledQr(data: string, size: number): Promise<HTMLCanvasEle
     ctx.fillStyle = '#ffffff'
     roundRect(ctx, x + cell, y + cell, inner, inner, inner * 0.32)
     ctx.fill()
-    ctx.fillStyle = BRAND_DARK
+    ctx.fillStyle = INK
     ctx.beginPath()
     ctx.arc(x + outer / 2, y + outer / 2, 1.5 * cell, 0, Math.PI * 2)
     ctx.fill()

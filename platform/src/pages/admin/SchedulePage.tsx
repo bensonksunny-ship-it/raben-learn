@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, serverTimestamp, setDoc } from 'firebase/firestore'
+import { addDoc, collection, deleteDoc, doc, getDoc, getDocs, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { mapUserDoc } from '../../lib/userUtils'
 import { mapCourseDoc } from '../../lib/courses'
@@ -26,7 +26,7 @@ import {
   computeSubjectWeeklyHours, minutesToTimeStr, EXTENDED_GRID_START_MIN, EXTENDED_GRID_END_MIN,
 } from '../../components/manager/schedulerShared'
 import type {
-  ActivityType, ClassTimetable, Course, ElectiveSchedule, UserProfile, Weekday,
+  ActivityType, AttendanceCheckpoint, ClassTimetable, Course, ElectiveSchedule, UserProfile, Weekday,
 } from '../../types'
 
 /**
@@ -93,6 +93,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
   const [syllabusCourses, setSyllabusCourses] = useState<Course[]>([])
   const [scheduleExams, setScheduleExams] = useState<ScheduleExamOption[]>([])
   const { profile } = useAuth()
+  const isAdmin = Boolean(profile?.roles.includes('admin'))
   const [examSchedules, setExamSchedules] = useState<ExamScheduleEntry[]>([])
   /** The exam booking form — 'new' from the "Schedule exam" button, or an
    *  existing booking clicked on the grid. */
@@ -570,7 +571,7 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
         <button type="button" className="btn small secondary" onClick={() => setExamFormEntry('new')}>
           📝 Schedule exam
         </button>
-        <LiveClassLinkPanel />
+        <LiveClassLinkPanel isAdmin={isAdmin} students={students} />
         {saving ? <span className="muted small">Saving…</span> : null}
       </div>
 
@@ -656,17 +657,23 @@ export function SchedulePage({ initialStudentId = null }: { initialStudentId?: s
  */
 /**
  * Collapsed to a single button by default — clicking it slides out a side
- * drawer with the actual link, Copy/Open actions, and rotation control. Kept
- * as one component (rather than splitting trigger/drawer) since the token
- * state and actions are only ever needed together.
+ * drawer with the actual link, Copy/Open actions, rotation control, and
+ * (admin only) today's recorded check-ins with a reset action per student —
+ * this is "the Live Class" from a staff member's own point of view, so it's
+ * where an admin actually expects to manage a student's recorded time from,
+ * rather than a separate page. Kept as one component (rather than splitting
+ * trigger/drawer) since the token state and actions are only ever needed
+ * together.
  */
-function LiveClassLinkPanel() {
+function LiveClassLinkPanel({ isAdmin, students }: { isAdmin: boolean; students: UserProfile[] }) {
   const [token, setToken] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   const [open, setOpen] = useState(false)
+  const [checkpointsByStudent, setCheckpointsByStudent] = useState<Record<string, AttendanceCheckpoint[]>>({})
+  const [resettingId, setResettingId] = useState<string | null>(null)
 
   useEffect(() => {
     void (async () => {
@@ -680,6 +687,37 @@ function LiveClassLinkPanel() {
       }
     })()
   }, [])
+
+  // Only an admin can see or reset this, and only while the drawer's actually
+  // open — no point holding a live listener running in the background.
+  useEffect(() => {
+    if (!open || !isAdmin) return
+    const q = query(collection(db, 'attendance'), where('date', '==', todayStr()))
+    return onSnapshot(q, (snap) => {
+      const next: Record<string, AttendanceCheckpoint[]> = {}
+      snap.forEach((d) => {
+        const x = d.data()
+        const sid = x.studentId as string | undefined
+        if (sid) next[sid] = (x.checkpoints as AttendanceCheckpoint[] | undefined) ?? []
+      })
+      setCheckpointsByStudent(next)
+    })
+  }, [open, isAdmin])
+
+  async function resetCheckIn(studentId: string, name: string) {
+    if (!window.confirm(`Reset ${name}'s check-in for today? Their next scan will be recorded as a brand-new login.`)) return
+    setResettingId(studentId)
+    setError('')
+    try {
+      await setDoc(doc(db, 'attendance', `${studentId}_${todayStr()}`), { studentId, date: todayStr(), checkpoints: [] }, { merge: true })
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to reset check-in')
+    } finally {
+      setResettingId(null)
+    }
+  }
+
+  const checkedInToday = students.filter((s) => (checkpointsByStudent[s.id] ?? []).length > 0)
 
   async function generate(confirmMessage: string | null) {
     if (confirmMessage && !window.confirm(confirmMessage)) return
@@ -745,6 +783,42 @@ function LiveClassLinkPanel() {
               <button type="button" className="btn small primary" disabled={saving} onClick={() => void generate(null)}>
                 {saving ? 'Generating…' : '+ Generate link'}
               </button>
+            )}
+
+            {isAdmin && (
+              <div style={{ marginTop: '0.5rem', borderTop: '1px solid var(--border)', paddingTop: '0.85rem' }}>
+                <div className="muted small" style={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.5rem' }}>
+                  Today's Check-ins
+                </div>
+                {checkedInToday.length === 0 ? (
+                  <p className="muted small" style={{ margin: 0 }}>No one has checked in yet today.</p>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '40vh', overflowY: 'auto' }}>
+                    {checkedInToday.map((s) => {
+                      const checkpoints = checkpointsByStudent[s.id] ?? []
+                      const login = checkpoints.find((c) => c.kind === 'login')
+                      const logout = checkpoints.find((c) => c.kind === 'logout')
+                      return (
+                        <div key={s.id} className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.88rem' }}>{s.name}</div>
+                            <div className="muted small">
+                              {login ? `In ${new Date(login.scannedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : '—'}
+                              {logout ? ` · Out ${new Date(logout.scannedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}
+                            </div>
+                          </div>
+                          <button
+                            type="button" className="btn small ghost" disabled={resettingId === s.id}
+                            onClick={() => void resetCheckIn(s.id, s.name)}
+                          >
+                            {resettingId === s.id ? '…' : '🔄 Reset'}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </aside>
         </>

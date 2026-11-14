@@ -31,12 +31,21 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
     try { reader.clear() } catch { /* nothing to clear */ }
   }
 
+  // Set the instant a close is requested, checked again after every await in
+  // `openCamera` below — if a student backs out (taps the backdrop) while
+  // the camera is still mid-`starting`, the element they were waiting on
+  // gets unmounted out from under that still-running attempt, and without
+  // this guard it presses on anyway into a now-missing element.
+  const cancelledRef = useRef(false)
+
   async function closeCamera() {
+    cancelledRef.current = true
     setStatus('closed')
     await stopReader()
   }
 
   async function openCamera() {
+    cancelledRef.current = false
     // `starting` mounts and fully sizes the live-feed container *before*
     // html5-qrcode measures it to build its own <video> — starting the
     // camera while that box was still the trigger button's size (effectively
@@ -51,9 +60,16 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
     // the old, tiny size. Double-rAF guarantees the previous render has both
     // committed and actually painted before we go any further.
     await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
-    const reader = new Html5Qrcode(ELEMENT_ID)
+    if (cancelledRef.current) return
+    // Everything from here on, *including* the constructor, is inside the
+    // try — it was sitting outside before, so any failure to find the
+    // element (this cancellation race, or anything else) crashed as an
+    // uncaught promise rejection instead of landing on the error state below.
+    let reader: Html5Qrcode | null = null
     try {
+      reader = new Html5Qrcode(ELEMENT_ID)
       const cameras = await Html5Qrcode.getCameras()
+      if (cancelledRef.current) return
       if (cameras.length === 0) { setStatus('error'); return }
       // Most kiosk hardware is a single built-in (front-facing) webcam — pick
       // a rear/environment one only if there's genuinely more than one
@@ -78,12 +94,13 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
         },
         () => { /* no QR code in frame right now — expected most of the time, not an error */ },
       )
+      if (cancelledRef.current) { void reader.stop().catch(() => {}); reader.clear(); return }
       readerRef.current = reader
       setStatus('open')
     } catch {
-      setStatus('error')
-      try { await reader.stop() } catch { /* never started */ }
-      try { reader.clear() } catch { /* nothing to clear */ }
+      if (!cancelledRef.current) setStatus('error')
+      try { await reader?.stop() } catch { /* never started */ }
+      try { reader?.clear() } catch { /* nothing to clear */ }
     }
   }
 

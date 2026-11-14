@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
-import { collection, doc, getDocs, orderBy, query, updateDoc, where } from 'firebase/firestore'
+import { collection, doc, getDocs, orderBy, query, setDoc, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import { callCreateUser, callDeleteUser, callDisableUser, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
@@ -17,6 +17,7 @@ import {
 import { downloadDataUrl, renderBadge, renderIdCardBack, renderIdCardFront, studentCodeFor } from '../../lib/idCard'
 import { studentScanUrl } from '../../lib/publicUrl'
 import { publicApplyUrl } from '../../lib/publicApplyLink'
+import { todayStr } from '../../components/manager/schedulerShared'
 
 // Lazy — pulls in the whole PriorityScheduler grid, which most visits to the
 // Students page never need.
@@ -194,6 +195,20 @@ export function StudentsPage() {
       setStudents((prev) => prev.filter((x) => x.id !== u.id))
       if (selectedStudent?.id === u.id) setSelectedStudent(null)
     } catch (err: unknown) { setError(formatFirebaseError(err, 'Delete failed')) }
+  }
+
+  /** Clears today's recorded checkpoints (login/period check-ins/logout) for
+   *  one student — their next QR scan at the Live Class kiosk is then treated
+   *  as a fresh first-of-the-day login again. For the rare case a scan was a
+   *  mistake, or staff want someone to re-check-in. Admin-only — deliberately
+   *  not part of the manager scope, since it rewrites attendance history. */
+  async function resetTodayCheckIn(u: UserProfile) {
+    if (!isAdmin) return
+    if (!window.confirm(`Reset ${u.name || u.email}'s check-in for today? Their next scan will be recorded as a brand-new login.`)) return
+    setError('')
+    try {
+      await setDoc(doc(db, 'attendance', `${u.id}_${todayStr()}`), { studentId: u.id, date: todayStr(), checkpoints: [] }, { merge: true })
+    } catch (err: unknown) { setError(formatFirebaseError(err, 'Failed to reset check-in')) }
   }
 
   /** Display label only — the stored `UserStatus` value is still 'active'/'disabled'. */
@@ -433,6 +448,15 @@ export function StudentsPage() {
                         >
                           {s.isTopTier ? 'Remove Top Tier' : '⭐ Mark Top Tier'}
                         </button>
+                        {isAdmin && (
+                          <button
+                            type="button"
+                            className="topic-menu-item"
+                            onClick={() => { setOpenMenuId(null); void resetTodayCheckIn(s) }}
+                          >
+                            🔄 Reset Today's Check-in
+                          </button>
+                        )}
                         {s.status === 'active' ? (
                           <button
                             type="button"

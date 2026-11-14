@@ -1416,6 +1416,9 @@ button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cu
 .kiosk-scan-video-wrap { position: relative; width: min(420px, 85vw); height: min(420px, 85vw); border-radius: 18px; overflow: hidden; background: #0b1020; }
 .kiosk-scan-video { width: 100%; height: 100%; }
 .kiosk-scan-video video { width: 100%; height: 100%; object-fit: cover; }
+/* Mirrors the displayed feed only — html5-qrcode decodes from the real
+   (unmirrored) video frames underneath, so this can't affect scanning. */
+.kiosk-scan-video.mirrored video { transform: scaleX(-1); }
 /* A visible scan-frame guide, dimming the area outside it within the feed. */
 .kiosk-scan-frame {
   position: absolute; inset: 20px; border: 3px solid rgba(255,255,255,0.85); border-radius: 16px;

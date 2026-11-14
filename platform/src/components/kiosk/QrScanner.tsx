@@ -18,6 +18,16 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
   const onDecodeRef = useRef(onDecode)
   const readerRef = useRef<Html5Qrcode | null>(null)
   const [status, setStatus] = useState<Status>('closed')
+  // A front-facing webcam's raw feed moves opposite to how a student moves
+  // their card — exactly backwards from the mirrored view everyone already
+  // expects from a laptop camera, which made lining the card up with the
+  // scan-frame guide much harder than it should be. Mirrored by default
+  // (true front-facing-webcam default); a genuine rear/environment camera
+  // (picked below only when more than one is available) shows unmirrored,
+  // same as a phone's own rear camera preview. Display-only — html5-qrcode
+  // decodes from the raw, unmirrored video frames regardless of this CSS
+  // transform, so flipping it can never break a scan.
+  const [mirrored, setMirrored] = useState(true)
 
   useEffect(() => {
     onDecodeRef.current = onDecode
@@ -74,9 +84,9 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
       // Most kiosk hardware is a single built-in (front-facing) webcam — pick
       // a rear/environment one only if there's genuinely more than one
       // camera to choose from, never force a facingMode a laptop doesn't have.
-      const camera = cameras.length > 1
-        ? cameras.find((c) => /back|rear|environment/i.test(c.label)) ?? cameras[cameras.length - 1]!
-        : cameras[0]!
+      const rearCamera = cameras.length > 1 ? cameras.find((c) => /back|rear|environment/i.test(c.label)) : undefined
+      const camera = rearCamera ?? cameras[cameras.length - 1]!
+      setMirrored(!rearCamera)
       await reader.start(
         camera.id,
         // Just the camera id, nothing else — no `qrbox` (it makes the library
@@ -120,7 +130,7 @@ export function QrScanner({ onDecode }: { onDecode: (text: string) => boolean })
           <div className="kiosk-scan-card" onClick={(e) => e.stopPropagation()}>
             <button type="button" className="kiosk-scan-close" onClick={() => void closeCamera()} title="Close camera" aria-label="Close camera">✕</button>
             <div className="kiosk-scan-video-wrap">
-              <div id={ELEMENT_ID} className="kiosk-scan-video" aria-hidden />
+              <div id={ELEMENT_ID} className={`kiosk-scan-video${mirrored ? ' mirrored' : ''}`} aria-hidden />
               <div className="kiosk-scan-frame" aria-hidden />
               {status === 'open' && <span className="kiosk-scan-dot" aria-hidden />}
             </div>

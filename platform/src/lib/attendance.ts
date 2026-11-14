@@ -7,6 +7,12 @@ const JS_DAY_TO_WEEKDAY: (Weekday | null)[] = [null, 'Mon', 'Tue', 'Wed', 'Thu',
  *  counts as late. One shared constant — tweak here, not per call site. */
 export const GRACE_MINUTES = 5
 
+/** A logout scan only counts starting this many minutes before the day's
+ *  last locked period ends (and any time after it) — a scan earlier than
+ *  that is just too early to be "leaving", so it's treated as a mid-day
+ *  check-in instead (see `determineNextCheckpoint`). */
+export const LOGOUT_WINDOW_MINUTES = 10
+
 export function todayWeekday(now: Date = new Date()): Weekday | null {
   return JS_DAY_TO_WEEKDAY[now.getDay()] ?? null
 }
@@ -21,28 +27,36 @@ export function todaysPeriods(timetable: ClassTimetable, weekday: Weekday): Time
 
 export type NextCheckpoint =
   | { kind: 'login'; status: 'on-time' | 'late' }
-  | { kind: 'period'; periodId: string; status: 'on-time' | 'late' }
   | { kind: 'logout'; status: 'on-time' | 'late' }
+  /** Logged in, nothing new to record yet (too early to log out) — just show
+   *  the student their day and stats, don't write anything. */
+  | { kind: 'in-progress' }
+  /** Both login and logout already recorded — fully done for today. */
+  | { kind: 'done' }
 
 /**
  * The whole "which scan is this?" state machine — one QR scan in, exactly one
- * checkpoint out (or `null` once there's nothing left to record today). Called
- * fresh on every scan with that student's checkpoints so far; never mutates.
+ * outcome out. Called fresh on every scan with that student's checkpoints so
+ * far; never mutates. Per-period check-ins were removed (may return as a
+ * separate feature later) — every scan between login and the logout window
+ * is purely informational.
  *  1. No `login` yet → this scan is the login, judged against the first period's
  *     start time (a day with no locked periods at all — e.g. all-elective —
  *     has nothing to be "late" against, so an early arrival is just on-time).
- *     This always wins, even before any period's start time or on a day with
- *     zero locked periods — a student is never "already checked out" before
+ *     This always wins — a student is never "already checked out" before
  *     they've so much as logged in once.
- *  2. Earliest not-yet-checked-in period whose own start time has arrived → this
- *     scan is that period's check-in, judged against *that* period's start time.
- *  3. Every period checked in, no `logout` yet → this scan is the logout
- *     (always "on-time" — there's no "late to leave").
- *  4. Otherwise → `null` ("already checked out for today").
+ *  2. Has a `login`, no `logout` yet, and the clock has reached the logout
+ *     window (`LOGOUT_WINDOW_MINUTES` before the day's last locked period
+ *     ends, or any time after it — a day with no locked periods has no
+ *     window to wait for, so this applies from the first post-login scan) →
+ *     this scan is the logout (always "on-time" — there's no "late to leave").
+ *  3. Has a `login`, no `logout` yet, too early for the logout window →
+ *     `in-progress` — nothing to record.
+ *  4. Both recorded → `done`.
  */
 export function determineNextCheckpoint(
   periods: TimetablePeriod[], existing: AttendanceCheckpoint[], now: Date = new Date(),
-): NextCheckpoint | null {
+): NextCheckpoint {
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const statusFor = (startMin: number): 'on-time' | 'late' => (nowMin <= startMin + GRACE_MINUTES ? 'on-time' : 'late')
 
@@ -52,18 +66,14 @@ export function determineNextCheckpoint(
     return { kind: 'login', status: statusFor(firstStartMin) }
   }
 
-  const checkedInPeriodIds = new Set(existing.filter((c) => c.kind === 'period').map((c) => c.periodId))
-  for (const period of periods) {
-    if (checkedInPeriodIds.has(period.id)) continue
-    const startMin = timeStrToMinutes(period.startTime) ?? 0
-    if (nowMin < startMin) break // periods are time-sorted — nothing later is due yet either
-    return { kind: 'period', periodId: period.id, status: statusFor(startMin) }
-  }
+  if (existing.some((c) => c.kind === 'logout')) return { kind: 'done' }
 
-  const hasLogout = existing.some((c) => c.kind === 'logout')
-  if (!hasLogout) return { kind: 'logout', status: 'on-time' }
+  if (periods.length === 0) return { kind: 'logout', status: 'on-time' }
 
-  return null
+  const dayEndMin = Math.max(...periods.map((p) => (timeStrToMinutes(p.startTime) ?? 0) + p.durationMinutes))
+  if (nowMin >= dayEndMin - LOGOUT_WINDOW_MINUTES) return { kind: 'logout', status: 'on-time' }
+
+  return { kind: 'in-progress' }
 }
 
 /** Display label for one checkpoint — shared by the scan confirmation screen

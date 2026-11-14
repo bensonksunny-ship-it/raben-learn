@@ -69,7 +69,7 @@ export function StudentScanOverlay({
   const [subjectHours, setSubjectHours] = useState<SubjectWeeklyHours[]>([])
   const [streak, setStreak] = useState<number | null>(null)
   const [checkpoint, setCheckpoint] = useState<AttendanceCheckpoint | null>(null)
-  const [alreadyDone, setAlreadyDone] = useState(false)
+  const [resultKind, setResultKind] = useState<'already-done' | 'in-progress' | 'no-school'>('in-progress')
   // Which subject's topics/exam-status preview is open, and the lazy-loaded
   // results per courseId tapped so far this scan (never refetched twice).
   const [activeCourseId, setActiveCourseId] = useState<string | null>(null)
@@ -90,7 +90,7 @@ export function StudentScanOverlay({
       // ID (lost card, etc.) rotates this field, so an old physical card stops
       // working here the same way it already stops working on `/scan`.
       if (qrToken !== student.qrToken) { if (!cancelled) setPhase('invalid'); return }
-      if (!weekday) { if (!cancelled) { setAlreadyDone(true); setPhase('ready') } return }
+      if (!weekday) { if (!cancelled) { setResultKind('no-school'); setPhase('ready') } return }
       try {
         const day = await loadPersonalizedDay(kioskDb, studentId, weekday, fallbackTimetable, fallbackElectives)
         if (cancelled) return
@@ -100,11 +100,11 @@ export function StudentScanOverlay({
 
         const existing = initialCheckpointsRef.current
         const next = determineNextCheckpoint(day.periods, existing, new Date())
-        if (!next) { setAlreadyDone(true); setPhase('ready'); return }
+        if (next.kind === 'done') { setResultKind('already-done'); setPhase('ready'); return }
+        if (next.kind === 'in-progress') { setResultKind('in-progress'); setPhase('ready'); return }
 
         const newCheckpoint: AttendanceCheckpoint = {
           kind: next.kind,
-          ...(next.kind === 'period' ? { periodId: next.periodId } : {}),
           status: next.status,
           scannedAt: new Date().toISOString(),
         }
@@ -223,7 +223,9 @@ export function StudentScanOverlay({
               </>
             ) : (
               <p className="kiosk-checkpoint-line">
-                {alreadyDone ? '✅ Already logged out for today' : '📅 Nothing scheduled today'}
+                {resultKind === 'already-done' ? '✅ Already logged out for today'
+                  : resultKind === 'no-school' ? '📅 Nothing scheduled today'
+                  : `👋 Hi, ${student.name.split(' ')[0]}! Here's your day.`}
               </p>
             )}
 

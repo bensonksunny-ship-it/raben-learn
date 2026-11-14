@@ -215,7 +215,6 @@ export function LiveClassKioskPage() {
   }, [periods, electives, weekday, todaysExams])
   const scheduledStartMin = timed[0]?.startMin ?? null
   const state = clockState(timed, nowMin)
-  const currentPeriodId = state.kind === 'in' && state.current.kind === 'period' ? state.current.id : null
 
   async function startClass() {
     if (scheduledStartMin == null) return
@@ -345,12 +344,6 @@ export function LiveClassKioskPage() {
               <tr>
                 <th style={{ fontSize: '0.85rem' }}>Student</th>
                 <th style={{ textAlign: 'center', fontSize: '0.85rem' }}>Login</th>
-                {periods.map((p, i) => (
-                  <th key={p.id} style={{ textAlign: 'center', fontSize: '0.85rem', background: p.id === currentPeriodId ? 'var(--primary-soft)' : undefined }} title={p.title}>
-                    P{i + 1}
-                    <div className="muted" style={{ fontWeight: 500, fontSize: '0.75rem', whiteSpace: 'nowrap' }}>{p.title}</div>
-                  </th>
-                ))}
                 <th style={{ textAlign: 'center', fontSize: '0.85rem' }}>Logout</th>
               </tr>
             </thead>
@@ -363,11 +356,6 @@ export function LiveClassKioskPage() {
                   <tr key={s.id}>
                     <td style={{ fontWeight: 600 }}>{s.name}</td>
                     <td style={{ textAlign: 'center' }}><Badge checkpoint={login} /></td>
-                    {periods.map((p) => (
-                      <td key={p.id} style={{ textAlign: 'center', background: p.id === currentPeriodId ? 'var(--primary-soft)' : undefined }}>
-                        <Badge checkpoint={checkpoints.find((c) => c.kind === 'period' && c.periodId === p.id)} />
-                      </td>
-                    ))}
                     <td style={{ textAlign: 'center' }}><Badge checkpoint={logout} /></td>
                   </tr>
                 )

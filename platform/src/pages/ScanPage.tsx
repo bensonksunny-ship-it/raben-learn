@@ -10,6 +10,7 @@ import type { AttendanceCheckpoint, ElectiveSession, TimetablePeriod } from '../
 type ScanOutcome =
   | { kind: 'recorded'; checkpoint: AttendanceCheckpoint }
   | { kind: 'done' } // nothing left to record today (already logged out)
+  | { kind: 'in-progress' } // logged in, too early for the logout window — just show the day
   | { kind: 'no-school' } // Sunday, or no periods configured today
 
 type ScheduleRow =
@@ -132,11 +133,11 @@ export default function ScanPage() {
           : []
 
         const next = determineNextCheckpoint(periods, existing, new Date())
-        if (!next) { setOutcome({ kind: 'done' }); return }
+        if (next.kind === 'done') { setOutcome({ kind: 'done' }); return }
+        if (next.kind === 'in-progress') { setOutcome({ kind: 'in-progress' }); return }
 
         const checkpoint: AttendanceCheckpoint = {
           kind: next.kind,
-          ...(next.kind === 'period' ? { periodId: next.periodId } : {}),
           status: next.status,
           scannedAt: new Date().toISOString(),
         }
@@ -231,6 +232,18 @@ export default function ScanPage() {
         <h2 style={{ margin: '0.5rem 0 0.25rem' }}>No school today</h2>
         <p className="muted" style={{ marginBottom: details ? '0.25rem' : '1rem' }}>{studentName} — nothing scheduled, nothing to check in to.</p>
         {details}
+      </ScanShell>
+    )
+  }
+
+  if (outcome?.kind === 'in-progress') {
+    return (
+      <ScanShell>
+        <span style={{ fontSize: '3rem' }}>👋</span>
+        <h2 style={{ margin: '0.5rem 0 0.25rem' }}>Hi, {studentName}!</h2>
+        <p className="muted" style={{ marginBottom: details ? '0.25rem' : '1rem' }}>Here's your day so far.</p>
+        {details}
+        {schedule}
       </ScanShell>
     )
   }

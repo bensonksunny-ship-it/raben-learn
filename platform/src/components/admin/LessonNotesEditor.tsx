@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEditor, EditorContent, type Editor } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Image from '@tiptap/extension-image'
@@ -14,6 +14,11 @@ interface LessonNotesEditorProps {
   /** Admin/consultant get the rich editor; everyone else (mentor/"teacher",
    *  manager) gets a read-only rendered page with a print/download link. */
   canEdit: boolean
+  /** Fires whenever the in-progress edit diverges from (or returns to match)
+   *  the last saved version — lets a parent that navigates between topics
+   *  (the Syllabus Builder's notebook page-flip) warn before discarding
+   *  unsaved work. Omit if the caller doesn't need that guard. */
+  onDirtyChange?: (dirty: boolean) => void
 }
 
 /** Inserts an uploaded image at the current cursor, used by both the toolbar
@@ -47,7 +52,7 @@ function Toolbar({ editor, topicId }: { editor: Editor; topicId: string }) {
   )
 }
 
-export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesEditorProps) {
+export function LessonNotesEditor({ topicId, topicTitle, canEdit, onDirtyChange }: LessonNotesEditorProps) {
   const { profile } = useAuth()
   const [loading, setLoading] = useState(true)
   const [savedHtml, setSavedHtml] = useState('')
@@ -58,8 +63,17 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
   // explicit action, and "Save Notes" switches back to the read-only view.
   const [editing, setEditing] = useState(false)
 
+  // Refs, not plain closures — `onUpdate` below is bound once when the editor
+  // is created and would otherwise see whichever `savedHtml`/`onDirtyChange`
+  // were current at that moment forever, not the latest ones.
+  const savedHtmlRef = useRef(savedHtml)
+  useEffect(() => { savedHtmlRef.current = savedHtml }, [savedHtml])
+  const onDirtyChangeRef = useRef(onDirtyChange)
+  useEffect(() => { onDirtyChangeRef.current = onDirtyChange }, [onDirtyChange])
+
   const editor = useEditor({
     editable: canEdit,
+    onUpdate: ({ editor: e }) => onDirtyChangeRef.current?.(e.getHTML() !== savedHtmlRef.current),
     // This component is lazy-loaded behind a <Suspense> boundary (see
     // SyllabusPage), and TipTap's default `immediatelyRender: true` tries to
     // render synchronously on first render — exactly the combination its own
@@ -99,6 +113,7 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
         if (cancelled) return
         setSavedHtml(html)
         setEditing(canEdit && !html)
+        onDirtyChangeRef.current?.(false)
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load notes')
       } finally {
@@ -115,7 +130,10 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
   // it does. This re-syncs whenever either one becomes ready.
   useEffect(() => {
     if (!editor) return
-    editor.commands.setContent(savedHtml)
+    // `emitUpdate: false` — don't fire `onUpdate` for this, it's loading/
+    // resetting to the saved version, not a real edit, and should never mark
+    // the page dirty.
+    editor.commands.setContent(savedHtml, { emitUpdate: false })
   }, [editor, savedHtml])
 
   async function save() {
@@ -129,6 +147,7 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
       setSavedHtml(html)
       setSavedAt(Date.now())
       setEditing(false)
+      onDirtyChangeRef.current?.(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to save notes')
     } finally {
@@ -187,7 +206,10 @@ export function LessonNotesEditor({ topicId, topicTitle, canEdit }: LessonNotesE
           {saving ? 'Saving…' : 'Save Notes'}
         </button>
         {savedHtml && (
-          <button type="button" className="btn secondary small" disabled={saving} onClick={() => { editor?.commands.setContent(savedHtml); setEditing(false) }}>
+          <button
+            type="button" className="btn secondary small" disabled={saving}
+            onClick={() => { editor?.commands.setContent(savedHtml, { emitUpdate: false }); setEditing(false); onDirtyChangeRef.current?.(false) }}
+          >
             Cancel
           </button>
         )}

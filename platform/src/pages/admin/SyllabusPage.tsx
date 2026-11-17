@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from 'react'
 import { addDoc, collection, deleteDoc, doc, getDocs, query, serverTimestamp, updateDoc, where } from 'firebase/firestore'
 import { db } from '../../firebase/config'
 import type { ClassTimetable, Course, ElectiveSchedule, LevelId, Session, Topic, TopicType } from '../../types'
@@ -81,6 +81,15 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
   // notes plus, if the signed-in role may see exams, a button into the same
   // per-topic exam modal above. Replaces separate inline buttons per row.
   const [topicDetail, setTopicDetail] = useState<{ id: string; title: string } | null>(null)
+  // Whether the notes editor currently open in that notebook page has
+  // unsaved edits — set via LessonNotesEditor's onDirtyChange, checked
+  // before a page-flip (Prev/Next topic, or closing the notebook outright)
+  // discards it silently.
+  const [notesDirty, setNotesDirty] = useState(false)
+  // Drives the 3D page-turn animation — which direction just fired, cleared
+  // once the CSS animation finishes. The actual topic swap happens mid-flight
+  // (see `flipToTopic`) so it lands while the page is edge-on, not visibly.
+  const [flip, setFlip] = useState<'next' | 'prev' | null>(null)
   const [editingCourseInfo, setEditingCourseInfo] = useState(false)
   const [courseMenuOpen, setCourseMenuOpen] = useState(false)
   const [editCourseTitle, setEditCourseTitle] = useState('')
@@ -413,6 +422,68 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
     if (newRowTitle.trim()) await addRow(newRowTitle)
     setEditingSyllabus(false)
   }
+
+  // ─── Notebook page-flip ─────────────────────────────────────────────────
+  const topicIndex = topicDetail ? flatRows.findIndex((r) => r.topic.id === topicDetail.id) : -1
+  const FLIP_MS = 600
+  // Pending flip timeouts (content-swap + animation-class-clear) — cleared on
+  // close/unmount so a flip mid-flight can never fire after the notebook's
+  // already gone.
+  const flipTimeoutsRef = useRef<number[]>([])
+  function clearFlipTimeouts() {
+    flipTimeoutsRef.current.forEach((id) => window.clearTimeout(id))
+    flipTimeoutsRef.current = []
+  }
+  useEffect(() => clearFlipTimeouts, [])
+
+  /** Same confirm-before-discard pattern used everywhere else in this file —
+   *  guards a page-flip, or closing the notebook outright, against silently
+   *  losing unsaved notes. */
+  function confirmDiscardIfDirty(): boolean {
+    if (!notesDirty) return true
+    return window.confirm("You have unsaved notes on this page. Leave without saving?")
+  }
+
+  function closeNotebook() {
+    if (!confirmDiscardIfDirty()) return
+    clearFlipTimeouts()
+    setFlip(null)
+    setTopicDetail(null)
+    setNotesDirty(false)
+  }
+
+  /** Flips to the next/previous topic's page. The topic swap itself happens
+   *  mid-animation (`FLIP_MS / 2`), timed to land while the page is edge-on
+   *  and essentially invisible, so the content change doesn't just pop. */
+  function flipToTopic(delta: number) {
+    if (topicIndex < 0) return
+    const nextIndex = topicIndex + delta
+    if (nextIndex < 0 || nextIndex >= flatRows.length) return
+    if (!confirmDiscardIfDirty()) return
+    const target = flatRows[nextIndex]!.topic
+    setFlip(delta > 0 ? 'next' : 'prev')
+    const swapId = window.setTimeout(() => { setTopicDetail({ id: target.id, title: target.title }); setNotesDirty(false) }, FLIP_MS / 2)
+    const clearId = window.setTimeout(() => setFlip(null), FLIP_MS + 20)
+    flipTimeoutsRef.current = [swapId, clearId]
+  }
+
+  // Left/Right arrow flips pages while the notebook is open — ignored while
+  // the caret's actually inside the notes editor (or any text field), so
+  // typing doesn't flip pages out from under you.
+  useEffect(() => {
+    if (!topicDetail) return
+    function onKeyDown(e: KeyboardEvent) {
+      const active = document.activeElement
+      const typing = active instanceof HTMLElement
+        && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+      if (typing) return
+      if (e.key === 'ArrowLeft') flipToTopic(-1)
+      else if (e.key === 'ArrowRight') flipToTopic(1)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topicDetail, notesDirty, flatRows])
 
   return (
     <div>
@@ -754,33 +825,68 @@ export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) 
       )}
 
       {/* Topic detail — reached by clicking a title in the clean view-only table
-          (or the "📝 Notes" shortcut while editing). Lesson notes plus, for roles
-          that may see exams, a button into the same per-topic exam modal above —
-          the row itself carries no inline action buttons any more. */}
+          (or the "📝 Notes" shortcut while editing). A physical-notebook page:
+          lesson notes, plus, for roles that may see exams, a button into the
+          same per-topic exam modal above — and Prev/Next controls (also
+          ←/→ arrow keys) that flip to the adjoining topic's page with a 3D
+          page-turn, guarded against losing unsaved notes. */}
       {topicDetail && (
-        <div className="modal-backdrop" onClick={() => setTopicDetail(null)}>
-          <div className="modal" style={{ maxWidth: 760, width: '95%' }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <h3 style={{ margin: 0 }}>{topicDetail.title}</h3>
-              <button type="button" className="btn small ghost" onClick={() => setTopicDetail(null)}>✕</button>
+        <div className="modal-backdrop" onClick={closeNotebook}>
+          <div className="notebook-flip-wrap" onClick={(e) => e.stopPropagation()}>
+            <div className={`notebook-page${flip ? ` flip-${flip}` : ''}`}>
+              <div className="notebook-rings" aria-hidden>
+                {Array.from({ length: 12 }).map((_, i) => <span key={i} className="notebook-ring" />)}
+              </div>
+              <span className="notebook-page-badge">Page {topicIndex + 1} of {flatRows.length}</span>
+              <button type="button" className="notebook-close" onClick={closeNotebook} aria-label="Close notebook">✕</button>
+
+              <div className="notebook-content">
+                <h3 className="notebook-title">{topicDetail.title}</h3>
+
+                {canSeeExams && (
+                  <button
+                    type="button"
+                    className="btn secondary"
+                    style={{ marginBottom: '1.1rem' }}
+                    onClick={() => {
+                      if (!confirmDiscardIfDirty()) return
+                      const t = topicDetail
+                      setTopicDetail(null); setNotesDirty(false)
+                      setExamModalTopic(t)
+                    }}
+                  >
+                    🎓 Exam
+                  </button>
+                )}
+
+                {canSeeNotes ? (
+                  <Suspense fallback={<p className="muted">Loading…</p>}>
+                    <LessonNotesEditor topicId={topicDetail.id} topicTitle={topicDetail.title} canEdit={canEditNotes} onDirtyChange={setNotesDirty} />
+                  </Suspense>
+                ) : !canSeeExams ? (
+                  <p className="muted">No details available for this topic.</p>
+                ) : null}
+              </div>
+
+              <div className="notebook-nav">
+                <button type="button" className="btn secondary small notebook-nav-btn" disabled={topicIndex <= 0} onClick={() => flipToTopic(-1)}>
+                  ← Prev Page
+                </button>
+                <button
+                  type="button" className="btn secondary small notebook-nav-btn"
+                  disabled={topicIndex < 0 || topicIndex >= flatRows.length - 1} onClick={() => flipToTopic(1)}
+                >
+                  Next Page →
+                </button>
+              </div>
+
+              {topicIndex > 0 && (
+                <button type="button" className="notebook-corner notebook-corner-left" aria-label="Previous page" title="Previous page" onClick={() => flipToTopic(-1)} />
+              )}
+              {topicIndex >= 0 && topicIndex < flatRows.length - 1 && (
+                <button type="button" className="notebook-corner notebook-corner-right" aria-label="Next page" title="Next page" onClick={() => flipToTopic(1)} />
+              )}
             </div>
-            {canSeeExams && (
-              <button
-                type="button"
-                className="btn secondary"
-                style={{ marginBottom: '1.25rem' }}
-                onClick={() => { const t = topicDetail; setTopicDetail(null); setExamModalTopic(t) }}
-              >
-                🎓 Exam
-              </button>
-            )}
-            {canSeeNotes ? (
-              <Suspense fallback={<p className="muted">Loading…</p>}>
-                <LessonNotesEditor topicId={topicDetail.id} topicTitle={topicDetail.title} canEdit={canEditNotes} />
-              </Suspense>
-            ) : !canSeeExams ? (
-              <p className="muted">No details available for this topic.</p>
-            ) : null}
           </div>
         </div>
       )}

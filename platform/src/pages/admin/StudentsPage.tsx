@@ -333,9 +333,16 @@ export function StudentsPage() {
       {canManage && applicantFormId && (
         <div className="modal-backdrop" onClick={() => { setApplicantFormId(null); void load() }}>
           <div className="modal" style={{ maxWidth: 820 }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0 }}>📝 Student Application</h3>
-              <button type="button" className="btn small ghost" onClick={() => { setApplicantFormId(null); void load() }}>✕</button>
+              <div className="row" style={{ gap: '0.5rem' }}>
+                {/* Same no-login link as an existing applicant already gets (see
+                    the Applications list below) — offered here too, up front,
+                    so staff don't have to fill the whole form in themselves
+                    just to hand it off to a parent instead. */}
+                <ApplyLinkPanel coll="applicants" studentId={applicantFormId} createdBy={profile?.id} />
+                <button type="button" className="btn small ghost" onClick={() => { setApplicantFormId(null); void load() }}>✕</button>
+              </div>
             </div>
             <StudentApplicationForm
               studentId={applicantFormId}

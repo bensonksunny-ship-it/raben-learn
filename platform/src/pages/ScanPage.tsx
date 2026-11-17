@@ -4,7 +4,7 @@ import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { db } from '../firebase/config'
 import { useAuth } from '../context/AuthContext'
 import { todayStr, weekKeyOf, normalizeTimetable, normalizeElectives, timeStrToMinutes } from '../components/manager/schedulerShared'
-import { determineNextCheckpoint, todaysPeriods, todayWeekday, checkpointLabel } from '../lib/attendance'
+import { determineNextCheckpoint, todaysPeriods, todayWeekday, checkpointLabel, buildTimedPeriods } from '../lib/attendance'
 import type { AttendanceCheckpoint, ElectiveSession, TimetablePeriod } from '../types'
 
 type ScanOutcome =
@@ -126,13 +126,18 @@ export default function ScanPage() {
           setScheduleRows(rows)
         }
 
-        if (periods.length === 0) { setOutcome({ kind: 'no-school' }); return }
+        const timed = buildTimedPeriods(periods, sessions)
+        if (timed.length === 0) { setOutcome({ kind: 'no-school' }); return }
 
         const existing: AttendanceCheckpoint[] = attendanceSnap.exists()
           ? ((attendanceSnap.data().checkpoints as AttendanceCheckpoint[] | undefined) ?? [])
           : []
 
-        const next = determineNextCheckpoint(periods, existing, new Date())
+        // The full merged schedule (periods + electives), not just locked
+        // periods — a day built entirely of electives previously had no
+        // anchor to judge lateness against at all, so it silently always
+        // read as "on-time" no matter when the student actually showed up.
+        const next = determineNextCheckpoint(timed, existing, new Date())
         if (next.kind === 'done') { setOutcome({ kind: 'done' }); return }
         if (next.kind === 'in-progress') { setOutcome({ kind: 'in-progress' }); return }
 

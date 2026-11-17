@@ -40,14 +40,21 @@ export type NextCheckpoint =
  * far; never mutates. Per-period check-ins were removed (may return as a
  * separate feature later) — every scan between login and the logout window
  * is purely informational.
- *  1. No `login` yet → this scan is the login, judged against the first period's
- *     start time (a day with no locked periods at all — e.g. all-elective —
- *     has nothing to be "late" against, so an early arrival is just on-time).
- *     This always wins — a student is never "already checked out" before
- *     they've so much as logged in once.
+ *
+ * Takes the day's full merged schedule (`TimedPeriod[]` — locked periods
+ * *and* elective sessions, via `buildTimedPeriods`), not just locked
+ * periods: a student whose day is entirely electives previously had no
+ * anchor to be judged "late" against at all (it fell back to "right now",
+ * which is always on-time by definition) — a real bug, not just cosmetic,
+ * since it could show a genuinely-late student as on-time.
+ *  1. No `login` yet → this scan is the login, judged against the day's
+ *     first scheduled item (a day with nothing scheduled at all has nothing
+ *     to be "late" against, so an early arrival is just on-time). This
+ *     always wins — a student is never "already checked out" before they've
+ *     so much as logged in once.
  *  2. Has a `login`, no `logout` yet, and the clock has reached the logout
- *     window (`LOGOUT_WINDOW_MINUTES` before the day's last locked period
- *     ends, or any time after it — a day with no locked periods has no
+ *     window (`LOGOUT_WINDOW_MINUTES` before the day's last scheduled item
+ *     ends, or any time after it — a day with nothing scheduled has no
  *     window to wait for, so this applies from the first post-login scan) →
  *     this scan is the logout (always "on-time" — there's no "late to leave").
  *  3. Has a `login`, no `logout` yet, too early for the logout window →
@@ -55,22 +62,22 @@ export type NextCheckpoint =
  *  4. Both recorded → `done`.
  */
 export function determineNextCheckpoint(
-  periods: TimetablePeriod[], existing: AttendanceCheckpoint[], now: Date = new Date(),
+  timed: TimedPeriod[], existing: AttendanceCheckpoint[], now: Date = new Date(),
 ): NextCheckpoint {
   const nowMin = now.getHours() * 60 + now.getMinutes()
   const statusFor = (startMin: number): 'on-time' | 'late' => (nowMin <= startMin + GRACE_MINUTES ? 'on-time' : 'late')
 
   const hasLogin = existing.some((c) => c.kind === 'login')
   if (!hasLogin) {
-    const firstStartMin = periods[0] ? (timeStrToMinutes(periods[0].startTime) ?? nowMin) : nowMin
+    const firstStartMin = timed[0] ? timed[0].startMin : nowMin
     return { kind: 'login', status: statusFor(firstStartMin) }
   }
 
   if (existing.some((c) => c.kind === 'logout')) return { kind: 'done' }
 
-  if (periods.length === 0) return { kind: 'logout', status: 'on-time' }
+  if (timed.length === 0) return { kind: 'logout', status: 'on-time' }
 
-  const dayEndMin = Math.max(...periods.map((p) => (timeStrToMinutes(p.startTime) ?? 0) + p.durationMinutes))
+  const dayEndMin = Math.max(...timed.map((t) => t.endMin))
   if (nowMin >= dayEndMin - LOGOUT_WINDOW_MINUTES) return { kind: 'logout', status: 'on-time' }
 
   return { kind: 'in-progress' }

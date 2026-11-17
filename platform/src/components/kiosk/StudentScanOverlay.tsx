@@ -3,11 +3,11 @@ import { doc, setDoc, type Firestore } from 'firebase/firestore'
 import { avatarClass } from '../../lib/userUtils'
 import { computeSubjectWeeklyHours, type SubjectWeeklyHours } from '../../components/manager/schedulerShared'
 import {
-  determineNextCheckpoint, checkpointLabel, clockState, formatClock, formatSpan,
+  determineNextCheckpoint, clockState, formatClock, formatSpan,
   type TimedPeriod,
 } from '../../lib/attendance'
 import { loadPersonalizedDay, loadCoursePreview, loadStreak } from '../../lib/kioskScan'
-import type { AttendanceCheckpoint, ClassTimetable, Course, ElectiveSchedule, Topic, TimetablePeriod, UserProfile, Weekday } from '../../types'
+import type { AttendanceCheckpoint, ClassTimetable, Course, ElectiveSchedule, Topic, UserProfile, Weekday } from '../../types'
 
 /** How long a scanned student's full-screen view stays up before the kiosk
  *  reverts to its neutral campus-wide display and resumes scanning. Tapping
@@ -29,6 +29,13 @@ function useNow(): Date {
 }
 
 const MEDALS = ['🥇', '🥈', '🥉']
+
+/** "Maths, English and Science" — not an Oxford-comma list, a spoken-sounding one. */
+function joinWithAnd(items: string[]): string {
+  if (items.length <= 1) return items[0] ?? ''
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
 
 interface Props {
   studentId: string
@@ -64,7 +71,6 @@ export function StudentScanOverlay({
   existingCheckpoints, syllabusCourses, onClose,
 }: Props) {
   const [phase, setPhase] = useState<'loading' | 'ready' | 'invalid' | 'error'>('loading')
-  const [periods, setPeriods] = useState<TimetablePeriod[]>([])
   const [timed, setTimed] = useState<TimedPeriod[]>([])
   const [subjectHours, setSubjectHours] = useState<SubjectWeeklyHours[]>([])
   const [streak, setStreak] = useState<number | null>(null)
@@ -94,12 +100,11 @@ export function StudentScanOverlay({
       try {
         const day = await loadPersonalizedDay(kioskDb, studentId, weekday, fallbackTimetable, fallbackElectives)
         if (cancelled) return
-        setPeriods(day.periods)
         setTimed(day.timed)
         setSubjectHours(computeSubjectWeeklyHours(day.timetable, day.electives, syllabusCourses))
 
         const existing = initialCheckpointsRef.current
-        const next = determineNextCheckpoint(day.periods, existing, new Date())
+        const next = determineNextCheckpoint(day.timed, existing, new Date())
         if (next.kind === 'done') { setResultKind('already-done'); setPhase('ready'); return }
         if (next.kind === 'in-progress') { setResultKind('in-progress'); setPhase('ready'); return }
 
@@ -184,6 +189,26 @@ export function StudentScanOverlay({
 
   const secondsLeft = Math.max(0, Math.ceil(msLeft / 1000))
   const courseTitleById = new Map(syllabusCourses.map((c) => [c.id, c.title]))
+  const firstName = student.name.trim().split(' ')[0] || student.name
+
+  // Today's day-at-a-glance — which subjects, and how the day splits between
+  // subject time ("study") and everything else on the schedule ("activities":
+  // breaks, clubs, free periods, anything with no syllabus subject attached).
+  const subjectsToday = Array.from(
+    new Map(timed.filter((t) => t.courseId).map((t) => [t.courseId, courseTitleById.get(t.courseId!) ?? t.title])).values(),
+  )
+  const studyMinutes = timed.filter((t) => t.courseId).reduce((sum, t) => sum + (t.endMin - t.startMin), 0)
+  const activityMinutes = timed.filter((t) => !t.courseId).reduce((sum, t) => sum + (t.endMin - t.startMin), 0)
+  const dayGreeting = subjectsToday.length > 0
+    ? `You have ${joinWithAnd(subjectsToday)} today.`
+    : timed.length > 0 ? "You've got a few activities today." : ''
+
+  // How late a login actually was, in plain words — "⚠ Logged in" alone never
+  // said anything useful; the student (or whoever's checking) should see by
+  // how much, against what the day was supposed to start.
+  const lateByMinutes = checkpoint && checkpoint.status === 'late' && timed[0]
+    ? Math.max(0, Math.round((new Date(checkpoint.scannedAt).getHours() * 60 + new Date(checkpoint.scannedAt).getMinutes()) - timed[0].startMin))
+    : null
 
   return (
     <div className="kiosk-overlay-backdrop full" onClick={onClose}>
@@ -210,10 +235,25 @@ export function StudentScanOverlay({
 
         {phase === 'ready' && (
           <div className="kiosk-portal-body">
+            <div className="kiosk-greeting-card">
+              <p className="kiosk-greeting-line">👋 Hi, {firstName}!{dayGreeting ? ` ${dayGreeting}` : ''}</p>
+              {(studyMinutes > 0 || activityMinutes > 0) && (
+                <p className="kiosk-greeting-hours">
+                  📖 {formatSpan(studyMinutes)} of study
+                  {activityMinutes > 0 ? ` · 🎨 ${formatSpan(activityMinutes)} of activities` : ''}
+                  {' '}today
+                </p>
+              )}
+            </div>
+
             {checkpoint ? (
               <>
                 <p className="kiosk-checkpoint-line" style={{ color: checkpoint.status === 'late' ? 'var(--danger)' : 'var(--green)' }}>
-                  {checkpoint.status === 'late' ? '⚠ ' : '✓ '}{checkpointLabel(checkpoint, periods)}
+                  {checkpoint.kind === 'logout'
+                    ? '✓ Logged out — see you tomorrow!'
+                    : checkpoint.status === 'late'
+                      ? `⚠ Logged in${lateByMinutes ? ` — ${formatSpan(lateByMinutes)} late` : ' late'}`
+                      : '✓ Logged in'}
                 </p>
                 {banner && (
                   <div className="kiosk-banner kiosk-bounce">
@@ -223,9 +263,9 @@ export function StudentScanOverlay({
               </>
             ) : (
               <p className="kiosk-checkpoint-line">
-                {resultKind === 'already-done' ? '✅ Already logged out for today'
-                  : resultKind === 'no-school' ? '📅 Nothing scheduled today'
-                  : `👋 Hi, ${student.name.split(' ')[0]}! Here's your day.`}
+                {resultKind === 'already-done' ? "✅ You're all done for today!"
+                  : resultKind === 'no-school' ? '📅 Nothing scheduled today — enjoy your day off!'
+                  : "Here's where your day stands."}
               </p>
             )}
 

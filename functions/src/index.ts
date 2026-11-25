@@ -18,9 +18,11 @@ const auth = admin.auth()
 
 const VALID_ROLES = ['admin', 'mentor', 'student', 'manager', 'consultant', 'founder'] as const
 type Role = (typeof VALID_ROLES)[number]
-// 'founder' is read-only in the app, but sees the whole school — only an admin
-// may grant it or touch a founder account, same as admin/manager.
-const ELEVATED_ROLES: Role[] = ['admin', 'manager', 'founder']
+// Manager now has full access to everything else in the app — the *only*
+// line it can't cross is the admin role itself: granting it to someone, or
+// touching (edit/disable/delete/reset-password) an existing admin account.
+// Manager and founder are no longer protected from a manager's own actions.
+const ELEVATED_ROLES: Role[] = ['admin']
 
 function isNonEmptyString(v: unknown, max = 500): v is string {
   return typeof v === 'string' && v.trim().length > 0 && v.length <= max
@@ -102,20 +104,20 @@ async function assertUserManagerAccess(uid: string): Promise<'admin' | 'manager'
   throw new HttpsError('permission-denied', `Admin or manager only: missing role (has: ${roles.join(',')})`)
 }
 
-/** A manager can never grant admin/manager — only an admin can. */
+/** A manager can never grant the admin role — only an admin can. */
 function assertRolesAllowedForManager(actorRole: 'admin' | 'manager', roles: Role[]) {
   if (actorRole === 'manager' && roles.some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot grant the admin or manager role')
+    throw new HttpsError('permission-denied', 'Managers cannot grant the admin role')
   }
 }
 
-/** A manager can never act on an existing admin/manager account — only an admin can. */
+/** A manager can never act on an existing admin account — only an admin can. */
 async function assertTargetNotElevated(actorRole: 'admin' | 'manager', targetUid: string) {
   if (actorRole !== 'manager') return
   const snap = await db.doc(`users/${targetUid}`).get()
   const roles = coerceRoles(snap.data())
   if (roles.some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot modify admin or manager accounts')
+    throw new HttpsError('permission-denied', 'Managers cannot modify admin accounts')
   }
 }
 
@@ -208,7 +210,7 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
     centreIds?: unknown
     centreId?: unknown
     courseId?: unknown
-    temporaryPassword?: unknown
+    initialPassword?: unknown
   }
 
   if (!isNonEmptyString(data.name, 200)) {
@@ -238,11 +240,11 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
         : null
 
   const password =
-    typeof data.temporaryPassword === 'string' && data.temporaryPassword.trim().length > 0
-      ? data.temporaryPassword.trim()
+    typeof data.initialPassword === 'string' && data.initialPassword.trim().length > 0
+      ? data.initialPassword.trim()
       : randomNumericPassword()
   if (password.length < 8) {
-    throw new HttpsError('invalid-argument', 'Temporary password must be at least 8 characters')
+    throw new HttpsError('invalid-argument', 'Password must be at least 8 characters')
   }
   let userRecord: admin.auth.UserRecord
   try {
@@ -263,7 +265,6 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
       email: data.email.trim(),
       roles,
       status: 'active',
-      firstLogin: true,
       createdAt: FieldValue.serverTimestamp(),
       centreIds: roles.includes('mentor') ? centreIds : [],
       centreId: roles.includes('student') ? centreId : null,
@@ -305,7 +306,7 @@ export const adminCreateUser = onCall(callableOpts, async (request) => {
     )
   }
 
-  return { uid, temporaryPassword: password }
+  return { uid, password }
   } catch (e: unknown) {
     if (e instanceof HttpsError) throw e
     console.error('adminCreateUser unexpected error', e)
@@ -347,7 +348,7 @@ export const adminUpdateUser = onCall(callableOpts, async (request) => {
 
   const prevRoles = coerceRoles(userSnap.data())
   if (actorRole === 'manager' && prevRoles.some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot modify admin or manager accounts')
+    throw new HttpsError('permission-denied', 'Managers cannot modify admin accounts')
   }
   if (payload.roles !== undefined) {
     assertRolesAllowedForManager(actorRole, validateRoles(payload.roles))
@@ -512,13 +513,21 @@ export const adminDeleteUser = onCall(callableOpts, async (request) => {
   return { ok: true }
 })
 
+/**
+ * Sets an account's password directly, admin/manager-only — the only way a
+ * password ever changes now that there's no self-service "change password"
+ * flow. `newPassword` lets the caller assign one explicitly (typed in the
+ * Set Password dialog); left blank, one is generated to show once, same as
+ * account creation. Either way it's immediately a real, permanent password —
+ * no "first login" flag is set, so the account is never forced to change it.
+ */
 export const adminResetPassword = onCall(callableOpts, async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Sign in required')
   }
   const actorRole = await assertUserManagerAccess(request.auth.uid)
 
-  const raw = request.data as { uid?: unknown }
+  const raw = request.data as { uid?: unknown; newPassword?: unknown }
   if (!isNonEmptyString(raw.uid, 128)) {
     throw new HttpsError('invalid-argument', 'Invalid uid')
   }
@@ -529,14 +538,19 @@ export const adminResetPassword = onCall(callableOpts, async (request) => {
     throw new HttpsError('not-found', 'User not found')
   }
   if (actorRole === 'manager' && coerceRoles(userSnap.data()).some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot reset an admin or manager account\'s password')
+    throw new HttpsError('permission-denied', 'Managers cannot set an admin account\'s password')
   }
 
-  const password = randomNumericPassword()
+  const password =
+    typeof raw.newPassword === 'string' && raw.newPassword.trim().length > 0
+      ? raw.newPassword.trim()
+      : randomNumericPassword()
+  if (password.length < 8) {
+    throw new HttpsError('invalid-argument', 'Password must be at least 8 characters')
+  }
   await auth.updateUser(uid, { password })
-  await db.doc(`users/${uid}`).set({ firstLogin: true }, { merge: true })
 
-  return { temporaryPassword: password }
+  return { password }
 })
 
 /**

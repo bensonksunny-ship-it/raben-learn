@@ -15,12 +15,15 @@ export interface CreateUserPayload {
   centreIds: string[]
   centreId: string | null
   courseId: string | null
-  temporaryPassword?: string | null
+  /** The account's permanent password — left blank/omitted, the server
+   *  generates one to show the admin once. Either way it's a real, permanent
+   *  password from the start; there's no forced change on first login. */
+  initialPassword?: string | null
 }
 
 export interface CreateUserResult {
   uid: string
-  temporaryPassword: string
+  password: string
 }
 
 export type UpdateUserPayload = {
@@ -227,8 +230,12 @@ export async function callDisableUser(uid: string, disabled: boolean) {
   return invokeCallable<{ ok: boolean }>('adminDisableUser', { uid, disabled })
 }
 
-export async function callResetPassword(uid: string): Promise<{ temporaryPassword: string }> {
-  return invokeCallable<{ temporaryPassword: string }>('adminResetPassword', { uid })
+/** Sets an account's password directly — `newPassword` left blank/omitted
+ *  generates one to show the admin once, same as account creation. Never
+ *  flags the account for a forced change; it's a real, permanent password
+ *  the moment it's set. */
+export async function callSetPassword(uid: string, newPassword?: string): Promise<{ password: string }> {
+  return invokeCallable<{ password: string }>('adminResetPassword', { uid, newPassword: newPassword || null })
 }
 
 export async function callDeleteUser(uid: string) {

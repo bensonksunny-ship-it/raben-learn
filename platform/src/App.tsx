@@ -4,7 +4,6 @@ import AppShell from './components/AppShell'
 import { RequireCapability } from './components/RequireCapability'
 import { Login } from './pages/Login'
 import { HomeRedirect } from './pages/HomeRedirect'
-import { ChangePassword } from './pages/ChangePassword'
 import AdminDashboard from './pages/admin/AdminDashboard'
 import { ManagerDashboard } from './pages/admin/ManagerDashboard'
 import ProfilePage from './pages/ProfilePage'
@@ -66,7 +65,6 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route path="/change-password" element={<ChangePassword />} />
         {/* Public-ish, outside <AppShell> on purpose — this is where an ID-card QR
             scan lands, and that can't wait on nav chrome or a role-gated dashboard.
             Still requires being signed in (ScanPage handles that itself, with its

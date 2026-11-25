@@ -8,28 +8,33 @@ service cloud.firestore {
     // Academic Consultant — syllabus edit rights only, nothing else `isAdminOrMentor()`
     // gates (student_lesson_progress/student_daily_plans delete, course_history
     // create, mentor_centres) is meant to widen to this role, so it's its own
-    // function rather than folded into that one.
-    function canEditSyllabus() { return isAdminOrMentor() || hasRole('consultant'); }
+    // function rather than folded into that one. Manager now has full access
+    // to everything else in the app, syllabus/exam editing included.
+    function canEditSyllabus() { return isAdminOrMentor() || hasRole('consultant') || hasRole('manager'); }
     // Matches rbac.ts's `scheduleExams` capability (admin, mentor, manager, consultant).
     function canScheduleExams() { return isAdminOrMentor() || hasRole('manager') || hasRole('consultant'); }
-    // Lesson notes are stricter than the rest of the syllabus: mentor ("teacher")
-    // is deliberately read-only here, unlike canEditSyllabus() above.
-    function canEditLessonNotes() { return hasRole('admin') || hasRole('consultant'); }
+    // Lesson notes used to be stricter than the rest of the syllabus (mentor
+    // "teacher" stays deliberately read-only here) — manager now has full
+    // write access here too, same as everywhere else.
+    function canEditLessonNotes() { return hasRole('admin') || hasRole('consultant') || hasRole('manager'); }
     function isOwner(uid) { return isSignedIn() && request.auth.uid == uid; }
+    // Manager now has full access everywhere else — admin accounts are the
+    // one thing it can never touch (grant, edit, disable, delete, or reset
+    // the password of).
     function targetIsElevated(uid) {
       let roles = get(/databases/$(database)/documents/users/$(uid)).data.roles;
-      return ('admin' in roles) || ('manager' in roles) || ('founder' in roles);
+      return 'admin' in roles;
     }
 
     match /users/{uid} {
       allow read: if isSignedIn();
-      allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['firstLogin', 'name']);
+      allow update: if isOwner(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name']);
       allow create, update, delete: if hasRole('admin');
-      // Manager: may edit a non-elevated user's course assignment and Top Tier flag
+      // Manager: may edit a non-admin user's course assignment and Top Tier flag
       // directly from the client (StudentsPage's direct Firestore writes), but never
-      // roles/status, and never an admin/manager account. Everything else for a
-      // manager goes through the Cloud Functions, which run on the Admin SDK and
-      // aren't subject to these rules at all.
+      // roles/status, and never an admin account. Everything else for a manager
+      // goes through the Cloud Functions, which run on the Admin SDK and aren't
+      // subject to these rules at all.
       allow update: if hasRole('manager')
         && !targetIsElevated(uid)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['courseIds', 'courseId', 'isTopTier']);

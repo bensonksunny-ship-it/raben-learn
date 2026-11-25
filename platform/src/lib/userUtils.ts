@@ -10,7 +10,6 @@ export function mapUserDoc(docSnap: QueryDocumentSnapshot<DocumentData>): UserPr
     email: (d.email as string) ?? '',
     roles: normalizeRoles(d),
     status: d.status as UserProfile['status'],
-    firstLogin: Boolean(d.firstLogin),
     createdAt: d.createdAt,
     courseIds: (d.courseIds as string[]) ?? [],
     qrToken: typeof d.qrToken === 'string' ? d.qrToken : undefined,

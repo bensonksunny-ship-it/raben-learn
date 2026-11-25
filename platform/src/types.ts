@@ -12,7 +12,6 @@ export interface UserProfile {
   email: string
   roles: Role[]
   status: UserStatus
-  firstLogin: boolean
   createdAt: unknown
   courseIds?: string[]
   /** A student's ID-card QR payload — opaque, random, generated once (server-side

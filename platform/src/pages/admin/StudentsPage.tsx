@@ -158,13 +158,13 @@ export function StudentsPage() {
         name: a.fullName.trim(), email: a.email.trim(), roles: ['student'],
         centreIds: [], centreId: null,
         courseId: a.targetCourseIds[0] ?? null,
-        temporaryPassword: null,
+        initialPassword: null,
       })
       if (a.targetCourseIds.length > 0) {
         await updateDoc(doc(db, 'users', res.uid), { courseIds: a.targetCourseIds })
       }
       await moveApplicantToStudent(a, res.uid, profile?.id)
-      setCreatedPw(`${a.fullName} recruited — login ${a.email}, temporary password: ${res.temporaryPassword}`)
+      setCreatedPw(`${a.fullName} recruited — login ${a.email}, password: ${res.password}`)
       setStatusFilter('active')
       await load()
     } catch (err: unknown) {

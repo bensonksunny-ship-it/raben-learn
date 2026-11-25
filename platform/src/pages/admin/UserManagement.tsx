@@ -4,7 +4,7 @@ import {
   type QueryConstraint, type QueryDocumentSnapshot, type DocumentData,
 } from 'firebase/firestore'
 import { db } from '../../firebase/config'
-import { callCreateUser, callDeleteUser, callDisableUser, callResetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
+import { callCreateUser, callDeleteUser, callDisableUser, callSetPassword, callUpdateUser } from '../../lib/adminGcfCallables'
 import { formatFirebaseError } from '../../lib/formatFirebaseError'
 import { mapUserDoc, avatarClass } from '../../lib/userUtils'
 import { mapCourseDoc } from '../../lib/courses'
@@ -13,9 +13,11 @@ import type { Course, Role, UserProfile } from '../../types'
 import { EmptyState } from '../../components/EmptyState'
 
 const PAGE_SIZE = 20
-const ELEVATED_ROLES: Role[] = ['admin', 'manager', 'founder']
+// Manager now has full access to everything else — granting, seeing, or
+// touching an *admin* account is the one line it can't cross.
+const ELEVATED_ROLES: Role[] = ['admin']
 
-/** A manager can't see, target, or grant admin/manager/founder accounts — only admin can. */
+/** A manager can't see, target, or grant admin accounts — only admin can. */
 function isElevated(roles: Role[]): boolean {
   return roles.some((r) => ELEVATED_ROLES.includes(r))
 }
@@ -31,9 +33,9 @@ export function UserManagement() {
   const isAdminActor = Boolean(profile?.roles.includes('admin'))
   // A manager who is *also* admin keeps full admin power — only restrict a manager-only actor.
   const isManagerOnly = !isAdminActor && Boolean(profile?.roles.includes('manager'))
-  // Consultant isn't elevated — a manager-only actor can create/grant it too, same as mentor/student.
+  // Only the admin role itself is off-limits to a manager-only actor now.
   const roleOptions: Role[] = isManagerOnly
-    ? ['mentor', 'student', 'consultant']
+    ? ['mentor', 'student', 'consultant', 'manager', 'founder']
     : ['admin', 'mentor', 'student', 'manager', 'consultant', 'founder']
 
   const [users, setUsers] = useState<UserProfile[]>([])
@@ -53,9 +55,13 @@ export function UserManagement() {
   const [email, setEmail] = useState('')
   const [createRoles, setCreateRoles] = useState<Role[]>(['student'])
   const [createCourseIds, setCreateCourseIds] = useState<string[]>([])
-  const [createTempPassword, setCreateTempPassword] = useState('')
+  const [createInitialPassword, setCreateInitialPassword] = useState('')
   const [creatingUser, setCreatingUser] = useState(false)
   const [createdPw, setCreatedPw] = useState('')
+
+  const [setPwUserId, setSetPwUserId] = useState<string | null>(null)
+  const [setPwValue, setSetPwValue] = useState('')
+  const [settingPw, setSettingPw] = useState(false)
 
   const [editId, setEditId] = useState<string | null>(null)
   const [editName, setEditName] = useState('')
@@ -127,7 +133,7 @@ export function UserManagement() {
   async function onCreate(e: FormEvent) {
     e.preventDefault(); setError(''); setCreatedPw('')
     if (createRoles.length === 0) { setError('Select at least one role.'); return }
-    const pw = createTempPassword.trim()
+    const pw = createInitialPassword.trim()
     if (pw.length > 0 && pw.length < 8) { setError('Password must be at least 8 characters.'); return }
     setCreatingUser(true)
     try {
@@ -135,10 +141,10 @@ export function UserManagement() {
         name, email, roles: createRoles,
         centreIds: [], centreId: null,
         courseId: createCourseIds[0] ?? null,
-        temporaryPassword: pw || null,
+        initialPassword: pw || null,
       })
-      setCreatedPw(res.temporaryPassword)
-      setName(''); setEmail(''); setCreateCourseIds([]); setCreateTempPassword('')
+      setCreatedPw(res.password)
+      setName(''); setEmail(''); setCreateCourseIds([]); setCreateInitialPassword('')
       setShowCreate(false)
       await fetchPage(null, 0)
     } catch (err: unknown) {
@@ -190,12 +196,26 @@ export function UserManagement() {
     } catch (err: unknown) { setError(formatFirebaseError(err, 'Delete failed')) }
   }
 
-  async function resetPassword(u: UserProfile) {
-    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can reset this account\'s password.'); return }
-    if (!window.confirm(`Reset password for ${u.email}?`)) return
-    setCreatedPw('')
-    try { const res = await callResetPassword(u.id); setCreatedPw(res.temporaryPassword) }
-    catch (err: unknown) { setError(formatFirebaseError(err, 'Failed')) }
+  function openSetPassword(u: UserProfile) {
+    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can set this account\'s password.'); return }
+    setError(''); setSetPwUserId(u.id); setSetPwValue('')
+  }
+
+  async function submitSetPassword(e: FormEvent) {
+    e.preventDefault()
+    if (!setPwUserId) return
+    const pw = setPwValue.trim()
+    if (pw.length > 0 && pw.length < 8) { setError('Password must be at least 8 characters.'); return }
+    setSettingPw(true); setError(''); setCreatedPw('')
+    try {
+      const res = await callSetPassword(setPwUserId, pw || undefined)
+      setCreatedPw(res.password)
+      setSetPwUserId(null); setSetPwValue('')
+    } catch (err: unknown) {
+      setError(formatFirebaseError(err, 'Failed'))
+    } finally {
+      setSettingPw(false)
+    }
   }
 
   function CourseSelector({ selected, onChange }: { selected: string[]; onChange: (v: string[]) => void }) {
@@ -229,7 +249,7 @@ export function UserManagement() {
       </div>
 
       {error ? <p className="error" style={{ marginBottom: '1rem' }}>{error}</p> : null}
-      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Temporary password (copy now):</strong> {createdPw}</div> : null}
+      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Password (copy now):</strong> {createdPw}</div> : null}
 
       {/* Create form */}
       {showCreate && (
@@ -245,8 +265,8 @@ export function UserManagement() {
               <input
                 type="password"
                 autoComplete="new-password"
-                value={createTempPassword}
-                onChange={(e) => setCreateTempPassword(e.target.value)}
+                value={createInitialPassword}
+                onChange={(e) => setCreateInitialPassword(e.target.value)}
                 placeholder="Min 8 characters or leave blank"
               />
             </div>
@@ -286,11 +306,11 @@ export function UserManagement() {
         <select value={roleFilter} onChange={(e) => setRoleFilter((e.target.value || '') as Role | '')}>
           <option value="">All roles</option>
           {!isManagerOnly && <option value="admin">Admin</option>}
-          {!isManagerOnly && <option value="manager">Manager</option>}
+          <option value="manager">Manager</option>
           <option value="mentor">Mentor</option>
           <option value="student">Student</option>
           <option value="consultant">Academic Consultant</option>
-          {!isManagerOnly && <option value="founder">Founder</option>}
+          <option value="founder">Founder</option>
         </select>
         <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginLeft: 'auto' }}>
           <button className="btn small secondary" disabled={loadingPage || pageIndex === 0} onClick={() => void fetchPage(null, 0)}>← First</button>
@@ -327,7 +347,7 @@ export function UserManagement() {
             </div>
             <div className="user-card-footer">
               <button type="button" className="btn small secondary" onClick={() => startEdit(u)}>Edit</button>
-              <button type="button" className="btn small secondary" onClick={() => void resetPassword(u)}>Reset PW</button>
+              <button type="button" className="btn small secondary" onClick={() => openSetPassword(u)}>Set Password</button>
               <div className="topic-menu-wrap" ref={openMenuId === u.id ? openMenuRef : undefined} style={{ marginLeft: 'auto' }}>
                 <button
                   type="button"
@@ -391,6 +411,33 @@ export function UserManagement() {
               <div className="row">
                 <button type="submit" className="btn primary" disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
                 <button type="button" className="btn secondary" onClick={() => setEditId(null)}>Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Set Password modal — leave blank to generate one to show once, same
+          as account creation; either way it's a permanent password, never a
+          forced-change flag. */}
+      {setPwUserId && (
+        <div className="modal-backdrop" onClick={() => setSetPwUserId(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2 style={{ marginBottom: '1rem' }}>Set Password</h2>
+            <form className="form" onSubmit={(e) => void submitSetPassword(e)}>
+              <label>
+                New password <span className="muted small" style={{ fontWeight: 400 }}>(optional — leave blank to generate one)</span>
+                <input
+                  type="password"
+                  autoComplete="new-password"
+                  value={setPwValue}
+                  onChange={(e) => setSetPwValue(e.target.value)}
+                  placeholder="Min 8 characters or leave blank"
+                />
+              </label>
+              <div className="row">
+                <button type="submit" className="btn primary" disabled={settingPw}>{settingPw ? 'Saving…' : 'Save'}</button>
+                <button type="button" className="btn secondary" onClick={() => setSetPwUserId(null)}>Cancel</button>
               </div>
             </form>
           </div>

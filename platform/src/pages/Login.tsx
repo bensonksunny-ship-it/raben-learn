@@ -24,7 +24,6 @@ export function Login() {
         const snap = await getDoc(doc(db, 'users', user.uid))
         if (snap.exists()) {
           const d = snap.data()
-          if (d.firstLogin) { navigate('/change-password', { replace: true }); return }
           const roles = normalizeRoles(d)
           // Same precedence as every other role-based redirect in the app
           // (RequireCapability, HomeRedirect) — this hand-rolled version used to

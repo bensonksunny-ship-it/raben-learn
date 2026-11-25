@@ -9,14 +9,11 @@ import {
 } from 'react'
 import {
   onAuthStateChanged,
-  EmailAuthProvider,
-  reauthenticateWithCredential,
   signInWithEmailAndPassword,
   signOut,
-  updatePassword,
   type User,
 } from 'firebase/auth'
-import { doc, getDoc, onSnapshot, updateDoc } from 'firebase/firestore'
+import { doc, getDoc, onSnapshot } from 'firebase/firestore'
 import { auth, db } from '../firebase/config'
 import { normalizeRoles } from '../lib/roles'
 import type { UserProfile } from '../types'
@@ -27,7 +24,6 @@ interface AuthContextValue {
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
-  changePasswordAndClearFirstLogin: (currentPassword: string, newPassword: string) => Promise<void>
   refreshProfile: () => Promise<void>
 }
 
@@ -41,7 +37,6 @@ function mapUserDoc(snap: { id: string; data: () => Record<string, unknown> }): 
     email: d.email as string,
     roles: normalizeRoles(d),
     status: d.status as UserProfile['status'],
-    firstLogin: Boolean(d.firstLogin),
     createdAt: d.createdAt,
     courseIds: (d.courseIds as string[]) ?? [],
   }
@@ -86,21 +81,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOut(auth)
   }, [])
 
-  const changePasswordAndClearFirstLogin = useCallback(
-    async (currentPassword: string, newPassword: string) => {
-      const user = auth.currentUser
-      if (!user) throw new Error('Not signed in')
-      if (!user.email) throw new Error('Missing email on auth user')
-
-      // Prevents "requires-recent-login" and similar edge cases.
-      const cred = EmailAuthProvider.credential(user.email, currentPassword)
-      await reauthenticateWithCredential(user, cred)
-      await updatePassword(user, newPassword)
-      await updateDoc(doc(db, 'users', user.uid), { firstLogin: false })
-    },
-    [],
-  )
-
   const refreshProfile = useCallback(async () => {
     const user = auth.currentUser
     if (!user) return
@@ -116,7 +96,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signIn,
       logout,
-      changePasswordAndClearFirstLogin,
       refreshProfile,
     }),
     [
@@ -125,7 +104,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       signIn,
       logout,
-      changePasswordAndClearFirstLogin,
       refreshProfile,
     ],
   )

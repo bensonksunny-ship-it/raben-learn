@@ -21,7 +21,6 @@ export default function AppShell() {
   if (loading) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
   if (!firebaseUser) return <Navigate to="/login" replace />
   if (!profile) return <div style={{ minHeight: '100dvh', background: 'var(--bg)' }} />
-  if (profile.firstLogin) return <Navigate to="/change-password" replace />
 
   const isAdmin = profile.roles.includes('admin')
   const isMentor = profile.roles.includes('mentor')
@@ -109,8 +108,13 @@ export default function AppShell() {
           pinned to the bottom. Every other route lives in the launcher grid
           instead (see `launcherItems` above). */}
       <aside className="sidebar">
+        {/* Icon-only + a hover tooltip was never actually discoverable on a
+            touchscreen kiosk/Chromebook, where hover never fires at all — a
+            persistent "Home" label is the only way this reads as a nav
+            control rather than just a logo. */}
         <NavLink to={homeTo} end className={({ isActive }) => `sidebar-brand-home${isActive ? ' active' : ''}`} title="Home" aria-label="Home — go to Dashboard">
           <AppIcon className="sidebar-brand-icon" />
+          <span className="sidebar-brand-home-label">Home</span>
         </NavLink>
         {(isAdmin || isManager) && (
           <div className="sidebar-rail-links">
@@ -171,6 +175,7 @@ export default function AppShell() {
           )}
           <NavLink to={homeTo} end className="mobile-topbar-home" title="Home" aria-label="Home — go to Dashboard">
             <AppIcon className="mobile-topbar-icon" />
+            <span className="mobile-topbar-home-label">Home</span>
           </NavLink>
         </div>
         <div className="mobile-topbar-actions">
@@ -216,6 +221,7 @@ export default function AppShell() {
           <aside className={`mobile-drawer${drawerOpen ? ' open' : ''}`}>
             <NavLink to={homeTo} end className={({ isActive }) => `sidebar-brand-home${isActive ? ' active' : ''}`} title="Home" aria-label="Home — go to Dashboard" onClick={() => setDrawerOpen(false)}>
               <AppIcon className="sidebar-brand-icon" />
+              <span className="sidebar-brand-home-label">Home</span>
             </NavLink>
             <div className="sidebar-rail-links">
               <NavLink to="/manager" end className={srl} title="Manager" aria-label="Manager" onClick={() => setDrawerOpen(false)}>🧑‍💼</NavLink>

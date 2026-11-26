@@ -1145,9 +1145,12 @@ a.dash-stat-card:hover .dash-stat-arrow { opacity: 1; transform: translateX(0); 
 
 /* Manager Dashboard's launcher tiles — solid color, page name as headline, unlike
    .dash-stat-card (pale panel, a number as headline) used by Admin/Student dashboards. */
-.nav-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1.75rem; }
+/* Tiles sit centered as a group (flex + wrap, not a left-filling grid), each with
+   its icon and title centered inside. */
+.nav-card-grid { display: flex; flex-wrap: wrap; justify-content: center; gap: 1rem; margin-bottom: 1.75rem; }
+.nav-card-grid > .nav-card { flex: 0 1 220px; min-width: 160px; }
 .nav-card {
-  position: relative; display: flex; flex-direction: column; gap: 0.3rem; padding: 1.5rem 1.4rem 1.35rem;
+  position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.3rem; padding: 1.5rem 1.4rem 1.35rem;
   border-radius: var(--radius); color: #fff; text-decoration: none; box-shadow: var(--shadow);
   transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
 }
@@ -1155,7 +1158,7 @@ a.dash-stat-card:hover .dash-stat-arrow { opacity: 1; transform: translateX(0); 
 .nav-card:focus-visible { outline: 3px solid rgba(255,255,255,0.85); outline-offset: 2px; }
 /* NavCard renders as a <button> (not a <Link>) when it opens something in place
    instead of navigating — same look, just reset out the browser's own button chrome. */
-button.nav-card { border: none; width: 100%; font: inherit; text-align: left; cursor: pointer; }
+button.nav-card { border: none; width: 100%; font: inherit; text-align: center; cursor: pointer; }
 .nav-card-icon {
   width: 42px; height: 42px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   background: rgba(255,255,255,0.22); border-radius: 12px; margin-bottom: 0.5rem;

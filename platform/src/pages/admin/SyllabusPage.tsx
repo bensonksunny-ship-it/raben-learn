@@ -30,26 +30,17 @@ function fmtHrs(minutes: number): number {
 
 export function SyllabusPage({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { profile } = useAuth()
-  // Admin, mentor, and consultant all have exam-question-setup rights — matches
-  // canEditSyllabus() in firestore.rules, which the exam write rule now follows too.
-  const canManageExams = profile?.roles.some((r) => r === 'admin' || r === 'mentor' || r === 'consultant') ?? false
+  // Admin, mentor, consultant, and manager all have exam-question-setup rights —
+  // matches canEditSyllabus() in firestore.rules, which the exam write rule
+  // follows too. Manager has full access to everything else in the app now;
+  // the one boundary left is the admin role/account itself, enforced
+  // separately in UserManagement/the Cloud Functions/firestore.rules.
+  const canManageExams = profile?.roles.some((r) => r === 'admin' || r === 'mentor' || r === 'consultant' || r === 'manager') ?? false
   const isManager = profile?.roles.includes('manager') ?? false
-  // Manager reaches this page to take exam papers for printout and check things
-  // over — view + print only, never full edit, even though the shared /syllabus
-  // route (unlike /admin/syllabus, /mentor/syllabus) doesn't pass a `readOnly`
-  // prop, since that same route is also how the Academic Consultant gets their
-  // own full-edit access. Only forces read-only when manager is their sole
-  // relevant role here — a manager who's also admin/mentor/consultant keeps
-  // that role's full access.
-  const effectiveReadOnly = readOnly || (isManager && !canManageExams)
-  // Manager can open Exam/Main Exam to view and print, but `canManageExams`
-  // alone still gates the create/edit/delete/activate controls inside
-  // ExamManager itself (via its own `readOnly` prop below) — rules agree:
-  // canEditSyllabus() (the exams write rule) doesn't include manager.
+  const effectiveReadOnly = readOnly
   const canSeeExams = canManageExams || isManager
-  // Lesson notes are stricter than exams: only admin/consultant can write them —
-  // mentor ("teacher") is deliberately read-only here, unlike canManageExams above.
-  const canEditNotes = profile?.roles.some((r) => r === 'admin' || r === 'consultant') ?? false
+  // Manager can write lesson notes too now, same as everywhere else.
+  const canEditNotes = profile?.roles.some((r) => r === 'admin' || r === 'consultant' || r === 'manager') ?? false
   const isMentor = profile?.roles.includes('mentor') ?? false
   const canSeeNotes = canEditNotes || isMentor || isManager
 

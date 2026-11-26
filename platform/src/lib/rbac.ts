@@ -20,13 +20,14 @@ const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // teachers (mentors) and academic consultants can all book subject exams.
   mentor: ['mentorArea', 'scheduleExams'],
   student: ['studentArea'],
-  // Manager is intentionally narrow: just the Dashboard, Users, Students,
-  // Schedule, and (view/print-only — see SyllabusPage's own `effectiveReadOnly`)
-  // Syllabus pages, nothing under /admin, /mentor, or /student. See
-  // UserManagement/StudentsPage for the additional restriction that a manager
-  // can't touch admin/manager accounts or grant those roles — that's enforced
-  // server-side, this table only decides which pages are reachable at all.
-  manager: ['managerArea', 'manageUsers', 'manageStudents', 'manageTimetable', 'syllabusArea', 'scheduleExams'],
+  // Manager has full access to the app now — every capability admin has
+  // (including `adminArea`, so the whole /admin/* tree — Reports and all —
+  // is reachable, not just the manager-specific Users/Students/Schedule
+  // views). The one boundary left is the admin role itself: granting it, or
+  // touching an existing admin account, which `UserManagement`/the Cloud
+  // Functions/Firestore rules enforce server-side — this table only decides
+  // which pages are reachable at all, not per-account restrictions.
+  manager: ['adminArea', 'managerArea', 'manageUsers', 'manageStudents', 'manageTimetable', 'syllabusArea', 'scheduleExams', 'founderArea'],
   // Academic Consultant — exactly one page, nothing else. `/syllabus` (App.tsx)
   // is the only route gated on `syllabusArea` for a FULL-edit visitor; manager
   // reaches the same route too, but SyllabusPage forces it read-only for them.

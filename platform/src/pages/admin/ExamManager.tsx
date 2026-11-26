@@ -707,11 +707,23 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
   return (
     <div>
       {!readOnly && (
-        <div className="row" style={{ marginBottom: '1rem' }}>
-          <button type="button" className="btn small primary" onClick={() => openNew('written')}>+ New {examTypeLabel('written')}</button>
-          <button type="button" className="btn small primary" onClick={() => openNew('mcq')}>+ New {examTypeLabel('mcq')}</button>
-          <button type="button" className="btn small ghost" onClick={() => { setTemplateForm(blankTemplateForm()); setView('templates') }}>📑 Sub-Section Library</button>
-        </div>
+        <>
+          <div className="exam-type-grid">
+            <button type="button" className="exam-type-card paper" onClick={() => openNew('written')}>
+              <span className="exam-type-card-icon" aria-hidden>🖨️</span>
+              <span className="exam-type-card-title">New Paper Exam</span>
+              <span className="exam-type-card-subtitle">Create printable question papers & answer keys for offline testing</span>
+            </button>
+            <button type="button" className="exam-type-card digital" onClick={() => openNew('mcq')}>
+              <span className="exam-type-card-icon" aria-hidden>💻</span>
+              <span className="exam-type-card-title">New Digital Exam</span>
+              <span className="exam-type-card-subtitle">Build interactive online assessments with auto-grading</span>
+            </button>
+          </div>
+          <div className="row" style={{ marginBottom: '1rem', justifyContent: 'flex-end' }}>
+            <button type="button" className="btn small ghost" onClick={() => { setTemplateForm(blankTemplateForm()); setView('templates') }}>📑 Sub-Section Library</button>
+          </div>
+        </>
       )}
       {error && <p className="error">{error}</p>}
       {scheduling && (
@@ -730,7 +742,10 @@ export default function ExamManager({ courseId, topic, readOnly = false }: Props
         />
       )}
       {visibleExams.length === 0 ? (
-        <p className="muted small">No exams yet for this {topic ? 'topic' : 'course'}.</p>
+        <div className="exam-empty-state">
+          <span className="exam-empty-state-icon" aria-hidden>🗂️</span>
+          <p className="muted small">No exams yet for this {topic ? 'topic' : 'course'}.</p>
+        </div>
       ) : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.6rem' }}>
           {visibleExams.map((exam) => {

@@ -323,28 +323,30 @@ export function UserManagement() {
 
       {detailUser && (
         <div className="modal-backdrop" onClick={() => setDetailUserId(null)}>
-          <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1.25rem' }}>
-              <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center', minWidth: 0 }}>
-                <div className={avatarClass(detailUser.roles)}>{(detailUser.name || detailUser.email).charAt(0).toUpperCase()}</div>
+          <div className="modal" style={{ maxWidth: 600, padding: '2.25rem' }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '1rem', marginBottom: '1.75rem' }}>
+              <div style={{ display: 'flex', gap: '1.1rem', alignItems: 'center', minWidth: 0 }}>
+                <div className={avatarClass(detailUser.roles)} style={{ width: 64, height: 64, fontSize: '1.6rem' }}>
+                  {(detailUser.name || detailUser.email).charAt(0).toUpperCase()}
+                </div>
                 <div style={{ minWidth: 0 }}>
-                  <h3 style={{ margin: '0 0 0.2rem' }}>{detailUser.name || '—'}</h3>
-                  <div className="muted small" style={{ overflowWrap: 'anywhere' }}>{detailUser.email}</div>
+                  <h2 style={{ margin: '0 0 0.3rem' }}>{detailUser.name || '—'}</h2>
+                  <div className="muted" style={{ overflowWrap: 'anywhere' }}>{detailUser.email}</div>
                 </div>
               </div>
-              <button type="button" className="btn small ghost" onClick={() => setDetailUserId(null)}>✕</button>
+              <button type="button" className="btn ghost" onClick={() => setDetailUserId(null)}>✕</button>
             </div>
-            <div className="row" style={{ gap: '0.4rem', marginBottom: '1.5rem' }}>
-              {detailUser.roles.map((r) => <span key={r} className={`role-chip ${r}`}>{roleLabel(r)}</span>)}
+            <div className="row" style={{ gap: '0.5rem', marginBottom: '2rem' }}>
+              {detailUser.roles.map((r) => <span key={r} className={`role-chip ${r}`} style={{ fontSize: '0.8rem', padding: '0.3rem 0.8rem' }}>{roleLabel(r)}</span>)}
               {detailUser.status !== 'active' && <span className="tag danger">Disabled</span>}
             </div>
-            <div className="row" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
-              <button type="button" className="btn small secondary" onClick={() => { setDetailUserId(null); startEdit(detailUser) }}>Edit</button>
-              <button type="button" className="btn small secondary" onClick={() => { setDetailUserId(null); openSetPassword(detailUser) }}>Password</button>
-              <button type="button" className="btn small secondary" onClick={() => { setDetailUserId(null); void toggleDisable(detailUser) }}>
+            <div className="row" style={{ gap: '0.75rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn secondary" onClick={() => { setDetailUserId(null); startEdit(detailUser) }}>Edit</button>
+              <button type="button" className="btn secondary" onClick={() => { setDetailUserId(null); openSetPassword(detailUser) }}>Password</button>
+              <button type="button" className="btn secondary" onClick={() => { setDetailUserId(null); void toggleDisable(detailUser) }}>
                 {detailUser.status === 'active' ? 'Disable' : 'Enable'}
               </button>
-              <button type="button" className="btn small secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={() => { setDetailUserId(null); void deleteUser(detailUser) }}>
+              <button type="button" className="btn secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={() => { setDetailUserId(null); void deleteUser(detailUser) }}>
                 Delete
               </button>
             </div>

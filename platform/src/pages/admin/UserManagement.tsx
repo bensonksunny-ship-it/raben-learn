@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   collection, getDocs, limit, orderBy, query, startAfter, where,
   type QueryConstraint, type QueryDocumentSnapshot, type DocumentData,
@@ -25,6 +25,7 @@ function isElevated(roles: Role[]): boolean {
 /** Checkbox/label display only — the stored role string itself stays the short 'consultant'. */
 function roleLabel(r: Role): string {
   if (r === 'consultant') return 'Academic Consultant'
+  if (r === 'mentor') return 'Teacher'
   return r.charAt(0).toUpperCase() + r.slice(1)
 }
 
@@ -70,19 +71,8 @@ export function UserManagement() {
   const [editCourseIds, setEditCourseIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
-  const openMenuRef = useRef<HTMLDivElement | null>(null)
-
-  // Close the "⋮" menu on an outside click — see the matching effect in StudentsPage.tsx
-  // for why this is a document listener rather than a full-screen overlay div.
-  useEffect(() => {
-    if (!openMenuId) return
-    function onDocPointerDown(e: MouseEvent) {
-      if (openMenuRef.current && !openMenuRef.current.contains(e.target as Node)) setOpenMenuId(null)
-    }
-    document.addEventListener('mousedown', onDocPointerDown)
-    return () => document.removeEventListener('mousedown', onDocPointerDown)
-  }, [openMenuId])
+  // The row a user clicked — email and every action live behind it, not on the list.
+  const [detailUserId, setDetailUserId] = useState<string | null>(null)
 
   useEffect(() => {
     void getDocs(collection(db, 'courses')).then((snap) => {
@@ -232,42 +222,36 @@ export function UserManagement() {
     )
   }
 
-  const courseLabel = (cids: string[]) =>
-    cids.map((cid) => courses.find((c) => c.id === cid)?.title).filter(Boolean).join(', ')
+  const detailUser = detailUserId ? displayed.find((u) => u.id === detailUserId) ?? null : null
 
   return (
     <div>
       {/* Page header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.5rem', gap: '1rem', flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ marginBottom: '0.5rem' }}>User Management</h1>
-          <span className="page-stat">{users.length}{hasMore ? '+' : ''} users</span>
-        </div>
+        <h1 style={{ margin: 0 }}>Users</h1>
         <button className="btn primary" onClick={() => { setShowCreate((v) => !v); setError('') }}>
           {showCreate ? '✕ Cancel' : '+ New User'}
         </button>
       </div>
 
       {error ? <p className="error" style={{ marginBottom: '1rem' }}>{error}</p> : null}
-      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Password (copy now):</strong> {createdPw}</div> : null}
+      {createdPw ? <div className="notice" style={{ marginBottom: '1rem' }}><strong>Password:</strong> {createdPw}</div> : null}
 
       {/* Create form */}
       {showCreate && (
         <section className="panel" style={{ marginBottom: '1.5rem' }}>
-          <h2 style={{ marginBottom: '1rem' }}>Create User</h2>
+          <h2 style={{ marginBottom: '1rem' }}>New User</h2>
           <form className="form grid" onSubmit={onCreate}>
             <label>Name<input value={name} onChange={(e) => setName(e.target.value)} required /></label>
             <label>Email<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
             <div className="full">
-              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>
-                Initial password <span className="muted small" style={{ fontWeight: 400 }}>(optional)</span>
-              </div>
+              <div style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '0.35rem' }}>Password</div>
               <input
                 type="password"
                 autoComplete="new-password"
                 value={createInitialPassword}
                 onChange={(e) => setCreateInitialPassword(e.target.value)}
-                placeholder="Min 8 characters or leave blank"
+                placeholder="Auto-generate"
               />
             </div>
             <div className="full">
@@ -299,89 +283,74 @@ export function UserManagement() {
       {/* Filter bar */}
       <div className="filter-bar">
         <input
-          placeholder="Search name or email…"
+          placeholder="Search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <select value={roleFilter} onChange={(e) => setRoleFilter((e.target.value || '') as Role | '')}>
-          <option value="">All roles</option>
+          <option value="">All</option>
           {!isManagerOnly && <option value="admin">Admin</option>}
           <option value="manager">Manager</option>
-          <option value="mentor">Mentor</option>
+          <option value="mentor">Teacher</option>
           <option value="student">Student</option>
           <option value="consultant">Academic Consultant</option>
           <option value="founder">Founder</option>
         </select>
-        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', marginLeft: 'auto' }}>
-          <button className="btn small secondary" disabled={loadingPage || pageIndex === 0} onClick={() => void fetchPage(null, 0)}>← First</button>
-          <button className="btn small primary" disabled={loadingPage || !hasMore || !lastDoc} onClick={() => void fetchPage(lastDoc, pageIndex + 1)}>Next →</button>
-          <span className="muted small" style={{ whiteSpace: 'nowrap' }}>
-            Page {pageIndex + 1}{loadingPage ? ' · Loading…' : ''}
-          </span>
-        </div>
       </div>
 
       {loading && !loadingPage ? <p className="muted">Loading…</p> : null}
 
-      {/* User card grid */}
-      <div className="user-grid">
+      <div className="user-list">
         {displayed.map((u) => (
-          <div key={u.id} className="user-card" style={{ overflow: 'visible' }}>
-            <div className="user-card-body">
-              <div className="user-card-top">
-                <div className={avatarClass(u.roles)}>{(u.name || u.email).charAt(0).toUpperCase()}</div>
-                <div className="user-card-info">
-                  <div className="user-card-name">{u.name || '—'}</div>
-                  <div className="user-card-email">{u.email}</div>
+          <button key={u.id} type="button" className="user-row" onClick={() => setDetailUserId(u.id)}>
+            <div className={avatarClass(u.roles)}>{(u.name || u.email).charAt(0).toUpperCase()}</div>
+            <span className="user-row-name">{u.name || u.email}</span>
+            <span className="user-row-tags">
+              {u.roles.map((r) => <span key={r} className={`role-chip ${r}`}>{roleLabel(r)}</span>)}
+              {u.status !== 'active' && <span className="tag danger">Disabled</span>}
+            </span>
+          </button>
+        ))}
+        {displayed.length === 0 && !loading && <EmptyState title="No users" />}
+      </div>
+
+      {(pageIndex > 0 || hasMore) && (
+        <div className="row" style={{ justifyContent: 'center', marginTop: '1.25rem', gap: '0.5rem' }}>
+          <button className="btn small secondary" disabled={loadingPage || pageIndex === 0} onClick={() => void fetchPage(null, 0)}>←</button>
+          <button className="btn small secondary" disabled={loadingPage || !hasMore || !lastDoc} onClick={() => void fetchPage(lastDoc, pageIndex + 1)}>→</button>
+        </div>
+      )}
+
+      {detailUser && (
+        <div className="modal-backdrop" onClick={() => setDetailUserId(null)}>
+          <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.75rem', marginBottom: '1.25rem' }}>
+              <div style={{ display: 'flex', gap: '0.85rem', alignItems: 'center', minWidth: 0 }}>
+                <div className={avatarClass(detailUser.roles)}>{(detailUser.name || detailUser.email).charAt(0).toUpperCase()}</div>
+                <div style={{ minWidth: 0 }}>
+                  <h3 style={{ margin: '0 0 0.2rem' }}>{detailUser.name || '—'}</h3>
+                  <div className="muted small" style={{ overflowWrap: 'anywhere' }}>{detailUser.email}</div>
                 </div>
-                <span className={`tag ${u.status === 'active' ? '' : 'danger'}`} style={{ flexShrink: 0 }}>
-                  {u.status}
-                </span>
               </div>
-              <div className="user-card-chips">
-                {u.roles.map((r) => <span key={r} className={`role-chip ${r}`}>{r}</span>)}
-              </div>
-              {(u.courseIds ?? []).length > 0 && (
-                <div className="user-card-courses">📘 {courseLabel(u.courseIds ?? [])}</div>
-              )}
+              <button type="button" className="btn small ghost" onClick={() => setDetailUserId(null)}>✕</button>
             </div>
-            <div className="user-card-footer">
-              <button type="button" className="btn small secondary" onClick={() => startEdit(u)}>Edit</button>
-              <button type="button" className="btn small secondary" onClick={() => openSetPassword(u)}>Set Password</button>
-              <div className="topic-menu-wrap" ref={openMenuId === u.id ? openMenuRef : undefined} style={{ marginLeft: 'auto' }}>
-                <button
-                  type="button"
-                  className="topic-menu-btn"
-                  onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === u.id ? null : u.id) }}
-                >
-                  ⋮
-                </button>
-                {openMenuId === u.id && (
-                  <div className="topic-menu-dropdown" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      type="button"
-                      className="topic-menu-item"
-                      onClick={() => { setOpenMenuId(null); void toggleDisable(u) }}
-                    >
-                      {u.status === 'active' ? 'Disable' : 'Enable'}
-                    </button>
-                    <button
-                      type="button"
-                      className="topic-menu-item danger"
-                      onClick={() => { setOpenMenuId(null); void deleteUser(u) }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                )}
-              </div>
+            <div className="row" style={{ gap: '0.4rem', marginBottom: '1.5rem' }}>
+              {detailUser.roles.map((r) => <span key={r} className={`role-chip ${r}`}>{roleLabel(r)}</span>)}
+              {detailUser.status !== 'active' && <span className="tag danger">Disabled</span>}
+            </div>
+            <div className="row" style={{ gap: '0.5rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn small secondary" onClick={() => { setDetailUserId(null); startEdit(detailUser) }}>Edit</button>
+              <button type="button" className="btn small secondary" onClick={() => { setDetailUserId(null); openSetPassword(detailUser) }}>Password</button>
+              <button type="button" className="btn small secondary" onClick={() => { setDetailUserId(null); void toggleDisable(detailUser) }}>
+                {detailUser.status === 'active' ? 'Disable' : 'Enable'}
+              </button>
+              <button type="button" className="btn small secondary" style={{ color: 'var(--danger)', marginLeft: 'auto' }} onClick={() => { setDetailUserId(null); void deleteUser(detailUser) }}>
+                Delete
+              </button>
             </div>
           </div>
-        ))}
-        {displayed.length === 0 && !loading && (
-          <div style={{ gridColumn: '1/-1' }}><EmptyState title="No users found" subtitle="Add a user or adjust your search." /></div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editId && (
@@ -423,16 +392,16 @@ export function UserManagement() {
       {setPwUserId && (
         <div className="modal-backdrop" onClick={() => setSetPwUserId(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2 style={{ marginBottom: '1rem' }}>Set Password</h2>
+            <h2 style={{ marginBottom: '1rem' }}>Password</h2>
             <form className="form" onSubmit={(e) => void submitSetPassword(e)}>
               <label>
-                New password <span className="muted small" style={{ fontWeight: 400 }}>(optional — leave blank to generate one)</span>
+                New password
                 <input
                   type="password"
                   autoComplete="new-password"
                   value={setPwValue}
                   onChange={(e) => setSetPwValue(e.target.value)}
-                  placeholder="Min 8 characters or leave blank"
+                  placeholder="Auto-generate"
                 />
               </label>
               <div className="row">

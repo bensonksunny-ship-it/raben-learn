@@ -32,9 +32,10 @@ const ROLE_CAPABILITIES: Record<Role, Capability[]> = {
   // is the only route gated on `syllabusArea` for a FULL-edit visitor; manager
   // reaches the same route too, but SyllabusPage forces it read-only for them.
   consultant: ['syllabusArea', 'scheduleExams'],
-  // Founder — the read-only Founder Overview (/founder) and nothing else. Admin
-  // reaches the same page too (see `admin` above).
-  founder: ['founderArea'],
+  // Founder — the read-only Founder Overview (/founder), plus the Users page
+  // (/users) so a founder can set/edit accounts and passwords directly, same
+  // narrow (non-admin-account) access as manager. Admin reaches founderArea too.
+  founder: ['founderArea', 'manageUsers'],
 }
 
 export function can(roles: Role[], cap: Capability): boolean {

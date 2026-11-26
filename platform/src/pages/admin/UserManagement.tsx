@@ -17,7 +17,7 @@ const PAGE_SIZE = 20
 // touching an *admin* account is the one line it can't cross.
 const ELEVATED_ROLES: Role[] = ['admin']
 
-/** A manager can't see, target, or grant admin accounts — only admin can. */
+/** A manager or founder can't see, target, or grant admin accounts — only admin can. */
 function isElevated(roles: Role[]): boolean {
   return roles.some((r) => ELEVATED_ROLES.includes(r))
 }
@@ -32,10 +32,11 @@ function roleLabel(r: Role): string {
 export function UserManagement() {
   const { profile } = useAuth()
   const isAdminActor = Boolean(profile?.roles.includes('admin'))
-  // A manager who is *also* admin keeps full admin power — only restrict a manager-only actor.
-  const isManagerOnly = !isAdminActor && Boolean(profile?.roles.includes('manager'))
-  // Only the admin role itself is off-limits to a manager-only actor now.
-  const roleOptions: Role[] = isManagerOnly
+  // A manager or founder who is *also* admin keeps full admin power — only
+  // restrict an actor whose sole access here comes from manager/founder.
+  const isRestrictedActor = !isAdminActor && Boolean(profile?.roles.includes('manager') || profile?.roles.includes('founder'))
+  // Only the admin role itself is off-limits to a manager/founder-only actor now.
+  const roleOptions: Role[] = isRestrictedActor
     ? ['mentor', 'student', 'consultant', 'manager', 'founder']
     : ['admin', 'mentor', 'student', 'manager', 'consultant', 'founder']
 
@@ -108,9 +109,9 @@ export function UserManagement() {
   const displayed = useMemo(() => {
     const q = search.trim().toLowerCase()
     return users
-      .filter((u) => !isManagerOnly || !isElevated(u.roles))
+      .filter((u) => !isRestrictedActor || !isElevated(u.roles))
       .filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-  }, [users, search, isManagerOnly])
+  }, [users, search, isRestrictedActor])
 
   function toggleRole(roles: Role[], r: Role, setter: (v: Role[]) => void) {
     setter(roles.includes(r) ? roles.filter((x) => x !== r) : [...roles, r])
@@ -145,7 +146,7 @@ export function UserManagement() {
   function startEdit(u: UserProfile) {
     // Defense in depth — `displayed` already hides admin/manager rows from a
     // manager-only actor, so this only matters if local state went stale.
-    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can edit this account.'); return }
+    if (isRestrictedActor && isElevated(u.roles)) { setError('Only an admin can edit this account.'); return }
     setEditId(u.id); setEditName(u.name); setEditEmail(u.email)
     setEditRoles(u.roles.length ? [...u.roles] : ['student'])
     setEditCourseIds(u.courseIds ?? [])
@@ -165,7 +166,7 @@ export function UserManagement() {
   }
 
   async function toggleDisable(u: UserProfile) {
-    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can disable this account.'); return }
+    if (isRestrictedActor && isElevated(u.roles)) { setError('Only an admin can disable this account.'); return }
     const disabling = u.status === 'active'
     if (!window.confirm(disabling ? 'Disable this user?' : 'Re-enable this user?')) return
     setError('')
@@ -177,7 +178,7 @@ export function UserManagement() {
   }
 
   async function deleteUser(u: UserProfile) {
-    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can delete this account.'); return }
+    if (isRestrictedActor && isElevated(u.roles)) { setError('Only an admin can delete this account.'); return }
     if (!window.confirm(`Permanently delete ${u.name || u.email}? This cannot be undone.`)) return
     setError('')
     try {
@@ -187,7 +188,7 @@ export function UserManagement() {
   }
 
   function openSetPassword(u: UserProfile) {
-    if (isManagerOnly && isElevated(u.roles)) { setError('Only an admin can set this account\'s password.'); return }
+    if (isRestrictedActor && isElevated(u.roles)) { setError('Only an admin can set this account\'s password.'); return }
     setError(''); setSetPwUserId(u.id); setSetPwValue('')
   }
 
@@ -289,7 +290,7 @@ export function UserManagement() {
         />
         <select value={roleFilter} onChange={(e) => setRoleFilter((e.target.value || '') as Role | '')}>
           <option value="">All</option>
-          {!isManagerOnly && <option value="admin">Admin</option>}
+          {!isRestrictedActor && <option value="admin">Admin</option>}
           <option value="manager">Manager</option>
           <option value="mentor">Teacher</option>
           <option value="student">Student</option>

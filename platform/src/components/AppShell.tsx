@@ -68,6 +68,11 @@ export default function AppShell() {
     ...(isAdmin || (isFounder && homeTo !== '/founder') ? [
       { to: '/founder', label: 'Founder Overview', icon: '🔭' },
     ] : []),
+    // Founder's own way into account/password management — the Users page
+    // (/users) is the same one manager uses; see rbac.ts's `manageUsers`.
+    ...(isFounder && !isAdmin && !isManager ? [
+      { to: '/users', label: 'Users', icon: '👤' },
+    ] : []),
     ...(isMentor ? [
       { to: '/mentor/syllabus', label: 'Syllabus', icon: '📚' },
       { to: '/mentor/reports', label: 'Reports', icon: '📊' },

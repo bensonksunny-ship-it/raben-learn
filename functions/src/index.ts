@@ -82,38 +82,42 @@ async function assertAdmin(uid: string) {
 }
 
 /**
- * Admin or manager may call the user-management callables. Manager is deliberately
- * narrow — see `assertRolesAllowedForManager` / `assertTargetNotElevated` below, which
- * every manager-reachable callable must also apply. Admin keeps full, unrestricted access.
+ * Admin, manager, or founder may call the user-management callables (this is
+ * also where a founder gets to set a user's password — the Users page is
+ * their only way in, same as manager). Manager and founder are deliberately
+ * narrow — see `assertRolesAllowedForManager` / `assertTargetNotElevated`
+ * below, which every manager/founder-reachable callable must also apply.
+ * Admin keeps full, unrestricted access.
  */
-async function assertUserManagerAccess(uid: string): Promise<'admin' | 'manager'> {
+async function assertUserManagerAccess(uid: string): Promise<'admin' | 'manager' | 'founder'> {
   const snap = await db.doc(`users/${uid}`).get()
   const roles = coerceRoles(snap.data())
   const status = snap.data()?.status
   console.log(`[assertUserManagerAccess] uid=${uid}, exists=${snap.exists}, roles=${JSON.stringify(roles)}, status=${status}`)
   if (!snap.exists) {
-    throw new HttpsError('permission-denied', 'Admin or manager only: user doc not found')
+    throw new HttpsError('permission-denied', 'Admin, manager, or founder only: user doc not found')
   }
   // Same relaxation as assertAdmin above — a missing `status` field isn't a
   // disabled account, just one that predates (or bypassed) `adminCreateUser`.
   if (status === 'disabled') {
-    throw new HttpsError('permission-denied', 'Admin or manager only: account is disabled')
+    throw new HttpsError('permission-denied', 'Admin, manager, or founder only: account is disabled')
   }
   if (roles.includes('admin')) return 'admin'
   if (roles.includes('manager')) return 'manager'
-  throw new HttpsError('permission-denied', `Admin or manager only: missing role (has: ${roles.join(',')})`)
+  if (roles.includes('founder')) return 'founder'
+  throw new HttpsError('permission-denied', `Admin, manager, or founder only: missing role (has: ${roles.join(',')})`)
 }
 
-/** A manager can never grant the admin role — only an admin can. */
-function assertRolesAllowedForManager(actorRole: 'admin' | 'manager', roles: Role[]) {
-  if (actorRole === 'manager' && roles.some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot grant the admin role')
+/** Only an admin can grant the admin role — manager or founder acting here cannot. */
+function assertRolesAllowedForManager(actorRole: 'admin' | 'manager' | 'founder', roles: Role[]) {
+  if (actorRole !== 'admin' && roles.some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Only an admin can grant the admin role')
   }
 }
 
-/** A manager can never act on an existing admin account — only an admin can. */
-async function assertTargetNotElevated(actorRole: 'admin' | 'manager', targetUid: string) {
-  if (actorRole !== 'manager') return
+/** Only an admin can act on an existing admin account — manager or founder acting here cannot. */
+async function assertTargetNotElevated(actorRole: 'admin' | 'manager' | 'founder', targetUid: string) {
+  if (actorRole === 'admin') return
   const snap = await db.doc(`users/${targetUid}`).get()
   const roles = coerceRoles(snap.data())
   if (roles.some((r) => ELEVATED_ROLES.includes(r))) {
@@ -347,22 +351,26 @@ export const adminUpdateUser = onCall(callableOpts, async (request) => {
   }
 
   const prevRoles = coerceRoles(userSnap.data())
-  if (actorRole === 'manager' && prevRoles.some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot modify admin accounts')
+  if (actorRole !== 'admin' && prevRoles.some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Only an admin can modify an admin account')
   }
   if (payload.roles !== undefined) {
     assertRolesAllowedForManager(actorRole, validateRoles(payload.roles))
   }
 
+  const nextPatch: Record<string, unknown> = {}
   if (payload.email !== undefined) {
     if (!isNonEmptyString(payload.email, 320)) {
       throw new HttpsError('invalid-argument', 'Invalid email')
     }
-    validateEmail(payload.email.trim())
-    await auth.updateUser(uid, { email: payload.email.trim() })
+    const email = payload.email.trim()
+    validateEmail(email)
+    await auth.updateUser(uid, { email })
+    // Keep the Firestore copy in sync — the Users page (and anyone reading a
+    // user's login email from it) was showing the pre-edit email forever,
+    // since only the Auth record was ever updated here.
+    nextPatch.email = email
   }
-
-  const nextPatch: Record<string, unknown> = {}
   if (payload.name !== undefined) {
     if (!isNonEmptyString(payload.name, 200)) throw new HttpsError('invalid-argument', 'Invalid name')
     nextPatch.name = payload.name.trim()
@@ -537,8 +545,8 @@ export const adminResetPassword = onCall(callableOpts, async (request) => {
   if (!userSnap.exists) {
     throw new HttpsError('not-found', 'User not found')
   }
-  if (actorRole === 'manager' && coerceRoles(userSnap.data()).some((r) => ELEVATED_ROLES.includes(r))) {
-    throw new HttpsError('permission-denied', 'Managers cannot set an admin account\'s password')
+  if (actorRole !== 'admin' && coerceRoles(userSnap.data()).some((r) => ELEVATED_ROLES.includes(r))) {
+    throw new HttpsError('permission-denied', 'Only an admin can set an admin account\'s password')
   }
 
   const password =
